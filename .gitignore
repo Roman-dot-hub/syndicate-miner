@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.js.map
+
+# Environment variables — NEVER commit real secrets
+.env
+.env.local
+.env.production
+backend/.env
+frontend/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# TON contracts
+contracts/build/
+contracts/temp/
+
+# Claude internals
+mnt/
+CONVERSATION_LOG.md
+*.pptx

@@ -1,0 +1,32 @@
+{
+  "name": "ton-miner-backend",
+  "version": "0.1.0",
+  "description": "GameFi TON Mining Simulator — Backend",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "migrate:check": "tsx src/db/migrate.ts --check",
+    "seed": "psql $DATABASE_URL -f src/db/seed.sql",
+    "db:reset": "psql $DATABASE_URL -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && npm run migrate && npm run seed"
+  },
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "pg": "^8.11.3",
+    "ioredis": "^5.3.2",
+    "node-cron": "^3.0.3",
+    "@fastify/cors": "^9.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "tsx": "^4.7.2",
+    "vitest": "^1.5.0",
+    "@types/pg": "^8.11.5",
+    "@types/node": "^20.12.7",
+    "@types/node-cron": "^3.0.11"
+  }
+}
