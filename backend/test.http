@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────
+# test.http — тестовые запросы для VS Code REST Client
+# Расширение: humao.rest-client
+#
+# Запусти сервер: npm run dev
+# Тестовые пользователи (из seed):
+#   100001 = leader    (RTX4090 + Antminer S19, pool)
+#   100002 = miner_l1a (2x RTX 3070, pool)
+#   100003 = miner_l1b (GTX 1660, solo)
+#   100004 = miner_l2a (RX 580 45% health, pool)
+#   100005 = miner_l2b (USB Nano, pool)
+# ─────────────────────────────────────────────
+
+@host = http://localhost:3000
+
+### ── 1. Health check ─────────────────────────
+GET {{host}}/health
+
+###
+
+### ── 2. Синхронизация состояния (leader) ─────
+GET {{host}}/api/sync
+X-Dev-User-Id: 100001
+
+###
+
+### ── 3. Синхронизация (miner_l2b — USB Nano) ─
+GET {{host}}/api/sync
+X-Dev-User-Id: 100005
+
+###
+
+### ── 4. Запустить эпоху вручную ───────────────
+# Смотри в консоли сервера подробный лог!
+POST {{host}}/api/dev/trigger-epoch
+
+###
+
+### ── 5. Купить GPU (RTX 3070, tier 3) ────────
+POST {{host}}/api/action
+Content-Type: application/json
+X-Dev-User-Id: 100002
+
+{
+  "type": "buy_gpu",
+  "model_tier": 3
+}
+
+###
+
+### ── 6. Разгон GPU ────────────────────────────
+# Укажи реальный gpu_id из /api/sync → farm.gpus[].id
+POST {{host}}/api/action
+Content-Type: application/json
+X-Dev-User-Id: 100002
+
+{
+  "type": "toggle_overclock",
+  "gpu_id": "ВСТАВЬ_GPU_ID"
+}
+
+###
+
+### ── 7. Переключить режим Solo / Pool ─────────
+POST {{host}}/api/action
+Content-Type: application/json
+X-Dev-User-Id: 100002
+
+{
+  "type": "set_mining_mode",
+  "mode": "solo"
+}
+
+###
+
+### ── 8. Tap-to-Cool (буст хешрейта) ──────────
+POST {{host}}/api/action
+Content-Type: application/json
+X-Dev-User-Id: 100003
+
+{
+  "type": "tap_cool"
+}
+
+###
+
+### ── 9. Маркетплейс — список лотов ───────────
+GET {{host}}/api/market
+
+###
+
+### ── 10. Выставить GPU на продажу ────────────
+# Укажи реальный gpu_id из /api/sync → farm.gpus[].id
+POST {{host}}/api/market/list
+Content-Type: application/json
+X-Dev-User-Id: 100001
+
+{
+  "gpu_id": "ВСТАВЬ_GPU_ID",
+  "price_ton": 20.0
+}
+
+###
+
+### ── 11. Запрос вывода TON ───────────────────
+POST {{host}}/api/withdraw
+Content-Type: application/json
+X-Dev-User-Id: 100001
+
+{
+  "amount_ton": 1.0,
+  "wallet_address": "EQD_ТЕСТОВЫЙ_АДРЕС"
+}
+
+###
+
+### ── 12. Сброс seed к начальным значениям ────
+POST {{host}}/api/dev/reset-seed
+
+###

@@ -8,6 +8,7 @@ import { syncRoutes }     from './routes/sync';
 import { actionRoutes }   from './routes/action';
 import { marketRoutes }   from './routes/market';
 import { withdrawRoutes } from './routes/withdraw';
+import { devRoutes }      from './routes/dev';
 
 // Запускаем игровой цикл и суточный крон
 import './cron';
@@ -33,6 +34,11 @@ app.register(syncRoutes);
 app.register(actionRoutes);
 app.register(marketRoutes);
 app.register(withdrawRoutes);
+
+// ── Dev routes (только в development) ────────
+if (process.env.NODE_ENV !== 'production') {
+  app.register(devRoutes);
+}
 
 // ── Глобальный обработчик ошибок ──────────────
 app.setErrorHandler((error, _req, reply) => {
