@@ -14,6 +14,7 @@ export type DbClient = {
   getActiveFarms(): Promise<Farm[]>;
   getAllUsers(): Promise<(User & { inviter_id?: string })[]>;
   getActiveFarmGpus(farmId: string): Promise<GPU[]>;
+  getActiveSystemEvents(): Promise<Array<{ type: string; payload: Record<string, number> }>>;
   creditUser(userId: string, amounts: { ton: number; igc: number }, client?: PoolClient): Promise<void>;
   updateGpu(gpuId: string, fields: { health?: number; status?: string }, client?: PoolClient): Promise<void>;
   updateFarmIgc(farmId: string, igcBalance: number, client?: PoolClient): Promise<void>;
@@ -154,6 +155,14 @@ export const db: DbClient = {
       WHERE  g.farm_id = $1 AND g.status = 'active'
     `, [farmId]);
     return rows.map(rowToGpu);
+  },
+
+  // Активные системные события (emergency_burn, electricity_discount, refurbish_discount)
+  async getActiveSystemEvents(): Promise<Array<{ type: string; payload: Record<string, number> }>> {
+    const { rows } = await pool.query(
+      `SELECT type, payload FROM system_events WHERE active_until > NOW()`,
+    );
+    return rows as Array<{ type: string; payload: Record<string, number> }>;
   },
 
   // Начисление TON и IGC пользователю

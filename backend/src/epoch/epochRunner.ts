@@ -96,7 +96,23 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
     // Коэффициент электричества — в противофазе к сезону
     // Лето (пик) → 0.95x, Зима (дно) → 1.25x
-    const elecMultiplier = 2.2 - seasonMod; // ~0.95 – 1.45
+    let elecMultiplier = 2.2 - seasonMod; // ~0.95 – 1.45
+
+    // ── 3а. Читаем активные системные события ───────────
+    // emergency_burn: boost_electricity × N (поднимает спрос IGC при профиците)
+    // electricity_discount: multiplier (снижает стоимость при дефиците IGC)
+    const sysEvents = await db.getActiveSystemEvents().catch(() => []);
+
+    for (const ev of sysEvents) {
+      if (ev.type === 'emergency_burn' && ev.payload?.boost_electricity) {
+        elecMultiplier *= ev.payload.boost_electricity;
+        console.log(`[Epoch] ⚡ emergency_burn активен → elec ×${ev.payload.boost_electricity}`);
+      }
+      if (ev.type === 'electricity_discount' && ev.payload?.multiplier) {
+        elecMultiplier *= ev.payload.multiplier;
+        console.log(`[Epoch] 💡 electricity_discount активен → elec ×${ev.payload.multiplier}`);
+      }
+    }
 
     // Награда за эту эпоху (с сезонной поправкой)
     const dailyReward  = poolStats.reservePoolTon * seasonRate;

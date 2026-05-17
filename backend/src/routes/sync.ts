@@ -102,7 +102,7 @@ async function registerNewPlayer(
     // Создать пользователя
     const { rows: [newUser] } = await client.query(`
       INSERT INTO users (tg_user_id, tg_username, igc_balance, inviter_id)
-      VALUES ($1, $2, 50, $3)
+      VALUES ($1, $2, 150, $3)
       RETURNING id
     `, [tgUser.id, tgUser.username ?? null, inviterId]);
 

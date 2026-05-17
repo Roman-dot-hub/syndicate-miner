@@ -8,6 +8,7 @@ import {
   GPU_SPECS,
   OVERCLOCK_WEAR_PENALTY,
   COOLING_KTEMP,
+  BREAKAGE_PROBABILITY_FACTOR,
 } from './constants';
 import { GPU } from './types';
 
@@ -41,8 +42,10 @@ export function calculateWear(gpu: GPU, farmCoolingLevel: number): WearResult {
   // Новое здоровье
   const newHealth = Math.max(0, gpu.health - wearApplied);
 
-  // Шанс критической поломки: P_fail = ((100 - health) / 100)³
-  const pFail  = Math.pow((100 - newHealth) / 100, 3);
+  // Шанс критической поломки: P_fail = ((100 - health) / 100)³ / BREAKAGE_PROBABILITY_FACTOR
+  // Делитель 864 (= 288 эпох × 3) нормирует вероятность:
+  // при health=50% ожидаемая поломка раз в ~8 дней вместо каждых 40 минут.
+  const pFail  = Math.pow((100 - newHealth) / 100, 3) / BREAKAGE_PROBABILITY_FACTOR;
   const broken = Math.random() < pFail;
 
   return {
@@ -82,7 +85,7 @@ export function effectiveHashrate(gpu: GPU): number {
  *
  * Cost_refurbish = (100 - health) × BASE_COST × tier_multiplier
  */
-const BASE_REFURBISH_COST = 10; // IGC за 1% восстановления для T1
+const BASE_REFURBISH_COST = 3; // IGC за 1% восстановления для T1 (10→3: чтобы T1 окупал ремонт за ~35 дней)
 const TIER_MULTIPLIER: Record<number, number> = {
   0: 0,    // USB — не ремонтируется
   1: 1.0,

@@ -34,7 +34,7 @@ export const GPU_SPECS: Record<number, {
   availablePhase:   number;  // минимальная фаза для покупки
 }> = {
   0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      isAsic: false, availablePhase: 1 },
-  1: { hashrate: 3,    watt: 120,  baseWearPerEpoch: 0.0052, isAsic: false, availablePhase: 1 }, // 1.5%/день / 288
+  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0052, isAsic: false, availablePhase: 1 }, // 1.5%/день / 288 | 50W — энергоэффективный ноутбучный GPU
   2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0028, isAsic: false, availablePhase: 1 }, // 0.8%/день
   3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0017, isAsic: false, availablePhase: 1 }, // 0.5%/день
   4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0007, isAsic: false, availablePhase: 1 }, // 0.2%/день
@@ -59,6 +59,11 @@ export const COOLING_KTEMP: Record<number, number> = {
 // ── ЭЛЕКТРИЧЕСТВО ────────────────────────────────────────
 // Стоимость 1 Ватта в IGC за эпоху
 export const IGC_PER_WATT_PER_EPOCH = 0.001;
+
+// ── ПОЛОМКИ ──────────────────────────────────────────────
+// P_fail = ((100-health)/100)³ / BREAKAGE_PROBABILITY_FACTOR
+// При health=50%: ~1 поломка в 8 дней (vs каждые 40 мин без фактора)
+export const BREAKAGE_PROBABILITY_FACTOR = 864; // EPOCHS_PER_DAY × 3
 
 // ── ТАП-ТУ-КУЛ ───────────────────────────────────────────
 export const TAP_BOOST_HASHRATE    = 0.15; // +15% хешрейта
