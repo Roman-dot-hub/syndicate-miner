@@ -129,8 +129,9 @@ CREATE TABLE pool_stats (
 );
 
 -- Единственная строка состояния
+-- reserve_pool_ton = 0: реальный баланс синхронизируется с контрактом через syncPoolBalance()
 INSERT INTO pool_stats (id, reserve_pool_ton, drip_rate, current_phase, total_paid_out, admin_earned_ton)
-VALUES (1, 100.0, 0.04, 1, 0.0, 0.0);
+VALUES (1, 0.0, 0.04, 1, 0.0, 0.0);
 
 COMMENT ON TABLE pool_stats IS
   'Singleton-таблица. Обновляется транзакционно в конце каждой эпохи.';

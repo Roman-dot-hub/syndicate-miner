@@ -73,6 +73,14 @@ export async function runEpoch(): Promise<EpochResult | null> {
   try {
     // ── 2. Загрузка состояния ───────────────────────────
     const poolStats: PoolStats   = await db.getPoolStats();
+
+    // Пул пустой — нечего раздавать, пропускаем эпоху
+    if (poolStats.reservePoolTon <= 0) {
+      console.warn('[Epoch] Пул пустой (0 TON) — эпоха пропущена. Пополни контракт.');
+      await redis.del(REDIS_EPOCH_LOCK);
+      return null;
+    }
+
     const allFarms:  Farm[]      = await db.getActiveFarms();
     const allUsers:  User[]      = await db.getAllUsers();
     const usersMap               = new Map(allUsers.map(u => [u.id, u]));

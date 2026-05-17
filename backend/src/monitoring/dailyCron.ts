@@ -10,6 +10,7 @@
 import cron from 'node-cron';
 import { Pool } from 'pg';
 import { getIgcHistory, getLiveIgcStatus } from './igcMonitor';
+import { syncPoolBalance } from './syncPoolBalance';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -82,6 +83,15 @@ cron.schedule('0 0 * * *', async () => {
     await printDailyReport();
   } catch (err) {
     console.error('[Daily Cron] Ошибка:', err);
+  }
+}, { timezone: 'UTC' });
+
+// Синхронизация баланса пула с контрактом каждые 5 минут
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await syncPoolBalance();
+  } catch (err) {
+    console.error('[SyncPool Cron] Ошибка:', err);
   }
 }, { timezone: 'UTC' });
 
