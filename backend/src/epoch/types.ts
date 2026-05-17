@@ -27,13 +27,15 @@ export interface Farm {
 }
 
 export interface User {
-  id:           string;
-  tgUserId:     string;
-  tonBalance:   number;
-  igcBalance:   number;
-  referrals_l1: string[]; // id прямых рефералов
-  referrals_l2: string[]; // id рефералов второго уровня
-  miningMode:   MiningMode;
+  id:            string;
+  tgUserId:      string;
+  tonBalance:    number;
+  igcBalance:    number;
+  referrals_l1:  string[]; // id прямых рефералов
+  referrals_l2:  string[]; // id рефералов второго уровня
+  miningMode:    MiningMode;
+  inviter_id?:   string;   // id пригласившего (для реферальных выплат)
+  baseHashrate?: number;   // хешрейт без реф.бонуса (заполняется в epochRunner)
 }
 
 export interface PoolStats {
@@ -42,6 +44,8 @@ export interface PoolStats {
   currentPhase:   1 | 2 | 3 | 4;
   totalPaidOut:   number;
   adminEarnedTon: number;
+  cycle_day?:     number;   // день 28-дневного цикла (1–28)
+  season?:        string;   // spring | summer | autumn | winter
 }
 
 // Результат одной эпохи — для логирования

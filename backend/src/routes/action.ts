@@ -7,6 +7,7 @@
 
 import { FastifyInstance }   from 'fastify';
 import { Pool }              from 'pg';
+import { pgPoolConfig }      from '../db/client';
 import { telegramAuthHook }  from '../auth/telegramAuth';
 import { antiWhale }         from '../db/queries';
 import { refurbishCost }     from '../epoch/wearEngine';
@@ -17,7 +18,7 @@ import { GPU_SPECS,
 import { redis }             from '../redis/client';
 import { refurbish }         from '../db/queries';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 // Цены инфраструктуры (TON/IGC)
 const INFRA_COSTS: Record<string, { ton: number; igc: number; maxSlots: number }> = {
@@ -56,7 +57,7 @@ export async function actionRoutes(app: FastifyInstance) {
 
       // ── Покупка оборудования ───────────────
       case 'buy_gpu': {
-        const { modelTier } = body as { modelTier: number };
+        const modelTier: number = body.model_tier ?? body.modelTier;
         const spec = GPU_SPECS[modelTier];
         if (!spec) return reply.code(400).send({ error: 'Неизвестный тир оборудования' });
 
@@ -182,18 +183,20 @@ export async function actionRoutes(app: FastifyInstance) {
 
       // ── Tap-to-Cool (буст хешрейта) ────────
       case 'tap_cool': {
-        // Rate limit: не более TAP_MAX_RPS в секунду
-        const rateLimitKey = `${REDIS_TAP_PREFIX}rate:${user.id}`;
-        const taps = await redis.incr(rateLimitKey);
-        if (taps === 1) await redis.expire(rateLimitKey, 1);
-        if (taps > TAP_MAX_RPS) {
-          return reply.code(429).send({ error: 'Слишком быстро!' });
+        try {
+          // Rate limit: не более TAP_MAX_RPS в секунду (Redis-опционально)
+          const rateLimitKey = `${REDIS_TAP_PREFIX}rate:${user.id}`;
+          const taps = await redis.incr(rateLimitKey);
+          if (taps === 1) await redis.expire(rateLimitKey, 1);
+          if (taps > TAP_MAX_RPS) {
+            return reply.code(429).send({ error: 'Слишком быстро!' });
+          }
+          // Устанавливаем буст на 30 секунд
+          const boostKey = `${REDIS_TAP_PREFIX}boost:${user.id}`;
+          await redis.set(boostKey, '1', 'EX', 30);
+        } catch {
+          // Redis недоступен — разрешаем без rate limit (dev mode)
         }
-
-        // Устанавливаем буст на 30 секунд
-        const boostKey = `${REDIS_TAP_PREFIX}boost:${user.id}`;
-        await redis.set(boostKey, '1', 'EX', 30);
-
         return reply.send({ ok: true, boostActive: true, boostSeconds: 30 });
       }
 

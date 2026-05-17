@@ -6,9 +6,10 @@
 // ─────────────────────────────────────────────
 
 import { Pool } from 'pg';
+import { pgPoolConfig } from './client';
 import { GPU_SPECS, PHASE1_MAX_DAILY_SPEND_TON } from '../epoch/constants';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 // ══════════════════════════════════════════════
 // MARKETPLACE

@@ -8,13 +8,38 @@
 import { Pool, PoolClient } from 'pg';
 import type { GPU, Farm, User, PoolStats } from '../epoch/types';
 
+// Тип публичного интерфейса БД (используется для типизации транзакций)
+export type DbClient = {
+  getPoolStats(): Promise<PoolStats>;
+  getActiveFarms(): Promise<Farm[]>;
+  getAllUsers(): Promise<(User & { inviter_id?: string })[]>;
+  getActiveFarmGpus(farmId: string): Promise<GPU[]>;
+  creditUser(userId: string, amounts: { ton: number; igc: number }, client?: PoolClient): Promise<void>;
+  updateGpu(gpuId: string, fields: { health?: number; status?: string }, client?: PoolClient): Promise<void>;
+  updateFarmIgc(farmId: string, igcBalance: number, client?: PoolClient): Promise<void>;
+  updatePoolStats(stats: PoolStats, client?: PoolClient): Promise<void>;
+  insertEpochLog(data: {
+    epochAt: Date; globalHashrate: number; rewardDistributed: number;
+    poolAfter: number; phase: number; activeMinerCount: number;
+    soloWinnerId?: string | null; halvingTriggered?: boolean; errors?: string[];
+  }, client?: PoolClient): Promise<number>;
+  transaction<T>(fn: (trx: DbClient) => Promise<T>): Promise<T>;
+};
+
+// ── Общий конфиг пула (используй во всех файлах) ──
+export const pgPoolConfig = {
+  connectionString:       process.env.DATABASE_URL,
+  max:                    20,
+  idleTimeoutMillis:      30_000,
+  connectionTimeoutMillis: 10_000,
+  ssl: process.env.DATABASE_URL?.includes('supabase.co') ||
+       process.env.DATABASE_URL?.includes('sslmode=require')
+    ? { rejectUnauthorized: false }
+    : false,
+} as const;
+
 // ── Подключение ───────────────────────────────
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max:              20,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
-});
+const pool = new Pool(pgPoolConfig);
 
 pool.on('error', (err) => {
   console.error('[DB] Неожиданная ошибка пула:', err);
@@ -72,7 +97,7 @@ function rowToPoolStats(row: Record<string, unknown>): PoolStats {
 
 // ── Публичный интерфейс БД ─────────────────────
 
-export const db = {
+export const db: DbClient = {
 
   // Глобальное состояние пула (singleton-строка)
   async getPoolStats(): Promise<PoolStats> {
@@ -83,8 +108,9 @@ export const db = {
   // Все активные фермы (у которых есть хотя бы один active GPU)
   async getActiveFarms(): Promise<Farm[]> {
     const { rows } = await pool.query(`
-      SELECT f.*
+      SELECT f.*, u.igc_balance
       FROM   farms f
+      JOIN   users u ON u.id = f.user_id
       WHERE  EXISTS (
         SELECT 1 FROM gpus g
         WHERE  g.farm_id = f.id AND g.status = 'active'

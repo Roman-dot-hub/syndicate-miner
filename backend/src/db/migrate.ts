@@ -8,13 +8,14 @@
 
 import fs   from 'fs';
 import path from 'path';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
+import { pgPoolConfig } from './client';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
-async function ensureMigrationsTable(client: Awaited<ReturnType<typeof pool.connect>>) {
+async function ensureMigrationsTable(client: PoolClient) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id         SERIAL      PRIMARY KEY,
@@ -24,7 +25,7 @@ async function ensureMigrationsTable(client: Awaited<ReturnType<typeof pool.conn
   `);
 }
 
-async function getApplied(client: Awaited<ReturnType<typeof pool.connect>>): Promise<Set<string>> {
+async function getApplied(client: PoolClient): Promise<Set<string>> {
   const { rows } = await client.query('SELECT filename FROM _migrations ORDER BY id');
   return new Set(rows.map((r: { filename: string }) => r.filename));
 }

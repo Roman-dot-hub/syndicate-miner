@@ -7,8 +7,9 @@ import { telegramAuthHook } from '../auth/telegramAuth';
 import { marketplace, refurbish } from '../db/queries';
 import { refurbishCost }    from '../epoch/wearEngine';
 import { Pool }             from 'pg';
+import { pgPoolConfig }     from '../db/client';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 export async function marketRoutes(app: FastifyInstance) {
 

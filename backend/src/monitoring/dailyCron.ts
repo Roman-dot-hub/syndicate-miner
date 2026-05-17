@@ -9,10 +9,11 @@
 
 import cron from 'node-cron';
 import { Pool } from 'pg';
+import { pgPoolConfig } from '../db/client';
 import { getIgcHistory, getLiveIgcStatus } from './igcMonitor';
 import { syncPoolBalance } from './syncPoolBalance';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 function dayToSeason(day: number): string {
   if (day <= 7)  return 'spring';

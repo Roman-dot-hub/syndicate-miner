@@ -8,11 +8,12 @@
 
 import { FastifyInstance } from 'fastify';
 import { Pool }            from 'pg';
+import { pgPoolConfig }    from '../db/client';
 import { telegramAuthHook } from '../auth/telegramAuth';
 import { sync }             from '../db/queries';
 import { getLiveIgcStatus } from '../monitoring/igcMonitor';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 export async function syncRoutes(app: FastifyInstance) {
 

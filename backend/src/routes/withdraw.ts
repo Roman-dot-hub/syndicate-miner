@@ -10,8 +10,9 @@
 import { FastifyInstance }  from 'fastify';
 import { telegramAuthHook } from '../auth/telegramAuth';
 import { Pool }             from 'pg';
+import { pgPoolConfig }     from '../db/client';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 const MIN_WITHDRAW_TON = 0.5;    // минимальный вывод
 const WITHDRAW_FEE_PHASE1 = 0.15; // 15% комиссия в Фазе 1 (возврат в пул)

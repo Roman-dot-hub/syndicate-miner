@@ -9,9 +9,10 @@
 // ─────────────────────────────────────────────
 
 import { Pool } from 'pg';
+import { pgPoolConfig } from '../db/client';
 import { redis } from '../redis/client';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig);
 
 // ── Пороги ────────────────────────────────────
 export const IGC_HEALTH = {
@@ -283,19 +284,26 @@ export async function getLiveIgcStatus(): Promise<{
   supply: number;
   demand: number;
 }> {
-  const [ratioRaw, supplyRaw, demandRaw] = await Promise.all([
-    redis.get(R_RATIO),
-    redis.get(R_SUPPLY),
-    redis.get(R_DEMAND),
-  ]);
+  const DEFAULT = { ratio: 1, status: 'healthy' as IgcHealthStatus, supply: 0, demand: 0 };
 
-  const ratio = parseFloat(ratioRaw ?? '1');
-  return {
-    ratio,
-    status: classifyRatio(ratio),
-    supply: parseFloat(supplyRaw ?? '0'),
-    demand: parseFloat(demandRaw ?? '0'),
-  };
+  try {
+    const [ratioRaw, supplyRaw, demandRaw] = await Promise.all([
+      redis.get(R_RATIO),
+      redis.get(R_SUPPLY),
+      redis.get(R_DEMAND),
+    ]);
+
+    const ratio = parseFloat(ratioRaw ?? '1');
+    return {
+      ratio,
+      status: classifyRatio(ratio),
+      supply: parseFloat(supplyRaw ?? '0'),
+      demand: parseFloat(demandRaw ?? '0'),
+    };
+  } catch {
+    // Redis недоступен (dev-режим без Redis) — возвращаем нейтральный статус
+    return DEFAULT;
+  }
 }
 
 /** История за последние N суток (для графика в дашборде) */

@@ -15,8 +15,9 @@
 // ─────────────────────────────────────────────
 
 import { Pool } from 'pg';
+import { pgPoolConfig } from '../db/client';
 
-const db = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = new Pool(pgPoolConfig);
 
 const TON_ENDPOINT    = process.env.TON_ENDPOINT    ?? 'https://testnet.toncenter.com/api/v2/';
 const CONTRACT_ADDRESS = process.env.POOL_CONTRACT_ADDRESS ?? ''; // заполнить после деплоя контракта

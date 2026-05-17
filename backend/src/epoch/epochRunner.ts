@@ -46,8 +46,8 @@ import type {
 
 // ── Заглушки БД и Redis (замени на реальные клиенты) ─────
 // В продакшне: import { db } from '../db/client'; import { redis } from '../redis/client';
-import { db }    from '../db/client';
-import { redis } from '../redis/client';
+import { db, type DbClient } from '../db/client';
+import { redis }             from '../redis/client';
 
 // ─────────────────────────────────────────────────────────
 export async function runEpoch(): Promise<EpochResult | null> {
@@ -55,13 +55,17 @@ export async function runEpoch(): Promise<EpochResult | null> {
   const errors:  string[] = [];
 
   // ── 1. Redis lock — защита от параллельного запуска ────
-  const lockAcquired = await redis.set(
-    REDIS_EPOCH_LOCK,
-    '1',
-    'NX',      // только если ключа нет
-    'PX',      // TTL в миллисекундах
-    EPOCH_INTERVAL_MS - 10_000, // чуть меньше интервала
-  );
+  // Если Redis недоступен (dev без Docker) — пропускаем лок и продолжаем
+  const ttlSec = Math.floor((EPOCH_INTERVAL_MS - 10_000) / 1000);
+  let lockAcquired: string | null = 'OK'; // по умолчанию — без лока
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lockAcquired = await (redis as any).set(
+      REDIS_EPOCH_LOCK, '1', 'EX', ttlSec, 'NX',
+    ) as string | null;
+  } catch {
+    console.warn('[Epoch] Redis недоступен — запускаем без лока (dev mode).');
+  }
 
   if (!lockAcquired) {
     console.warn('[Epoch] Пропускаем — предыдущая эпоха ещё не завершена.');
@@ -77,7 +81,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
     // Пул пустой — нечего раздавать, пропускаем эпоху
     if (poolStats.reservePoolTon <= 0) {
       console.warn('[Epoch] Пул пустой (0 TON) — эпоха пропущена. Пополни контракт.');
-      await redis.del(REDIS_EPOCH_LOCK);
+      try { await redis.del(REDIS_EPOCH_LOCK); } catch { /* Redis недоступен */ }
       return null;
     }
 
@@ -183,11 +187,12 @@ export async function runEpoch(): Promise<EpochResult | null> {
         hashrate: totalUserH,
         baseH:    farmHashrate,
         mode:     farm.miningMode,
+        igcBal:   user.igcBalance,
       });
     }
 
     // Обновляем кэш глобального хешрейта в Redis
-    await redis.set(REDIS_GLOBAL_H, globalHashrate.toFixed(4));
+    try { await redis.set(REDIS_GLOBAL_H, globalHashrate.toFixed(4)); } catch { /* Redis недоступен */ }
 
     // ── 6. Розыгрыш блока (Solo Lottery) ───────────────
     const lottery = runBlockLottery(minerSnapshots);
@@ -242,7 +247,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
     });
 
     // ── 10. Запись в БД — одна транзакция ──────────────
-    await db.transaction(async (trx) => {
+    await db.transaction(async (trx: DbClient) => {
       // Обновляем здоровье и статус карт
       for (const upd of gpuUpdates) {
         await trx.updateGpu(upd.id, { health: upd.health, status: upd.status });
@@ -321,7 +326,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
     return null;
 
   } finally {
-    // ── 10. Освобождаем лок всегда ─────────────────────
-    await redis.del(REDIS_EPOCH_LOCK);
+    // ── 11. Освобождаем лок всегда ─────────────────────
+    try { await redis.del(REDIS_EPOCH_LOCK); } catch { /* Redis недоступен */ }
   }
 }
