@@ -25,21 +25,28 @@ export const REFERRAL_L2_IGC_SHARE      = 0.03; // 3% IGC от L2
 export const POOL_COMMISSION = 0.02; // 2% комиссия Pool-майнинга
 
 // ── ОБОРУДОВАНИЕ ────────────────────────────────────────
-// tier → { hashrate GH/s, watt, baseWearPerEpoch, basePriceIGC_electricity }
+// igcMaintenancePerEpoch — фиксированная плата IGC за эксплуатацию,
+// не зависит от ватт. Создаёт двухсторонний рынок IGC:
+//   T0-T2 = производители IGC (продают на маркете)
+//   T3    = точка безубыточности по IGC
+//   T4-T5 = потребители IGC (покупают у новичков)
+// Supply/demand ratio с обслуживанием ≈ 0.96 (здоровый диапазон 0.8–1.2)
 export const GPU_SPECS: Record<number, {
-  hashrate:         number;
-  watt:             number;
-  baseWearPerEpoch: number;  // % wear за одну эпоху (5 мин)
-  isAsic:           boolean;
-  availablePhase:   number;  // минимальная фаза для покупки
+  hashrate:                number;
+  watt:                    number;
+  baseWearPerEpoch:        number;  // % wear за одну эпоху (5 мин)
+  igcMaintenancePerEpoch:  number;  // IGC за обслуживание в эпоху
+  isAsic:                  boolean;
+  availablePhase:          number;  // минимальная фаза для покупки
 }> = {
-  0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      isAsic: false, availablePhase: 1 },
-  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0052, isAsic: false, availablePhase: 1 }, // 1.5%/день / 288 | 50W — энергоэффективный ноутбучный GPU
-  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0028, isAsic: false, availablePhase: 1 }, // 0.8%/день
-  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0017, isAsic: false, availablePhase: 1 }, // 0.5%/день
-  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0007, isAsic: false, availablePhase: 1 }, // 0.2%/день
-  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0010, isAsic: true,  availablePhase: 1 }, // 0.3%/день
-  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0002, isAsic: true,  availablePhase: 2 }, // 0.05%/день — X1, Фаза 2+
+  // tier  H(GH/s)  W      wear/ep    maint/ep  asic   phase
+  0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // USB Nano
+  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0052, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // Ноутбук — нет обслуж.
+  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0028, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // Офисный ПК — минимум
+  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0017, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // Игровой ПК — безубыток
+  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0007, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // Майнинг-риг — -29 IGC/д
+  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0010, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 1 }, // ASIC — -202 IGC/д
+  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0002, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // X1 — -2620 IGC/д
 };
 
 // ── РАЗГОН ───────────────────────────────────────────────

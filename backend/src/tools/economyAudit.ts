@@ -78,6 +78,15 @@ function effectiveH(gpu: SimGpu): number {
   return spec.hashrate * oc * Math.max(0, 1 - hpen);
 }
 
+// ── IGC стоимость одного GPU за эпоху (электричество + обслуживание) ──
+function gpuCostPerEpoch(gpu: SimGpu, seasonMult: number): number {
+  const spec  = GPU_SPECS[gpu.tier];
+  const watts = spec.watt * (gpu.overclocked ? OVERCLOCK_WATT_PENALTY : 1);
+  const elec  = watts * IGC_PER_WATT_PER_EPOCH * seasonMult;
+  const maint = (spec as any).igcMaintenancePerEpoch ?? 0;
+  return elec + maint;
+}
+
 // ── Расчёт износа ────────────────────────────────────────────────────
 function applyWear(gpu: SimGpu): { broken: boolean } {
   const spec   = GPU_SPECS[gpu.tier];
@@ -194,15 +203,11 @@ function simulate() {
       const activeGpus = player.gpus.filter(g => g.health > 0);
       if (activeGpus.length === 0) continue;
 
-      // Суммарное потребление
-      const watt = activeGpus.reduce((s, g) => {
-        const spec = GPU_SPECS[g.tier];
-        return s + spec.watt * (g.overclocked ? OVERCLOCK_WATT_PENALTY : 1);
-      }, 0);
-      const igcDue = watt * IGC_PER_WATT_PER_EPOCH * elecMultiplier;
+      // Суммарный IGC-долг: электричество + обслуживание
+      const igcDue = activeGpus.reduce((s, g) => s + gpuCostPerEpoch(g, elecMultiplier), 0);
 
       if (player.igcBalance < igcDue) {
-        // Ферма стоит — нет IGC
+        // Ферма стоит — нет IGC (теперь включает обслуживание)
         continue;
       }
 
@@ -399,29 +404,31 @@ for (const s of dailyStats.filter(d => snapDays.includes(d.day))) {
   );
 }
 
-// ── 3. Анализ электричества по тирам ─────────────────────────────────
-printSection('3. ЭЛЕКТРИЧЕСТВО: BREAK-EVEN АНАЛИЗ');
-console.log('Тир  Хешрейт  Ватт  Earn IGC/d  Elec(norm)  Elec(зима)  Net(норм)  Net(зима)  Status');
-console.log('─'.repeat(92));
+// ── 3. Анализ IGC-расходов по тирам (электр. + обслуживание) ─────────
+printSection('3. ПОЛНЫЙ IGC БАЛАНС: ЭЛЕКТРИЧЕСТВО + ОБСЛУЖИВАНИЕ');
+console.log('Тир  Earn/д    Elec/д  Maint/д  Total/д  Net(норм)  Net(зима)  Роль');
+console.log('─'.repeat(82));
 
 for (let tier = 0; tier <= 5; tier++) {
-  const spec   = GPU_SPECS[tier];
-  const earnD  = spec.hashrate * IGC_PER_GH_EPOCH * EPOCHS_PER_DAY;
-  const elecN  = spec.watt * IGC_PER_WATT_PER_EPOCH * EPOCHS_PER_DAY * 1.0;  // нормальный сезон
-  const elecW  = spec.watt * IGC_PER_WATT_PER_EPOCH * EPOCHS_PER_DAY * 1.45; // зима
-  const netN   = earnD - elecN;
-  const netW   = earnD - elecW;
-  const ok     = netW > 0 ? '✅' : netN > 0 ? '⚠️  ЗИМА<0' : '❌ ВСЕГДА<0';
+  const spec    = GPU_SPECS[tier];
+  const earnD   = spec.hashrate * IGC_PER_GH_EPOCH * EPOCHS_PER_DAY;
+  const elecN   = spec.watt * IGC_PER_WATT_PER_EPOCH * EPOCHS_PER_DAY * 1.0;
+  const elecW   = spec.watt * IGC_PER_WATT_PER_EPOCH * EPOCHS_PER_DAY * 1.45;
+  const maintD  = ((spec as any).igcMaintenancePerEpoch ?? 0) * EPOCHS_PER_DAY;
+  const totalN  = elecN + maintD;
+  const totalW  = elecW + maintD;
+  const netN    = earnD - totalN;
+  const netW    = earnD - totalW;
+  const role    = netW > 20 ? '📈 производитель' : netN > 0 ? '✅ слабый+' : Math.abs(netN) < 5 ? '⚖️  безубыток' : '🔴 потребитель';
   console.log(
     `T${tier}   ` +
-    `${String(spec.hashrate).padEnd(9)}` +
-    `${String(spec.watt).padEnd(6)}` +
-    `${fmt(earnD, 1).padEnd(12)}` +
-    `${fmt(elecN, 1).padEnd(12)}` +
-    `${fmt(elecW, 1).padEnd(12)}` +
+    `${fmt(earnD, 1).padEnd(10)}` +
+    `${fmt(elecN, 1).padEnd(8)}` +
+    `${fmt(maintD, 1).padEnd(9)}` +
+    `${fmt(totalN, 1).padEnd(9)}` +
     `${fmt(netN, 1).padEnd(11)}` +
     `${fmt(netW, 1).padEnd(11)}` +
-    ok
+    role
   );
 }
 
