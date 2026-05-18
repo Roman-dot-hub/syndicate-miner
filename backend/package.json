@@ -4,10 +4,10 @@
   "description": "GameFi TON Mining Simulator — Backend",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "node --env-file=.env --import=tsx/esm --watch src/main.ts",
+    "dev": "tsx --env-file=.env --watch src/main.ts",
     "build": "tsc",
     "start": "node dist/main.js",
-    "migrate": "node --env-file=.env --import=tsx/esm src/db/migrate.ts",
+    "migrate": "tsx --env-file=.env src/db/migrate.ts",
     "test": "vitest run",
     "lint": "eslint src --ext .ts",
     "migrate:check": "tsx src/db/migrate.ts --check",

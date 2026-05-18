@@ -67,5 +67,35 @@ export async function devRoutes(app: FastifyInstance) {
     return reply.send({ ok: true, message: 'Seed сброшен (балансы + GPU + пул)' });
   });
 
+  // Быстрый просмотр балансов seed-игроков
+  app.get('/api/dev/balances', async (_req, reply) => {
+    const { Pool } = await import('pg');
+    const { pgPoolConfig } = await import('../db/client');
+    const pg = new Pool(pgPoolConfig);
+    try {
+      const { rows } = await pg.query(`
+        SELECT
+          u.tg_user_id,
+          u.tg_username,
+          u.igc_balance,
+          u.ton_balance,
+          json_agg(json_build_object(
+            'tier', g.model_tier,
+            'status', g.status,
+            'health', g.health,
+            'overclocked', g.overclocked
+          ) ORDER BY g.model_tier) AS gpus
+        FROM users u
+        LEFT JOIN gpus g ON g.user_id = u.id
+        WHERE u.tg_user_id IN (100001,100002,100003,100004,100005)
+        GROUP BY u.id
+        ORDER BY u.tg_user_id
+      `);
+      return reply.send({ ok: true, players: rows });
+    } finally {
+      await pg.end();
+    }
+  });
+
   app.log.info('⚙️  Dev routes зарегистрированы (/api/dev/*)');
 }
