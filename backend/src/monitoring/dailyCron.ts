@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import { pgPoolConfig } from '../db/client';
 import { getIgcHistory, getLiveIgcStatus } from './igcMonitor';
 import { syncPoolBalance } from './syncPoolBalance';
+import { processWithdrawals } from '../workers/payoutWorker';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -93,6 +94,15 @@ cron.schedule('*/5 * * * *', async () => {
     await syncPoolBalance();
   } catch (err) {
     console.error('[SyncPool Cron] Ошибка:', err);
+  }
+}, { timezone: 'UTC' });
+
+// Обработка очереди выплат каждые 2 минуты
+cron.schedule('*/2 * * * *', async () => {
+  try {
+    await processWithdrawals();
+  } catch (err) {
+    console.error('[PayoutWorker Cron] Ошибка:', err);
   }
 }, { timezone: 'UTC' });
 
