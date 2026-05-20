@@ -13,6 +13,7 @@ import { pgPoolConfig } from '../db/client';
 import { getIgcHistory, getLiveIgcStatus } from './igcMonitor';
 import { syncPoolBalance } from './syncPoolBalance';
 import { processWithdrawals } from '../workers/payoutWorker';
+import { sendTgBroadcast } from '../notifications/sendTgNotification';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -29,11 +30,12 @@ const SEASON_EMOJI: Record<string, string> = {
 
 async function advanceCycleDay() {
   const { rows: [stats] } = await pool.query(
-    'SELECT cycle_day FROM pool_stats WHERE id = 1',
+    'SELECT cycle_day, season FROM pool_stats WHERE id = 1',
   );
-  const currentDay = stats?.cycle_day ?? 1;
-  const nextDay    = currentDay >= 28 ? 1 : currentDay + 1;
-  const season     = dayToSeason(nextDay);
+  const currentDay    = stats?.cycle_day ?? 1;
+  const previousSeason = stats?.season ?? null;
+  const nextDay       = currentDay >= 28 ? 1 : currentDay + 1;
+  const season        = dayToSeason(nextDay);
 
   await pool.query(
     'UPDATE pool_stats SET cycle_day = $1, season = $2 WHERE id = 1',
@@ -44,6 +46,30 @@ async function advanceCycleDay() {
     `[Daily] ${SEASON_EMOJI[season]} Сезон: ${season.toUpperCase()} ` +
     `| День цикла: ${nextDay}/28`,
   );
+
+  // Уведомляем всех игроков при смене сезона (раз в 7 дней)
+  if (season !== previousSeason) {
+    const SEASON_MSG: Record<string, string> = {
+      spring: `🌸 <b>Весна началась!</b>\n\nСтавка майнинга растёт. Самое время закупить IGC для Летнего разгона.`,
+      summer: `☀️ <b>Лето — пик наград!</b>\n\nСтавка на максимуме. Открой игру и активируй <b>Сезонный разгон</b> (500 IGC → +10% хешрейта на 7 дней).`,
+      autumn: `🍂 <b>Осень. Ставка падает</b>\n\nХорошее время продать GPU на P2P-маркетплейсе — цены ещё держатся.`,
+      winter: `❄️ <b>Зима. Крипто-дно</b>\n\nСтавка минимальная, электричество дороже. Но слабые фермы выключатся — твоя доля в пуле вырастет.`,
+    };
+
+    const msg = SEASON_MSG[season];
+    if (msg) {
+      const { rows: users } = await pool.query(
+        `SELECT tg_user_id FROM users WHERE tg_user_id IS NOT NULL`,
+      );
+      const tgIds = users.map((u: { tg_user_id: string }) => u.tg_user_id);
+
+      if (tgIds.length > 0) {
+        sendTgBroadcast(tgIds, msg)
+          .then(r => console.log(`[Daily] Сезон ${season} broadcast: ${r.sent} доставлено, ${r.failed} ошибок`))
+          .catch(err => console.error('[Daily] Ошибка рассылки сезона:', err));
+      }
+    }
+  }
 }
 
 async function printDailyReport() {

@@ -34,6 +34,7 @@ import {
   distributePoolReward,
   calculateIgcEarned,
 }                                           from './poolDistributor';
+import { sendTgMessage, sendTgBroadcast }  from '../notifications/sendTgNotification';
 
 import type {
   GPU,
@@ -230,6 +231,16 @@ export async function runEpoch(): Promise<EpochResult | null> {
       soloWinnerId     = lottery.soloWinnerId;
       totalDistributed = epochReward;
       console.log(`[Epoch] 🏆 СОЛО ПОБЕДА: ${soloWinnerId} забрал ${epochReward.toFixed(6)} TON!`);
+
+      const winner = usersMap.get(soloWinnerId);
+      if (winner?.tgUserId) {
+        sendTgMessage(
+          winner.tgUserId,
+          `🏆 <b>Solo-победа!</b>\n\n` +
+          `Ты выиграл блок эпохи и получил <b>${epochReward.toFixed(6)} TON</b>!\n\n` +
+          `💰 Открой игру, чтобы вывести награду.`,
+        ).catch(err => errors.push(`solo_notify_error: ${err}`));
+      }
     }
 
     // ── 8. Халвинг ─────────────────────────────────────
@@ -248,7 +259,13 @@ export async function runEpoch(): Promise<EpochResult | null> {
       updatedStats.dripRate     = halvingResult.newDripRate;
       updatedStats.currentPhase = halvingResult.newPhase as 1 | 2 | 3 | 4;
       console.log(`[Epoch] ⚡ ХАЛВИНГ! Фаза ${halvingResult.previousPhase} → ${halvingResult.newPhase}`);
-      // TODO: отправить halvingResult.message в Telegram broadcast
+
+      const allTgIds = allUsers.map(u => u.tgUserId).filter(Boolean);
+      if (halvingResult.message && allTgIds.length > 0) {
+        sendTgBroadcast(allTgIds, halvingResult.message)
+          .then(r => console.log(`[Epoch] Халвинг broadcast: ${r.sent} доставлено, ${r.failed} ошибок`))
+          .catch(err => errors.push(`halving_broadcast_error: ${err}`));
+      }
     }
 
     // ── 9. IGC мониторинг ──────────────────────────────

@@ -1,0 +1,27 @@
+{
+  "name": "syndicate-miner-bot",
+  "version": "0.1.0",
+  "description": "Syndicate Miner — Telegram Bot",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx --env-file=.env --watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "grammy": "^1.21.1",
+    "@grammyjs/menu": "^1.2.1",
+    "@grammyjs/runner": "^2.0.3",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "tsx": "^4.7.2",
+    "@types/node": "^20.12.7",
+    "@types/pg": "^8.11.5",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.8.0",
+    "@typescript-eslint/parser": "^7.8.0"
+  }
+}

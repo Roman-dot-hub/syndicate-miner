@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: syndicate-miner-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/main.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: NODE_TLS_REJECT_UNAUTHORIZED
+        value: "0"
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: syndicate-miner-redis
+          type: redis
+          property: connectionString
+      - key: ADMIN_WALLET
+        sync: false
+      - key: POOL_CONTRACT_ADDRESS
+        sync: false
+      - key: BACKEND_WALLET_MNEMONIC
+        sync: false
+      - key: TON_ENDPOINT
+        value: https://testnet.toncenter.com/api/v2/
+
+  - type: redis
+    name: syndicate-miner-redis
+    plan: free
+    maxmemoryPolicy: noeviction

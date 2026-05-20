@@ -12,6 +12,7 @@ import { pgPoolConfig }    from '../db/client';
 import { telegramAuthHook } from '../auth/telegramAuth';
 import { sync }             from '../db/queries';
 import { getLiveIgcStatus } from '../monitoring/igcMonitor';
+import { sendTgMessage }    from '../notifications/sendTgNotification';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -144,6 +145,43 @@ async function registerNewPlayer(
 
     await client.query('COMMIT');
     console.log(`[Sync] Новый игрок: tg_id=${tgUser.id}, ref=${refCode ?? 'none'}`);
+
+    // Уведомляем инвайтеров о новом рефереле (fire-and-forget)
+    if (inviterId) {
+      const newName = tgUser.username
+        ? `@${tgUser.username}`
+        : tgUser.first_name;
+
+      // L1 — прямой инвайтер
+      const { rows: [l1] } = await pool.query(
+        `SELECT tg_user_id FROM users WHERE id = $1`, [inviterId],
+      );
+      if (l1?.tg_user_id) {
+        sendTgMessage(
+          l1.tg_user_id,
+          `👥 <b>Новый реферал (L1)!</b>\n\n` +
+          `<b>${escapeHtml(newName)}</b> присоединился по твоей ссылке.\n` +
+          `Ты получаешь <b>5%</b> от его хешрейта навсегда. 📈`,
+        ).catch(() => {});
+      }
+
+      // L2 — дедушка нового игрока
+      const { rows: [grandparent] } = await pool.query(
+        `SELECT u.tg_user_id FROM users u
+         JOIN users child ON child.id = $1
+         WHERE u.id = child.inviter_id`,
+        [inviterId],
+      );
+      if (grandparent?.tg_user_id) {
+        sendTgMessage(
+          grandparent.tg_user_id,
+          `👥 <b>Новый реферал (L2)!</b>\n\n` +
+          `<b>${escapeHtml(newName)}</b> вступил через твою реферальную сеть.\n` +
+          `Ты получаешь <b>2%</b> от его хешрейта. 📈`,
+        ).catch(() => {});
+      }
+    }
+
     return newUser;
 
   } catch (err) {
@@ -152,4 +190,8 @@ async function registerNewPlayer(
   } finally {
     client.release();
   }
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

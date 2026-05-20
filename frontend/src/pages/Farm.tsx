@@ -1,0 +1,66 @@
+import type { SyncData } from '../types';
+import { FARM_LEVELS } from '../types';
+import { GpuCard } from '../components/GpuCard';
+import { TapToCool } from '../components/TapToCool';
+
+interface Props { data: SyncData; onUpdate: () => void }
+
+export function Farm({ data, onUpdate }: Props) {
+  const { farm, gpus } = data;
+  const activeCount = gpus.filter(g => g.status === 'active').length;
+  const totalSlots  = farm.maxSlots;
+
+  return (
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Заголовок фермы */}
+      <div style={{
+        background: 'rgba(255,255,255,0.05)', borderRadius: 14,
+        padding: '12px 16px',
+        border: '1px solid rgba(255,255,255,0.08)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
+            🏭 {FARM_LEVELS[farm.level] ?? 'Ферма'}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
+            {activeCount} / {totalSlots} слотов · Охлаждение Lv{farm.coolingLevel}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 12, color: '#9B59B6', fontWeight: 600 }}>
+            {Math.floor(farm.igcBalance)} IGC
+          </div>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>на электричество</div>
+        </div>
+      </div>
+
+      {/* Tap to Cool */}
+      <TapToCool onUpdate={onUpdate} />
+
+      {/* GPU карточки */}
+      {gpus.length === 0 ? (
+        <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', padding: 32, fontSize: 13 }}>
+          Нет оборудования. Купи GPU в магазине →
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {gpus.map(gpu => (
+            <GpuCard key={gpu.id} gpu={gpu} onUpdate={onUpdate} />
+          ))}
+        </div>
+      )}
+
+      {/* Пустые слоты */}
+      {Array.from({ length: Math.max(0, totalSlots - gpus.length) }).map((_, i) => (
+        <div key={i} style={{
+          borderRadius: 12, padding: 16, textAlign: 'center',
+          border: '1px dashed rgba(255,255,255,0.1)',
+          color: 'rgba(255,255,255,0.2)', fontSize: 12,
+        }}>
+          + Пустой слот
+        </div>
+      ))}
+    </div>
+  );
+}

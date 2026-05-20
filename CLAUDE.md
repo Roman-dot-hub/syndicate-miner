@@ -399,3 +399,267 @@ npm run lint                  # ESLint + Prettier (во всех пакетах)
 ## Контекст проекта
 
 Проект спроектирован как долгосрочная экономическая игра, а не Ponzi-схема. Механика халвинга по объёму выплат (а не по времени) защищает пул от быстрого истощения. Если сомневаешься в экономическом решении — сверяйся с `PLAN.md`.
+
+---
+
+## Фаза 2 — Смарт-контракты (ЗАВЕРШЕНО, деплой заблокирован балансом)
+
+### Статус
+
+- ✅ Контракты написаны на **Tact**: `contracts/contracts/Pool.tact`, `contracts/contracts/Escrow.tact`
+- ✅ Враппер TypeScript: `contracts/wrappers/Pool.ts`, `contracts/wrappers/Escrow.ts`
+- ✅ Blueprint compile-файлы: `contracts/wrappers/Pool.compile.ts`, `contracts/wrappers/Escrow.compile.ts`
+- ✅ Sandbox-тесты: **28/28 проходят** (`contracts/tests/Pool.spec.ts` — 11 тестов, `contracts/tests/Escrow.spec.ts` — 17 тестов)
+- ✅ Deploy-скрипты неинтерактивны: читают `MNEMONIC` и `ADMIN_WALLET` из `contracts/.env`
+- ⏳ **ДЕПЛОЙ ЗАБЛОКИРОВАН**: кошелёк деплоера не пополнен тестовым TON
+
+### Кошелёк деплоера (testnet)
+
+```
+Адрес: kQCXYPVOvG6SySkl1SVjAIrn1_QhvjSpYPU5_pdmr9fpuUuH
+```
+
+Получить тестовый TON: `@testgiver_ton_bot` в Telegram. Нужно ~1 TON (0.5 на Pool + 0.1 на Escrow + газ).
+
+### Команды деплоя (запускать после пополнения)
+
+```bash
+cd contracts
+npx blueprint run deployPool --testnet
+# → запишет POOL_CONTRACT_ADDRESS в вывод
+
+npx blueprint run deployEscrow --testnet
+# → запишет ESCROW_CONTRACT_ADDRESS в вывод
+```
+
+После деплоя заполнить `backend/.env`:
+```env
+POOL_CONTRACT_ADDRESS=<адрес из deployPool>
+ESCROW_CONTRACT_ADDRESS=<адрес из deployEscrow>
+BACKEND_WALLET_MNEMONIC=bomb fold pistol cry display total human bind debate urge inch sing hammer rookie lady amateur indoor start casino record liar dentist sail bus
+```
+
+### Opcodes контрактов (нужны для backend при отправке сообщений)
+
+| Контракт | Сообщение | Opcode (hex) | Opcode (dec) |
+|---|---|---|---|
+| Pool | Payout | 0x0101 | 257 |
+| Pool | ChangeBackend | 0x0102 | 258 |
+| Pool | EmergencyWithdraw | 0x0103 | 259 |
+| Pool/Escrow | Deploy | 0x94485177 | 2490013878 |
+| Escrow | CreateDeal | 0x0201 | 513 |
+| Escrow | LockDeal | 0x0202 | 514 |
+| Escrow | ReleaseDeal | 0x0203 | 515 |
+| Escrow | CancelDeal | 0x0204 | 516 |
+
+### Архитектура init data (критично для враппера)
+
+Tact использует **lazy-init формат**: `1-bit(0) prefix + только аргументы конструктора`.
+НЕ включай все поля контракта — только то, что передаётся в `init()`.
+
+```typescript
+// Pool init data — owner + backend
+function buildPoolInitData(cfg: PoolInit): Cell {
+    return beginCell()
+        .storeUint(0, 1)          // lazy-init prefix
+        .storeAddress(cfg.owner)
+        .storeAddress(cfg.backend)
+        .endCell();
+}
+
+// Escrow init data — owner + feeWallet
+function buildEscrowInitData(cfg: EscrowInit): Cell {
+    return beginCell()
+        .storeUint(0, 1)
+        .storeAddress(cfg.owner)
+        .storeAddress(cfg.feeWallet)
+        .endCell();
+}
+```
+
+### Escrow.sendDeploy — обязательно с опкодом Deploy
+
+Escrow НЕ имеет пустого `receive()`. При деплое нужен Deploy opcode:
+
+```typescript
+async sendDeploy(provider: ContractProvider, via: Sender, value = toNano('0.1')) {
+    const body = beginCell()
+        .storeUint(2490013878, 32)  // Deploy opcode
+        .storeUint(0, 64)           // queryId
+        .endCell();
+    await provider.internal(via, { value, sendMode: SendMode.PAY_GAS_SEPARATELY, body });
+}
+```
+
+### Blueprint compile файлы (обязательны для `npx blueprint build`)
+
+Blueprint ищет `*.compile.ts` в `wrappers/`, а не в `contracts/`:
+
+```typescript
+// contracts/wrappers/Pool.compile.ts
+import { CompilerConfig } from '@ton/blueprint';
+export const compile: CompilerConfig = {
+    lang: 'tact',
+    target: 'contracts/Pool.tact',
+    options: { debug: false },
+};
+```
+
+### Jest конфиг для контрактов (`contracts/package.json`)
+
+```json
+"jest": {
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "testMatch": ["**/tests/**/*.spec.ts"]
+}
+```
+
+НЕ используй `globalSetup: "@ton/test-utils/jest-global-setup"` — модуль не существует.
+НЕ используй `testPathPattern` — правильный ключ `testMatch`.
+
+### Запуск тестов контрактов
+
+```bash
+cd contracts
+npx jest --forceExit        # правильно
+# НЕ npx blueprint test     # вызывает рекурсию npm test → blueprint test → npm test
+```
+
+Тесты используют `Cell.fromHex(compiled.hex)` из `build/Pool.compiled.json` (не перекомпилируют при каждом запуске):
+```typescript
+const compiled = require('../build/Pool.compiled.json');
+beforeAll(() => { code = Cell.fromHex(compiled.hex); });
+```
+
+### Sandbox — проверка значений (range, не exact)
+
+Sandbox удерживает ~0.0005 TON на forward fees. Всегда используй диапазон:
+```typescript
+// ❌ Неверно
+expect(msg.value).toBe(toNano('1'));
+
+// ✅ Верно
+expect(msg.value).toBeGreaterThanOrEqual(toNano('0.99'));
+```
+
+### SandboxContract — getters без provider
+
+```typescript
+// ❌ Неверно
+const cfg = await pool.getConfig(provider);
+
+// ✅ Верно
+const cfg = await pool.getConfig();   // SandboxContract инжектирует provider автоматически
+```
+
+---
+
+## Backend — payoutWorker (добавлен в Фазе 2)
+
+### Файлы
+
+- `backend/src/workers/payoutWorker.ts` — основной воркер
+- `backend/src/monitoring/dailyCron.ts` — добавлен запуск воркера каждые 2 минуты:
+
+```typescript
+cron.schedule('*/2 * * * *', async () => {
+    try { await processWithdrawals(); }
+    catch (err) { console.error('[PayoutWorker Cron] Ошибка:', err); }
+}, { timezone: 'UTC' });
+```
+
+### Логика payoutWorker
+
+1. `SELECT ... FROM withdrawal_queue WHERE status='pending' FOR UPDATE SKIP LOCKED LIMIT 10`
+2. Для каждой записи: отправляет `Payout` на Pool-контракт (opcode 257) через `WalletContractV4`
+3. Последовательный seqno (не параллельный — только один воркер за раз)
+4. Polling подтверждения: проверяет транзакцию на toncenter до 60 секунд
+5. При успехе: `status = 'completed'`, `completed_at = NOW()`
+6. При ошибке: `status = 'failed'`, делает refund на баланс пользователя в БД
+
+### Нужные env переменные
+
+```env
+POOL_CONTRACT_ADDRESS=     # заполнить после деплоя
+ESCROW_CONTRACT_ADDRESS=   # заполнить после деплоя
+BACKEND_WALLET_MNEMONIC=   # 24 слова кошелька деплоера
+TON_ENDPOINT=https://testnet.toncenter.com/api/v2/
+```
+
+---
+
+## Фаза 3 — Telegram Bot (ЗАВЕРШЕНО)
+
+### Статус
+
+- ✅ `bot/` создана полностью: `package.json`, `tsconfig.json`, `.env.example`
+- ✅ Стек: **grammY** + TypeScript, long polling (dev), без webhooks
+- ✅ Команды: `/start` (Mini App кнопка + deep link ref_<id>), `/stats` (admin), `/broadcast` (admin)
+- ✅ Middleware: `adminCheck.ts` — проверка `ADMIN_IDS` из env
+- ✅ Шаблоны уведомлений: `epochReward.ts`, `seasonal.ts`, `referral.ts`
+- ✅ `backend/src/notifications/sendTgNotification.ts` — HTTP-отправка через Bot API (без бот-процесса)
+- ✅ `epochRunner.ts` интегрирован: solo-победитель получает личное уведомление, халвинг — broadcast всем
+- ✅ `dailyCron.ts` интегрирован: при смене сезона — broadcast всем (раз в 7 дней)
+- ✅ `sync.ts` интегрирован: при регистрации реферала — уведомление L1 и L2 инвайтеров
+- ⏳ Запуск: требует `npm install` в `bot/` и заполнения `.env`
+
+### Структура
+
+```
+bot/
+├── src/
+│   ├── index.ts                  # Инициализация бота, long polling
+│   ├── commands/
+│   │   ├── start.ts              # /start → WebApp кнопка + реферальный deep link
+│   │   ├── stats.ts              # /stats (admin) — пул, фаза, сезон, кол-во игроков
+│   │   └── broadcast.ts          # /broadcast <text> (admin) — рассылка всем
+│   ├── notifications/
+│   │   ├── epochReward.ts        # buildEpochRewardMessage(), NOTIFY_MIN_TON
+│   │   ├── seasonal.ts           # buildSeasonMessage(), buildHalvingMessage()
+│   │   └── referral.ts           # buildReferralMessage()
+│   └── middleware/
+│       └── adminCheck.ts         # isAdmin(), adminOnly middleware
+├── package.json                  # grammy, @grammyjs/menu, @grammyjs/runner, pg
+├── tsconfig.json
+└── .env.example                  # BOT_TOKEN, ADMIN_IDS, MINI_APP_URL, DATABASE_URL
+```
+
+### Env переменные (bot/.env)
+
+```env
+BOT_TOKEN=          # Токен бота от @BotFather (тот же, что в backend)
+MINI_APP_URL=       # https://t.me/YourBot/game
+ADMIN_IDS=          # Telegram user_id через запятую: 123456,789012
+DATABASE_URL=       # Тот же PostgreSQL, что у backend
+```
+
+### Запуск бота
+
+```bash
+cd bot
+npm install
+cp .env.example .env   # заполни BOT_TOKEN, ADMIN_IDS, MINI_APP_URL, DATABASE_URL
+npm run dev            # long polling (dev)
+npm run build && npm start  # production
+```
+
+### Архитектура уведомлений
+
+Backend отправляет уведомления **напрямую** в Telegram Bot API через `fetch`, без бот-процесса:
+- Личные: `sendTgMessage(tgUserId, text)`
+- Широковещательные: `sendTgBroadcast(tgUserIds[], text)` — батчи по 30, 1.1с между батчами
+- Уведомления не бросают исключений — только логируют ошибку, чтобы не ронять бизнес-логику
+
+### Admin-команды
+
+- `/stats` — запрашивает `pool_stats` + `epoch_log` + `users` из БД, форматирует HTML
+- `/broadcast Текст` — читает все `tg_user_id` из БД, рассылает батчами, отчёт в чат
+
+---
+
+## Фаза 4 — Frontend Mini App (НЕ НАЧАТА)
+
+Директория `frontend/` существует но пустая. Структура описана выше в разделе Frontend.
+
+Запускать после Telegram Bot (Фаза 3), т.к. бот нужен для открытия Mini App.
