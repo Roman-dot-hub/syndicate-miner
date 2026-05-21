@@ -41,18 +41,32 @@ export async function syncRoutes(app: FastifyInstance) {
 
     // ── Основные данные ───────────────────────
     console.log('[sync] fetching snapshot for userId:', user.id);
-    const [snapshot, igcStatus] = await Promise.all([
-      sync.getUserSnapshot(user.id),
-      getLiveIgcStatus(),
-    ]);
+    let snapshot: Awaited<ReturnType<typeof sync.getUserSnapshot>>;
+    let igcStatus: Awaited<ReturnType<typeof getLiveIgcStatus>>;
+    try {
+      [snapshot, igcStatus] = await Promise.all([
+        sync.getUserSnapshot(user.id),
+        getLiveIgcStatus(),
+      ]);
+    } catch (err: any) {
+      console.error('[sync] getUserSnapshot failed:', err?.message, err?.stack);
+      throw new Error(`snapshot failed: ${err?.message}`);
+    }
     console.log('[sync] snapshot ok, pool row next');
 
     // ── Сезонная информация ───────────────────
-    const { rows: [poolRow] } = await pool.query(
-      `SELECT cycle_day, season, drip_rate, current_phase,
-              reserve_pool_ton, total_paid_out
-       FROM pool_stats WHERE id = 1`,
-    );
+    let poolRow: any;
+    try {
+      const { rows: [row] } = await pool.query(
+        `SELECT cycle_day, season, drip_rate, current_phase,
+                reserve_pool_ton, total_paid_out
+         FROM pool_stats WHERE id = 1`,
+      );
+      poolRow = row;
+    } catch (err: any) {
+      console.error('[sync] pool_stats query failed:', err?.message);
+      throw new Error(`pool_stats failed: ${err?.message}`);
+    }
 
     const seasonRate = poolRow
       ? poolRow.drip_rate * (1 + 0.25 * Math.sin(2 * Math.PI * poolRow.cycle_day / 28))

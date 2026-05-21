@@ -13,7 +13,8 @@ async function fetchSync(initDataStr: string): Promise<SyncData> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as any).error ?? `HTTP ${res.status}`);
+    const msg  = (body as any).detail ?? (body as any).error ?? `HTTP ${res.status}`;
+    throw new Error(msg);
   }
   const json = await res.json() as { ok: boolean; data: SyncData };
   return json.data;
