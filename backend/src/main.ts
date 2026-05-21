@@ -44,7 +44,11 @@ if (process.env.NODE_ENV !== 'production') {
 // ── Глобальный обработчик ошибок ──────────────
 app.setErrorHandler((error, _req, reply) => {
   console.error('[Server Error]', error);
-  reply.code(500).send({ error: 'Внутренняя ошибка сервера' });
+  // В разработке возвращаем реальную ошибку для отладки
+  reply.code(500).send({
+    error: 'Внутренняя ошибка сервера',
+    detail: error?.message ?? String(error),
+  });
 });
 
 // ── Запуск ────────────────────────────────────

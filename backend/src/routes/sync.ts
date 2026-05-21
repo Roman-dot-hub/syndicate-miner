@@ -21,14 +21,17 @@ export async function syncRoutes(app: FastifyInstance) {
   app.get('/api/sync', {
     preHandler: telegramAuthHook,
   }, async (req, reply) => {
-
+    console.log('[sync] request received');
     const tgUser = (req as any).tgUser;
+    console.log('[sync] tgUser:', tgUser?.id);
 
     // ── Найти или создать пользователя ────────
+    console.log('[sync] querying user by tg_user_id:', tgUser.id);
     let { rows: [user] } = await pool.query(
       `SELECT id FROM users WHERE tg_user_id = $1`,
       [tgUser.id],
     );
+    console.log('[sync] user found:', user?.id ?? 'NOT FOUND — will register');
 
     if (!user) {
       // Новый игрок: регистрация с USB-майнером
@@ -37,10 +40,12 @@ export async function syncRoutes(app: FastifyInstance) {
     }
 
     // ── Основные данные ───────────────────────
+    console.log('[sync] fetching snapshot for userId:', user.id);
     const [snapshot, igcStatus] = await Promise.all([
       sync.getUserSnapshot(user.id),
       getLiveIgcStatus(),
     ]);
+    console.log('[sync] snapshot ok, pool row next');
 
     // ── Сезонная информация ───────────────────
     const { rows: [poolRow] } = await pool.query(
