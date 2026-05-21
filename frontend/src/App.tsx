@@ -21,7 +21,7 @@ const TABS: { id: Tab; emoji: string; label: string }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>('farm');
   const isInTelegram  = Boolean(WebApp.initData);
-  const { data, loading, error, sync } = useSync();
+  const { data, loading, error, retrying, sync } = useSync();
 
   useEffect(() => {
     WebApp.ready();
@@ -40,8 +40,19 @@ export default function App() {
     />
   );
 
-  if (loading) return <Splash text="Загружаем ферму..." />;
-  if (error || !data) return <Splash text="Нет соединения с сервером" sub={error ?? ''} />;
+  if (loading || retrying) return (
+    <Splash
+      text={retrying ? 'Подключаемся к серверу...' : 'Загружаем ферму...'}
+      sub={retrying ? 'Сервер просыпается, подождите ~30 сек' : undefined}
+    />
+  );
+  if (error || !data) return (
+    <Splash
+      text="Нет соединения с сервером"
+      sub={error ?? ''}
+      retry={sync}
+    />
+  );
 
   return (
     <div style={{
@@ -90,7 +101,7 @@ export default function App() {
   );
 }
 
-function Splash({ text, sub }: { text: string; sub?: string }) {
+function Splash({ text, sub, retry }: { text: string; sub?: string; retry?: () => void }) {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
@@ -99,7 +110,15 @@ function Splash({ text, sub }: { text: string; sub?: string }) {
     }}>
       <div style={{ fontSize: 40 }}>⛏️</div>
       <div style={{ fontSize: 15, fontWeight: 600 }}>{text}</div>
-      {sub && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', textAlign: 'center', maxWidth: 260, padding: '0 20px' }}>{sub}</div>}
+      {retry && (
+        <button onClick={retry} style={{
+          marginTop: 8, padding: '8px 24px', borderRadius: 8, border: 'none',
+          background: '#0098EA', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+        }}>
+          Повторить
+        </button>
+      )}
     </div>
   );
 }
