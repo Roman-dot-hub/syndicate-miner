@@ -602,7 +602,8 @@ TON_ENDPOINT=https://testnet.toncenter.com/api/v2/
 - ✅ `epochRunner.ts` интегрирован: solo-победитель получает личное уведомление, халвинг — broadcast всем
 - ✅ `dailyCron.ts` интегрирован: при смене сезона — broadcast всем (раз в 7 дней)
 - ✅ `sync.ts` интегрирован: при регистрации реферала — уведомление L1 и L2 инвайтеров
-- ⏳ Запуск: требует `npm install` в `bot/` и заполнения `.env`
+- ✅ Бот запущен: `@Syndicate_miner_bot` — ссылка: `https://t.me/Syndicate_miner_bot`
+- ⏳ Запуск бота-процесса: требует `npm install` в `bot/` и запуска отдельно (не на Render)
 
 ### Структура
 
@@ -658,8 +659,95 @@ Backend отправляет уведомления **напрямую** в Tele
 
 ---
 
-## Фаза 4 — Frontend Mini App (НЕ НАЧАТА)
+## Фаза 4 — Frontend Mini App (ЗАВЕРШЕНО)
 
-Директория `frontend/` существует но пустая. Структура описана выше в разделе Frontend.
+### Статус
 
-Запускать после Telegram Bot (Фаза 3), т.к. бот нужен для открытия Mini App.
+- ✅ React 18 + Vite + TypeScript — `frontend/src/`
+- ✅ 5 вкладок: Dashboard, Farm, Shop, Market, Company
+- ✅ `useSync.ts` — синхронизация каждые 2 сек через `/api/sync`
+- ✅ TON Connect 2.0 интегрирован (`@tonconnect/ui-react`) — кнопка вывода на Dashboard
+- ✅ `@twa-dev/sdk` — `WebApp.ready()` + `WebApp.expand()` при маунте
+- ✅ Деплой на **Vercel**: `https://frontend-nine-lyart-335p3mweew.vercel.app`
+- ✅ `VITE_API_URL` настроен на Render backend (продакшн)
+- ✅ `tonconnect-manifest.json` размещён на Vercel
+
+### Команды
+
+```bash
+cd frontend
+npm run dev         # локально на :5173
+npm run build       # production build
+npx vercel --prod   # деплой на Vercel
+```
+
+---
+
+## Деплой (текущее состояние)
+
+### Backend — Render.com
+
+| Параметр | Значение |
+|---|---|
+| URL | `https://syndicate-miner-backend.onrender.com` |
+| Healthcheck | `GET /health` → `{"ok":true}` |
+| Сервис ID | `srv-d87l6h6l51nc7392shr0` |
+| Регион | Oregon (free plan) |
+| Runtime | Node.js (native), Node 20.11.0 |
+| Build command | `npm install --legacy-peer-deps` |
+| Start command | `npx tsx src/main.ts` (не compiled JS — см. заметку) |
+| Redis | `red-d86m5hugvqtc73drj2dg` (Render Redis, frankfurt) |
+| DB | Supabase PostgreSQL (Frankfurt) |
+
+> ⚠️ **Заметка о tsx:** Backend запускается через `tsx` (esbuild), а не через скомпилированный `dist/`. Причина: `tsc` стабильно падал на Render с exit code 2 (точная причина не установлена без доступа к build-логам в дашборде). Если нужно вернуть компиляцию — открой Render Dashboard → вкладка Logs → найди ошибку → исправь → смени startCommand обратно на `node dist/main.js`.
+
+### Frontend — Vercel
+
+| Параметр | Значение |
+|---|---|
+| URL (alias) | `https://frontend-nine-lyart-335p3mweew.vercel.app` |
+| Проект | `roman-dot-hubs-projects/frontend` |
+| Framework | Vite |
+| `VITE_API_URL` | `https://syndicate-miner-backend.onrender.com` |
+| `VITE_TON_MANIFEST_URL` | `https://frontend-nine-lyart-335p3mweew.vercel.app/tonconnect-manifest.json` |
+
+### GitHub
+
+| Репозиторий | `https://github.com/Roman-dot-hub/syndicate-miner` |
+|---|---|
+| Видимость | **Public** (Render требует публичный repo или установку GitHub App) |
+| Ветка | `main` |
+| Auto-deploy Render | ✅ по push в main |
+
+### Credentials (Render API)
+
+```
+Render API Key: rnd_15RECAKZ4L8Pe9OumX62yDKBYKFc
+Owner ID:       tea-d86m45ek1jcs739e1j0g
+```
+
+### База данных
+
+- Supabase проект: `xzyhrfvrywkctgcsxuvm`
+- Все 3 миграции применены: `001_initial.sql`, `002_monitoring.sql`, `003_withdrawal_queue.sql`
+- `_migrations` таблица: записи добавлены вручную (schema уже существовала до миграций)
+
+### Telegram Bot
+
+| Параметр | Значение |
+|---|---|
+| Бот | `@Syndicate_miner_bot` |
+| Bot Token | `8818633899:AAHeXesqzZL9Pzo4uUJd8XN_YY_fiMW6AWY` |
+| Admin user ID | `1730291634` |
+| Mini App URL | `https://t.me/Syndicate_miner_bot/app` |
+
+> ⚠️ **Бот-процесс не запущен на сервере.** Команды `/start`, `/stats`, `/broadcast` — код готов в `bot/`, но процесс нужно запустить вручную или на отдельном хостинге. Backend отправляет уведомления напрямую через Bot API (без бот-процесса) — это работает.
+
+---
+
+## Что осталось сделать
+
+1. **Деплой контрактов** (Фаза 2): пополнить кошелёк `kQCXYPVOvG6SySkl1SVjAIrn1_QhvjSpYPU5_pdmr9fpuUuH` тестовым TON через `@testgiver_ton_bot` → запустить `npx blueprint run deployPool --testnet`
+2. **Бот-процесс**: запустить `bot/` на отдельном хостинге (не Render — там нет long polling из-за free plan sleep)
+3. **Тест через реальный Telegram**: открыть Mini App через `@Syndicate_miner_bot` и проверить синхронизацию с backend
+4. **Stress-test экономики**: `npm run stress-test -- --players=100` перед открытым бета-запуском
