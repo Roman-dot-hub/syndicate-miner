@@ -20,6 +20,7 @@ const TABS: { id: Tab; emoji: string; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('farm');
+  const isInTelegram  = Boolean(WebApp.initData);
   const { data, loading, error, sync } = useSync();
 
   useEffect(() => {
@@ -31,6 +32,13 @@ export default function App() {
     WebApp.HapticFeedback.selectionChanged();
     setTab(id);
   };
+
+  if (!isInTelegram) return (
+    <Splash
+      text="Открой через Telegram"
+      sub={'Найди бота @Syndicate_miner_bot и нажми «Играть»'}
+    />
+  );
 
   if (loading) return <Splash text="Загружаем ферму..." />;
   if (error || !data) return <Splash text="Нет соединения с сервером" sub={error ?? ''} />;

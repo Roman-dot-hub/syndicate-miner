@@ -12,16 +12,16 @@ export function useSync() {
   const initData              = useRef(WebApp.initData);
 
   const sync = useCallback(async () => {
-    try {
-      // В dev-режиме (вне Telegram) initData пустой — посылаем dev-заголовок
-      const headers: Record<string, string> = {};
-      if (initData.current) {
-        headers['X-TG-Init-Data'] = initData.current;
-      } else {
-        headers['X-Dev-User-Id'] = '1';
-      }
+    // Вне Telegram initData пустой — App.tsx уже показывает экран-заглушку
+    if (!initData.current) {
+      setLoading(false);
+      return;
+    }
 
-      const res = await fetch(`${API_URL}/api/sync`, { headers });
+    try {
+      const res = await fetch(`${API_URL}/api/sync`, {
+        headers: { 'X-TG-Init-Data': initData.current },
+      });
       if (!res.ok) throw new Error(`sync ${res.status}`);
 
       const json = await res.json() as { ok: boolean; data: SyncData };
