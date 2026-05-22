@@ -11,7 +11,8 @@ interface Props {
 
 export function GpuCard({ gpu, onUpdate }: Props) {
   const { action } = useAction();
-  const spec = GPU_SPECS[gpu.modelTier];
+  const tier = gpu.modelTier ?? (gpu as any).model_tier ?? 0;
+  const spec = GPU_SPECS[tier] ?? GPU_SPECS[0];
   const [busy, setBusy] = useState(false);
 
   const healthColor = gpu.health > 60 ? '#2ECC71' : gpu.health > 30 ? '#F39C12' : '#E74C3C';

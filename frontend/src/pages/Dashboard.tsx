@@ -9,7 +9,14 @@ import { useTonConnect } from '../hooks/useTonConnect';
 interface Props { data: SyncData; onUpdate: () => void }
 
 export function Dashboard({ data, onUpdate }: Props) {
-  const { user, season, igc } = data;
+  const raw  = data.user as any;
+  const user = {
+    ...data.user,
+    tonBalance: raw.tonBalance ?? raw.ton_balance ?? 0,
+    igcBalance: raw.igcBalance ?? raw.igc_balance ?? 0,
+    miningMode: raw.miningMode ?? raw.mining_mode ?? 'pool',
+  };
+  const { season, igc } = data;
   const { action } = useAction();
   const { connected, connect } = useTonConnect();
   const [busy, setBusy] = useState(false);

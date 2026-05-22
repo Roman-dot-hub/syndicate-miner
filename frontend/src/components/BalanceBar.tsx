@@ -3,6 +3,10 @@ import type { UserData } from '../types';
 interface Props { user: UserData }
 
 export function BalanceBar({ user }: Props) {
+  const u = user as any;
+  const ton = u.tonBalance ?? u.ton_balance ?? 0;
+  const igc = u.igcBalance ?? u.igc_balance ?? 0;
+  const mode = u.miningMode ?? u.mining_mode ?? 'pool';
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -11,15 +15,15 @@ export function BalanceBar({ user }: Props) {
       borderBottom: '1px solid rgba(255,255,255,0.08)',
     }}>
       <div style={{ display: 'flex', gap: 20 }}>
-        <Coin label="TON" value={user.tonBalance.toFixed(4)} color="#0098EA" />
-        <Coin label="IGC" value={Math.floor(user.igcBalance).toString()} color="#9B59B6" />
+        <Coin label="TON" value={parseFloat(ton).toFixed(4)} color="#0098EA" />
+        <Coin label="IGC" value={Math.floor(parseFloat(igc)).toString()} color="#9B59B6" />
       </div>
       <div style={{
         fontSize: 11, color: 'rgba(255,255,255,0.4)',
         background: 'rgba(255,255,255,0.06)',
         padding: '2px 8px', borderRadius: 8,
       }}>
-        {user.miningMode === 'pool' ? '⛏️ Pool' : '🎰 Solo'}
+        {mode === 'pool' ? '⛏️ Pool' : '🎰 Solo'}
       </div>
     </div>
   );

@@ -6,7 +6,14 @@ import { TapToCool } from '../components/TapToCool';
 interface Props { data: SyncData; onUpdate: () => void }
 
 export function Farm({ data, onUpdate }: Props) {
-  const { farm, gpus } = data;
+  const rawFarm = data.farm as any;
+  const farm = {
+    ...data.farm,
+    maxSlots:     rawFarm.maxSlots     ?? rawFarm.max_slots     ?? 5,
+    coolingLevel: rawFarm.coolingLevel ?? rawFarm.cooling_level ?? 0,
+    igcBalance:   rawFarm.igcBalance   ?? rawFarm.igc_balance   ?? 0,
+  };
+  const { gpus } = data;
   const activeCount = gpus.filter(g => g.status === 'active').length;
   const totalSlots  = farm.maxSlots;
 
