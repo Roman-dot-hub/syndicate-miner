@@ -62,4 +62,5 @@ app.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
   if (err) { console.error(err); process.exit(1); }
   console.log(`\n🚀 TON Miner Backend запущен на порту ${PORT}`);
   console.log(`   ENV: ${process.env.NODE_ENV ?? 'development'}`);
+  console.log(`   BUILD: v2-actions-fixed`);
 });
