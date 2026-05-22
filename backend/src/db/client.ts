@@ -29,15 +29,17 @@ export type DbClient = {
 
 // ── Общий конфиг пула (используй во всех файлах) ──
 export const pgPoolConfig = {
-  connectionString:       process.env.DATABASE_URL,
-  max:                    20,
-  idleTimeoutMillis:      30_000,
+  connectionString:        process.env.DATABASE_URL,
+  max:                     20,
+  idleTimeoutMillis:       30_000,
   connectionTimeoutMillis: 10_000,
   ssl: process.env.DATABASE_URL?.includes('supabase.co') ||
        process.env.DATABASE_URL?.includes('sslmode=require')
     ? { rejectUnauthorized: false }
     : false,
-} as const;
+  // Force IPv4 — Render Oregon cannot reach Supabase Frankfurt via IPv6
+  family: 4,
+};
 
 // ── Подключение ───────────────────────────────
 const pool = new Pool(pgPoolConfig);
