@@ -77,11 +77,44 @@ export async function syncRoutes(app: FastifyInstance) {
       `SELECT type, payload FROM system_events WHERE active_until > NOW()`,
     );
 
+    // ── snake_case → camelCase mapping ───────────
+    const rawUser = snapshot.user as any;
+    const rawFarm = snapshot.farm as any;
+    const rawGpus = (snapshot.gpus ?? []) as any[];
+
+    const mappedUser = rawUser ? {
+      id:         rawUser.id,
+      tgUserId:   String(rawUser.tg_user_id ?? ''),
+      tonBalance: parseFloat(rawUser.ton_balance ?? '0'),
+      igcBalance: parseFloat(rawUser.igc_balance ?? '0'),
+      miningMode: rawUser.mining_mode ?? 'pool',
+    } : null;
+
+    const mappedFarm = rawFarm ? {
+      id:           rawFarm.id,
+      level:        rawFarm.level,
+      coolingLevel: rawFarm.cooling_level ?? 0,
+      maxSlots:     rawFarm.max_slots ?? 5,
+      igcBalance:   parseFloat(rawUser?.igc_balance ?? '0'),
+    } : null;
+
+    const mappedGpus = rawGpus.map((g: any) => ({
+      id:            g.id,
+      modelTier:     g.model_tier,
+      health:        parseFloat(g.health ?? '100'),
+      status:        g.status,
+      overclocked:   g.overclocked ?? false,
+      coolingLevel:  g.cooling_level ?? 0,
+      isRefurbished: g.is_refurbished ?? false,
+    }));
+
     return reply.send({
       ok: true,
       data: {
-        ...snapshot,
-        igc: igcStatus,
+        user:  mappedUser,
+        farm:  mappedFarm,
+        gpus:  mappedGpus,
+        igc:   igcStatus,
         season: {
           day:        poolRow?.cycle_day ?? 1,
           name:       poolRow?.season ?? 'spring',
