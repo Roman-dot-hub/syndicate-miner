@@ -2,6 +2,10 @@
 // main.ts — точка входа сервера
 // ─────────────────────────────────────────────
 
+// Render free tier has no IPv6 outbound — force IPv4 DNS resolution
+import { setDefaultResultOrder } from 'dns';
+setDefaultResultOrder('ipv4first');
+
 import Fastify        from 'fastify';
 import cors           from '@fastify/cors';
 import { syncRoutes }     from './routes/sync';
