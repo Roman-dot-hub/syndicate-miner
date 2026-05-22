@@ -76,8 +76,18 @@ export function GpuCard({ gpu, onUpdate }: Props) {
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
               {spec.hashrate} H/s · {spec.watt}W
               {gpu.isRefurbished && ' · ♻️'}
-              {gpu.overclocked && ' · ⚡+10%'}
+              {gpu.overclocked && ' · ⚡+20%'}
             </div>
+            {!isBroken && !isOffline && (
+              <div style={{ fontSize: 11, color: '#9B59B6', marginTop: 2 }}>
+                +{spec.igcPerDay.toFixed(1)} IGC/день
+                {spec.igcMaintPerDay > 0 && (
+                  <span style={{ color: 'rgba(255,255,255,0.3)' }}>
+                    {' '}(−{spec.igcMaintPerDay.toFixed(1)} свет)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div style={{
