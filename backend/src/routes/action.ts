@@ -14,7 +14,13 @@ import { refurbishCost }     from '../epoch/wearEngine';
 import { GPU_SPECS,
          TAP_MAX_RPS,
          REDIS_TAP_PREFIX,
-         PHASE1_MAX_ASIC_PER_USER }  from '../epoch/constants';
+         PHASE1_MAX_ASIC_PER_USER,
+         TAP_BOOST_PER_TAP_SEC,
+         TAP_BOOST_MAX_SEC,
+         TAP_SESSION_LIMIT,
+         TAP_COOLDOWN_SEC,
+         TAP_JITTER_MIN_MS,
+         TAP_JITTER_SAMPLE }  from '../epoch/constants';
 import { redis }             from '../redis/client';
 import { refurbish }         from '../db/queries';
 
@@ -185,21 +191,84 @@ export async function actionRoutes(app: FastifyInstance) {
 
       // ── Tap-to-Cool (буст хешрейта) ────────
       case 'tap_cool': {
+        const boostKey    = `${REDIS_TAP_PREFIX}boost:${user.id}`;
+        const countKey    = `${REDIS_TAP_PREFIX}count:${user.id}`;
+        const cooldownKey = `${REDIS_TAP_PREFIX}cooldown:${user.id}`;
+        const timesKey    = `${REDIS_TAP_PREFIX}times:${user.id}`;
+        const rateKey     = `${REDIS_TAP_PREFIX}rate:${user.id}`;
+
         try {
-          // Rate limit: не более TAP_MAX_RPS в секунду (Redis-опционально)
-          const rateLimitKey = `${REDIS_TAP_PREFIX}rate:${user.id}`;
-          const taps = await redis.incr(rateLimitKey);
-          if (taps === 1) await redis.expire(rateLimitKey, 1);
-          if (taps > TAP_MAX_RPS) {
+          // 1. Обязательная пауза после 3600 тапов
+          const cooldownTtl = await redis.ttl(cooldownKey);
+          if (cooldownTtl > 0) {
+            const boostTtl = Math.max(0, await redis.ttl(boostKey));
+            const tapCount = parseInt(await redis.get(countKey) ?? '0', 10);
+            return reply.code(429).send({
+              error: 'cooldown',
+              cooldownSeconds: cooldownTtl,
+              boostSeconds: boostTtl,
+              tapsUsed: tapCount,
+            });
+          }
+
+          // 2. Лимит в секунду (анти-спам)
+          const rps = await redis.incr(rateKey);
+          if (rps === 1) await redis.expire(rateKey, 1);
+          if (rps > TAP_MAX_RPS) {
             return reply.code(429).send({ error: 'Слишком быстро!' });
           }
-          // Устанавливаем буст на 30 секунд
-          const boostKey = `${REDIS_TAP_PREFIX}boost:${user.id}`;
-          await redis.set(boostKey, '1', 'EX', 30);
+
+          // 3. Проверка равномерности интервалов (анти-бот)
+          const nowMs = Date.now();
+          await redis.lpush(timesKey, nowMs);
+          await redis.ltrim(timesKey, 0, TAP_JITTER_SAMPLE - 1);
+          await redis.expire(timesKey, 10);
+
+          const rawTimes = await redis.lrange(timesKey, 0, -1);
+          if (rawTimes.length >= TAP_JITTER_SAMPLE) {
+            const times = rawTimes.map(Number).sort((a, b) => b - a); // новые первые
+            const intervals: number[] = [];
+            for (let i = 0; i < times.length - 1; i++) {
+              intervals.push(times[i] - times[i + 1]);
+            }
+            const minI = Math.min(...intervals);
+            const maxI = Math.max(...intervals);
+            if (maxI - minI < TAP_JITTER_MIN_MS) {
+              // Интервалы слишком одинаковые — игнорируем тап, не наказываем
+              const boostTtl = Math.max(0, await redis.ttl(boostKey));
+              const tapCount = parseInt(await redis.get(countKey) ?? '0', 10);
+              return reply.send({ ok: true, boostSeconds: boostTtl, tapsUsed: tapCount, suspicious: true });
+            }
+          }
+
+          // 4. Увеличиваем счётчик сессии
+          const tapCount = await redis.incr(countKey);
+
+          // 5. Добавляем +1 сек к бусту (не превышая максимум)
+          const currentTtl = await redis.ttl(boostKey);
+          const newTtl = Math.min(
+            currentTtl > 0 ? currentTtl + TAP_BOOST_PER_TAP_SEC : TAP_BOOST_PER_TAP_SEC,
+            TAP_BOOST_MAX_SEC,
+          );
+          await redis.set(boostKey, '1', 'EX', newTtl);
+
+          // 6. Обязательная пауза после лимита
+          if (tapCount >= TAP_SESSION_LIMIT) {
+            await redis.set(cooldownKey, '1', 'EX', TAP_COOLDOWN_SEC);
+            await redis.del(countKey);
+          }
+
+          return reply.send({
+            ok: true,
+            boostSeconds: newTtl,
+            tapsUsed: tapCount,
+            tapsRemaining: Math.max(0, TAP_SESSION_LIMIT - tapCount),
+          });
+
         } catch {
-          // Redis недоступен — разрешаем без rate limit (dev mode)
+          // Redis недоступен — пропускаем без эффекта
+          return reply.send({ ok: true, boostSeconds: 0, tapsUsed: 0, tapsRemaining: TAP_SESSION_LIMIT });
         }
-        return reply.send({ ok: true, boostActive: true, boostSeconds: 30 });
       }
 
       // ── Переключение Solo / Pool ───────────

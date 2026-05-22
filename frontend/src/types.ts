@@ -42,13 +42,22 @@ export interface IgcStatus {
   status: 'healthy' | 'mild_surplus' | 'mild_deficit' | 'critical_surplus' | 'critical_deficit';
 }
 
+export interface TapBoost {
+  active:          boolean;
+  secondsLeft:     number;
+  cooldownSeconds: number;
+  tapsUsed:        number;
+  tapsRemaining:   number;
+}
+
 export interface SyncData {
-  user:   UserData;
-  farm:   Farm;
-  gpus:   GPU[];
-  season: SeasonData;
-  igc:    IgcStatus;
-  events: Record<string, unknown>;
+  user:     UserData;
+  farm:     Farm;
+  gpus:     GPU[];
+  season:   SeasonData;
+  igc:      IgcStatus;
+  tapBoost?: TapBoost;
+  events:   Record<string, unknown>;
 }
 
 // GPU specs (mirrors backend constants)
