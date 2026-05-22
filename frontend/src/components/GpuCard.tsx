@@ -79,13 +79,17 @@ export function GpuCard({ gpu, onUpdate }: Props) {
               {gpu.overclocked && ' · ⚡+20%'}
             </div>
             {!isBroken && !isOffline && (
-              <div style={{ fontSize: 11, color: '#9B59B6', marginTop: 2 }}>
-                +{spec.igcPerDay.toFixed(1)} IGC/день
-                {spec.igcMaintPerDay > 0 && (
-                  <span style={{ color: 'rgba(255,255,255,0.3)' }}>
-                    {' '}(−{spec.igcMaintPerDay.toFixed(1)} свет)
-                  </span>
-                )}
+              <div style={{ fontSize: 11, marginTop: 2 }}>
+                <span style={{ color: '#9B59B6' }}>+{spec.igcPerDay.toFixed(1)} IGC/день</span>
+                {(() => {
+                  const extraWatt = gpu.overclocked ? spec.wattBackend * 0.40 * 0.001 * 288 : 0;
+                  const cost = spec.igcCostPerDay + extraWatt;
+                  return cost > 0 ? (
+                    <span style={{ color: 'rgba(255,255,255,0.35)' }}>
+                      {' '}−{cost.toFixed(1)} свет{gpu.overclocked ? ' (+40%)' : ''}
+                    </span>
+                  ) : null;
+                })()}
               </div>
             )}
           </div>
@@ -99,11 +103,19 @@ export function GpuCard({ gpu, onUpdate }: Props) {
       </div>
 
       {/* Health bar */}
-      <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, marginBottom: 10 }}>
-        <div style={{
-          height: '100%', borderRadius: 2, width: `${gpu.health}%`,
-          background: healthColor, transition: 'width 0.3s',
-        }} />
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Здоровье</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: healthColor }}>
+            {isBroken ? '💥 СЛОМАН' : `${Math.round(gpu.health)}%`}
+          </span>
+        </div>
+        <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+          <div style={{
+            height: '100%', borderRadius: 2, width: `${gpu.health}%`,
+            background: healthColor, transition: 'width 0.3s',
+          }} />
+        </div>
       </div>
 
       {/* Кнопки */}

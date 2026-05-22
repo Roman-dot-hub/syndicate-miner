@@ -109,6 +109,14 @@ export function Shop({ data, onUpdate }: Props) {
       <InfraButton label="❄️ Кулер Lv1"  cost="100 IGC" type="cooling_1" action={action} onUpdate={onUpdate} />
       <InfraButton label="❄️ Кулер Lv2"  cost="3 TON"   type="cooling_2" action={action} onUpdate={onUpdate} />
       <InfraButton label="❄️ Кулер Lv3"  cost="15 TON"  type="cooling_3" action={action} onUpdate={onUpdate} />
+
+      {/* Верстак — ремонт GPU */}
+      <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
+        🔧 Верстак (ремонт GPU)
+      </div>
+      <InfraButton label="🔧 Верстак Lv1 (чинит T1–T2)" cost="500 IGC" type="workbench_1" action={action} onUpdate={onUpdate} />
+      <InfraButton label="🔧 Верстак Lv2 (чинит T3–T4)" cost="5 TON"   type="workbench_2" action={action} onUpdate={onUpdate} />
+      <InfraButton label="🔧 Верстак Lv3 (чинит T5–T6)" cost="25 TON"  type="workbench_3" action={action} onUpdate={onUpdate} />
     </div>
   );
 }
