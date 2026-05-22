@@ -678,7 +678,7 @@ Backend отправляет уведомления **напрямую** в Tele
 cd frontend
 npm run dev         # локально на :5173
 npm run build       # production build
-npx vercel --prod   # деплой на Vercel
+vercel deploy --prod --yes   # деплой на Vercel (авто-деплой с GitHub НЕ работает)
 ```
 
 ---
@@ -717,7 +717,8 @@ npx vercel --prod   # деплой на Vercel
 |---|---|
 | Видимость | **Public** (Render требует публичный repo или установку GitHub App) |
 | Ветка | `main` |
-| Auto-deploy Render | ✅ по push в main |
+| Auto-deploy Render | ❌ НЕ работает автоматически — нужен ручной деплой |
+| Auto-deploy Vercel | ❌ НЕ работает автоматически — нужен ручной деплой |
 
 ### Credentials (Render API)
 
@@ -751,3 +752,154 @@ Owner ID:       tea-d86m45ek1jcs739e1j0g
 2. **Бот-процесс**: запустить `bot/` на отдельном хостинге (не Render — там нет long polling из-за free plan sleep)
 3. **Тест через реальный Telegram**: открыть Mini App через `@Syndicate_miner_bot` и проверить синхронизацию с backend
 4. **Stress-test экономики**: `npm run stress-test -- --players=100` перед открытым бета-запуском
+5. **Redis cross-region**: Redis в Frankfurt (red-d86m5hugvqtc73drj2dg), backend в Oregon — эпизодически `Client IP address is not in the allowlist`. Есть fallback в коде, но для production создать новый Redis в Oregon.
+6. **Удалить debug console.log** в `backend/src/routes/sync.ts` после окончания отладки.
+
+---
+
+## Критические баги — решённые (для справки)
+
+### snake_case vs camelCase (PostgreSQL → TypeScript)
+
+PostgreSQL возвращает колонки в snake_case (`ton_balance`, `model_tier`, `cooling_level`). TypeScript-типы фронтенда ожидают camelCase (`tonBalance`, `modelTier`, `coolingLevel`).
+
+**Решение:** mapper в `backend/src/routes/sync.ts` перед `reply.send()`, плюс fallback-чтение в каждом компоненте:
+
+```typescript
+// В компоненте — всегда используй fallback:
+const u = data.user as any;
+const ton = parseFloat(u.tonBalance ?? u.ton_balance ?? '0');
+const tier = gpu.modelTier ?? (gpu as any).model_tier ?? 0;
+```
+
+### PostgreSQL NUMERIC → JS string
+
+`node-postgres` возвращает колонки типа `NUMERIC`/`DECIMAL` как **строки** (`"0.0000"` вместо `0`). Вызов `.toFixed()` на строке — TypeError.
+
+**Правило:** всегда оборачивай в `parseFloat()` перед любой арифметикой или `.toFixed()`.
+
+```typescript
+// ❌ Падает если значение — строка
+user.tonBalance.toFixed(4)
+
+// ✅ Всегда безопасно
+parseFloat(String(user.tonBalance ?? 0)).toFixed(4)
+```
+
+### Маппинг action-типов (frontend → backend)
+
+Frontend и backend использовали разные имена для одного действия. Решение — case alias в `action.ts`:
+
+| Frontend отправляет | Backend обрабатывает | Примечание |
+|---|---|---|
+| `set_mode` | `set_mode` / `set_mining_mode` | Оба варианта через `case` fallthrough |
+| `overclock` | `overclock` / `toggle_overclock` | Аналогично |
+| `refurbish` | `refurbish` / `repair_gpu` | Аналогично |
+| `farm_level_2` | `default:` + `INFRA_COSTS` lookup | Прямое имя типа |
+| `cooling_1` | `default:` + `INFRA_COSTS` lookup | Прямое имя типа |
+| `workbench_1` | `default:` + `INFRA_COSTS` lookup | Прямое имя типа |
+
+### SQL-баг в set_mining_mode
+
+Изначальный код делал `UPDATE farms SET mining_mode = $1` — но поле `mining_mode` находится в таблице `users`, не `farms`. Исправлено на `UPDATE users SET mining_mode = $1 WHERE id = $2`.
+
+---
+
+## Деплой вручную (обязательно после каждого изменения)
+
+### Render (backend)
+
+Render **не деплоит автоматически** при push в GitHub на free tier.
+
+1. Открыть [Render Dashboard](https://dashboard.render.com)
+2. Найти сервис `syndicate-miner-backend`
+3. Нажать **Manual Deploy** → **Deploy latest commit**
+4. Подождать 2-3 минуты
+5. Проверить что instance ID сменился в логах (`[kxfhf]` — последний известный)
+6. Проверить версию: `GET /health` или `curl https://syndicate-miner-backend.onrender.com/health`
+
+Чтобы подтвердить деплой — смотри строку `BUILD: v2-actions-fixed` в логах запуска (или обнови версию в `main.ts` при следующем деплое).
+
+### Vercel (frontend)
+
+Vercel **не деплоит автоматически** при push в GitHub (GitHub integration не настроена).
+
+```bash
+cd "C:\Claude\Syndicate Miner\frontend"
+vercel deploy --prod --yes
+```
+
+После деплоя URL не меняется: `https://frontend-nine-lyart-335p3mweew.vercel.app`
+
+---
+
+## Состояние тестового пользователя
+
+| Поле | Значение |
+|---|---|
+| `tg_user_id` | `1730291634` |
+| `ton_balance` | `10.0000` TON (добавлено вручную через Supabase) |
+| Режим | Pool (solo режим на USB Nano почти ничего не даёт) |
+
+---
+
+## GPU-экономика (актуальные константы)
+
+Фронтенд отображает эти значения. Backend рассчитывает их независимо. Константы зафиксированы в `frontend/src/types.ts` → `GPU_SPECS`.
+
+```
+igcPerDay      = hashrate_GH * 0.05 * 288
+igcCostPerDay  = wattBackend * 0.001 * 288 + maintPerEpoch * 288
+```
+
+При **разгоне (+20% хешрейта)**: дополнительная стоимость электричества `+wattBackend * 0.40 * 0.001 * 288 IGC/день`.
+
+| Тир | Модель | priceTon | igcPerDay | igcCostPerDay | wattBackend |
+|---|---|---|---|---|---|
+| 0 | USB Nano | 0 | 1.44 | 0 | 0 |
+| 1 | RX 580 | 1 | 43.2 | 14.4 | 50 |
+| 2 | GTX 1660 S | 2.5 | 86.4 | 43.2 | 100 |
+| 3 | RTX 3070 | 8 | 216.0 | 216.0 | 200 |
+| 4 | RTX 4090 | 25 | 648.0 | 676.8 | 350 |
+| 5 | ASIC S19 | 70 | 1584.0 | 1785.6 | 1200 |
+| 6 | Квантовый X1 | 200 | 3600.0 | 3600.0 | 500 |
+
+Тир 4+ — расход IGC на свет превышает добычу. Предупреждение показывается в Shop.
+
+---
+
+## UI компоненты — особенности реализации
+
+### GpuCard.tsx
+
+- Пульсирующий зелёный индикатор `●` над emoji GPU — только если статус `active`
+- Строка `Здоровье` со значением `XX%` выводится над health-баром (label + value)
+- Строка IGC: `+XX.X IGC/день − XX.X свет` (если у GPU есть стоимость электричества)
+- При разгоне: `(+40%)` добавляется к стоимости света
+- `spec = GPU_SPECS[tier] ?? GPU_SPECS[0]` — всегда есть fallback на tier 0
+
+### TapToCool.tsx
+
+- Счётчик тапов хранится в `sessionStorage` под ключом `tapToCool_taps`
+- Сбрасывается при закрытии вкладки браузера, но не при переключении между табами TMA
+- `onUpdate()` вызывается каждые 10 тапов (не каждый тап) для экономии запросов
+
+### Shop.tsx — раздел "Верстак"
+
+Верстак открывает возможность ремонта GPU:
+
+| Уровень | Метка | Стоимость | Чинит тиры |
+|---|---|---|---|
+| 1 | 🔧 Верстак Lv1 | 500 IGC | T1–T2 |
+| 2 | 🔧 Верстак Lv2 | 5 TON | T3–T4 |
+| 3 | 🔧 Верстак Lv3 | 25 TON | T5–T6 |
+
+Action-тип передаётся как `workbench_1`, `workbench_2`, `workbench_3` → обрабатывается в `default:` блоке `action.ts` через `INFRA_COSTS`.
+
+### ErrorBoundary + global error handler
+
+В `frontend/src/App.tsx` — React class ErrorBoundary обёртывает всё приложение. Показывает текст ошибки вместо чёрного экрана при ошибке рендера.
+
+В `frontend/src/main.tsx` — `window.addEventListener('error', ...)` и `window.addEventListener('unhandledrejection', ...)` — ловят краши до монтирования React. Показывают fallback в `#root` div.
+
+---

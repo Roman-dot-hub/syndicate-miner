@@ -1,11 +1,14 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useAction } from '../hooks/useAction';
 import type { TapBoost } from '../types';
 
+const TAP_SESSION_LIMIT = 3600;
+
 interface Props {
-  onUpdate: () => void;
-  tapBoost?: TapBoost;
+  onUpdate:    () => void;
+  tapBoost?:   TapBoost;
+  onBoostTap?: (boostSeconds: number) => void;
 }
 
 function fmtTime(sec: number): string {
@@ -17,15 +20,39 @@ function fmtTime(sec: number): string {
   return `${s}с`;
 }
 
-export function TapToCool({ onUpdate, tapBoost }: Props) {
+export function TapToCool({ onUpdate, tapBoost, onBoostTap }: Props) {
   const { action } = useAction();
-  const [localTaps, setLocalTaps] = useState(0);
+  // Локальный счётчик — обновляется сразу при тапе, sync корректирует его
+  const [localTapsUsed, setLocalTapsUsed] = useState(() =>
+    parseInt(localStorage.getItem('tapCool_count') ?? '0', 10),
+  );
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   const lastTap  = useRef(0);
   const rippleId = useRef(0);
 
+  // Синхронизация с сервером: если сервер вернул значение — берём максимум
+  useEffect(() => {
+    const serverCount = tapBoost?.tapsUsed ?? 0;
+    if (serverCount > 0) {
+      setLocalTapsUsed(prev => {
+        const next = Math.max(prev, serverCount);
+        localStorage.setItem('tapCool_count', String(next));
+        return next;
+      });
+    }
+  }, [tapBoost?.tapsUsed]);
+
+  // Сбрасываем локальный счётчик когда сервер говорит cooldown (счётчик сброшен)
+  useEffect(() => {
+    if ((tapBoost?.cooldownSeconds ?? 0) > 0) {
+      setLocalTapsUsed(0);
+      localStorage.setItem('tapCool_count', '0');
+    }
+  }, [tapBoost?.cooldownSeconds]);
+
   const inCooldown = (tapBoost?.cooldownSeconds ?? 0) > 0;
   const boostActive = tapBoost?.active ?? false;
+  const displayTaps = Math.min(localTapsUsed, TAP_SESSION_LIMIT);
 
   const handleTap = async (e: React.MouseEvent) => {
     if (inCooldown) return;
@@ -41,12 +68,18 @@ export function TapToCool({ onUpdate, tapBoost }: Props) {
     setRipples(r => [...r, { id, x, y }]);
     setTimeout(() => setRipples(r => r.filter(rp => rp.id !== id)), 600);
 
-    setLocalTaps(t => t + 1);
+    // Оптимистичное обновление счётчика
+    setLocalTapsUsed(prev => {
+      const next = Math.min(prev + 1, TAP_SESSION_LIMIT);
+      localStorage.setItem('tapCool_count', String(next));
+      return next;
+    });
     WebApp.HapticFeedback.impactOccurred('light');
 
     try {
-      await action('tap_cool');
-      if (localTaps % 10 === 9) onUpdate();
+      const res = await action('tap_cool');
+      if (res?.boostSeconds > 0) onBoostTap?.(res.boostSeconds);
+      if (localTapsUsed % 10 === 9) onUpdate();
     } catch {
       // rate limit или кулдаун — молча, sync обновит состояние
     }
@@ -89,7 +122,7 @@ export function TapToCool({ onUpdate, tapBoost }: Props) {
       <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, pointerEvents: 'none' }}>
         {inCooldown
           ? 'Нельзя тапать во время паузы'
-          : '1 тап = +1 сек буста · макс 1 час · потом 1 час паузы'}
+          : '1 тап = +1 сек буста · макс 1 час · потом 6 часов паузы'}
       </div>
 
       {/* Основной таймер */}
@@ -134,19 +167,19 @@ export function TapToCool({ onUpdate, tapBoost }: Props) {
         <div style={{ marginTop: 12, pointerEvents: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
             <span>Тапов в сессии</span>
-            <span>{tapBoost?.tapsUsed ?? 0} / 3600</span>
+            <span>{displayTaps} / {TAP_SESSION_LIMIT}</span>
           </div>
           <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2 }}>
             <div style={{
               height: '100%', borderRadius: 2,
-              width: `${((tapBoost?.tapsUsed ?? 0) / 3600) * 100}%`,
-              background: (tapBoost?.tapsUsed ?? 0) > 3000 ? '#E74C3C' : '#0098EA',
-              transition: 'width 0.3s',
+              width: `${(displayTaps / TAP_SESSION_LIMIT) * 100}%`,
+              background: displayTaps > 3000 ? '#E74C3C' : '#0098EA',
+              transition: 'width 0.1s',
             }} />
           </div>
-          {(tapBoost?.tapsRemaining ?? 3600) < 200 && (
+          {TAP_SESSION_LIMIT - displayTaps < 200 && (
             <div style={{ fontSize: 10, color: '#E74C3C', marginTop: 3 }}>
-              ⚠️ Осталось {tapBoost?.tapsRemaining} тапов до паузы
+              ⚠️ Осталось {TAP_SESSION_LIMIT - displayTaps} тапов до паузы
             </div>
           )}
         </div>

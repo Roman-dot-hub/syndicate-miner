@@ -1,0 +1,28 @@
+{
+  "type": "web_service",
+  "name": "syndicate-miner-backend",
+  "ownerId": "tea-d86m45ek1jcs739e1j0g",
+  "region": "frankfurt",
+  "autoDeploy": "yes",
+  "branch": "main",
+  "repo": "https://github.com/Roman-dot-hub/syndicate-miner",
+  "rootDir": "backend",
+  "serviceDetails": {
+    "env": "node",
+    "buildCommand": "npm ci && npm run build",
+    "startCommand": "node dist/main.js",
+    "plan": "free",
+    "healthCheckPath": "/health",
+    "numInstances": 1,
+    "pullRequestPreviewsEnabled": "no"
+  },
+  "envVars": [
+    {"key": "NODE_ENV", "value": "production"},
+    {"key": "PORT", "value": "3000"},
+    {"key": "NODE_TLS_REJECT_UNAUTHORIZED", "value": "0"},
+    {"key": "BOT_TOKEN", "value": "8818633899:AAHeXesqzZL9Pzo4uUJd8XN_YY_fiMW6AWY"},
+    {"key": "DATABASE_URL", "value": "postgresql://postgres:QW2XpNnk7IdlP40g@db.xzyhrfvrywkctgcsxuvm.supabase.co:5432/postgres?sslmode=require"},
+    {"key": "REDIS_URL", "value": "rediss://red-d86m5hugvqtc73drj2dg:3OLFQ5iMOuF96qPORpIJx3QgWxrVCW7h@frankfurt-keyvalue.render.com:6379"},
+    {"key": "TON_ENDPOINT", "value": "https://testnet.toncenter.com/api/v2/"}
+  ]
+}
