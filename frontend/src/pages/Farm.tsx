@@ -1,4 +1,5 @@
-import type { SyncData } from '../types';
+import { useState, useEffect } from 'react';
+import type { SyncData, TapBoost } from '../types';
 import { FARM_LEVELS } from '../types';
 import { GpuCard } from '../components/GpuCard';
 import { TapToCool } from '../components/TapToCool';
@@ -6,6 +7,32 @@ import { TapToCool } from '../components/TapToCool';
 interface Props { data: SyncData; onUpdate: () => void }
 
 export function Farm({ data, onUpdate }: Props) {
+  const [boostEndTime, setBoostEndTime] = useState(0);
+  const [, setTick] = useState(0);
+
+  // Тикаем каждую секунду пока буст активен
+  useEffect(() => {
+    if (boostEndTime <= Date.now()) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [boostEndTime]);
+
+  // Объединяем локальный таймер с данными сервера
+  const localSecondsLeft = Math.max(0, Math.round((boostEndTime - Date.now()) / 1000));
+  const serverBoost = data.tapBoost;
+  const mergedBoost: TapBoost = {
+    active:          localSecondsLeft > 0 || (serverBoost?.active ?? false),
+    secondsLeft:     Math.max(localSecondsLeft, serverBoost?.secondsLeft ?? 0),
+    cooldownSeconds: serverBoost?.cooldownSeconds ?? 0,
+    tapsUsed:        serverBoost?.tapsUsed ?? 0,
+    tapsRemaining:   serverBoost?.tapsRemaining ?? 3600,
+  };
+
+  const handleBoostTap = (boostSeconds: number) => {
+    const newEnd = Date.now() + boostSeconds * 1000;
+    setBoostEndTime(prev => Math.max(prev, newEnd));
+  };
+
   const rawFarm = data.farm as any;
   const farm = {
     ...data.farm,
@@ -43,7 +70,7 @@ export function Farm({ data, onUpdate }: Props) {
       </div>
 
       {/* Tap to Cool */}
-      <TapToCool onUpdate={onUpdate} />
+      <TapToCool onUpdate={onUpdate} tapBoost={mergedBoost} onBoostTap={handleBoostTap} />
 
       {/* GPU карточки */}
       {gpus.length === 0 ? (
@@ -53,7 +80,7 @@ export function Farm({ data, onUpdate }: Props) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {gpus.map(gpu => (
-            <GpuCard key={gpu.id} gpu={gpu} onUpdate={onUpdate} />
+            <GpuCard key={gpu.id} gpu={gpu} onUpdate={onUpdate} tapBoost={mergedBoost} />
           ))}
         </div>
       )}

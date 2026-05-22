@@ -1,15 +1,25 @@
 import { useState } from 'react';
 import WebApp from '@twa-dev/sdk';
-import type { GPU } from '../types';
+import type { GPU, TapBoost } from '../types';
 import { GPU_SPECS } from '../types';
 import { useAction } from '../hooks/useAction';
+
+function fmtTime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}ч ${m.toString().padStart(2, '0')}м ${s.toString().padStart(2, '0')}с`;
+  if (m > 0) return `${m}м ${s.toString().padStart(2, '0')}с`;
+  return `${s}с`;
+}
 
 interface Props {
   gpu:      GPU;
   onUpdate: () => void;
+  tapBoost?: TapBoost;
 }
 
-export function GpuCard({ gpu, onUpdate }: Props) {
+export function GpuCard({ gpu, onUpdate, tapBoost }: Props) {
   const { action } = useAction();
   const tier = gpu.modelTier ?? (gpu as any).model_tier ?? 0;
   const spec = GPU_SPECS[tier] ?? GPU_SPECS[0];
@@ -92,6 +102,15 @@ export function GpuCard({ gpu, onUpdate }: Props) {
                 })()}
               </div>
             )}
+            {!isBroken && !isOffline && tapBoost?.active && (
+              <div style={{
+                marginTop: 3, fontSize: 10, fontWeight: 600,
+                color: '#0098EA',
+                animation: 'boostPulse 1.5s ease-in-out infinite',
+              }}>
+                ⚡ +10% буст · {fmtTime(tapBoost.secondsLeft)}
+              </div>
+            )}
           </div>
         </div>
         <div style={{
@@ -131,7 +150,10 @@ export function GpuCard({ gpu, onUpdate }: Props) {
           </button>
         )}
       </div>
-      <style>{`@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.3)} }`}</style>
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.3)} }
+        @keyframes boostPulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+      `}</style>
     </div>
   );
 }

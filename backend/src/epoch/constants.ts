@@ -91,6 +91,6 @@ export const REDIS_SPEND_PREFIX  = 'spend:daily:';
 export const TAP_BOOST_PER_TAP_SEC  = 1;       // +1 сек за тап
 export const TAP_BOOST_MAX_SEC      = 3600;    // макс буст 1 час
 export const TAP_SESSION_LIMIT      = 3600;    // тапов до обязательной паузы
-export const TAP_COOLDOWN_SEC       = 3600;    // длительность паузы (1 час)
+export const TAP_COOLDOWN_SEC       = 21600;   // длительность паузы (6 часов)
 export const TAP_JITTER_MIN_MS      = 15;      // мин. разброс интервалов (бот < этого)
 export const TAP_JITTER_SAMPLE      = 5;       // кол-во тапов для проверки интервалов
