@@ -1,6 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
+import type { ReactNode } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useSync } from './hooks/useSync';
+
+// ── Error Boundary — catches React render crashes ──
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(e: unknown) {
+    return { error: String(e) };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: '100vh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          background: '#17212b', color: '#fff', gap: 12, padding: 24,
+        }}>
+          <div style={{ fontSize: 32 }}>⚠️</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Ошибка рендера</div>
+          <div style={{
+            fontSize: 11, color: 'rgba(255,255,255,0.5)', wordBreak: 'break-all',
+            background: 'rgba(255,0,0,0.1)', padding: 12, borderRadius: 8,
+            maxWidth: 320, textAlign: 'center',
+          }}>
+            {this.state.error}
+          </div>
+          <button onClick={() => window.location.reload()} style={{
+            marginTop: 8, padding: '8px 24px', borderRadius: 8, border: 'none',
+            background: '#0098EA', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}>
+            Перезагрузить
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { BalanceBar } from './components/BalanceBar';
 import { Farm }      from './pages/Farm';
 import { Shop }      from './pages/Shop';
@@ -54,7 +94,16 @@ export default function App() {
     />
   );
 
+  if (!data.user || !data.farm) return (
+    <Splash
+      text="Данные не загружены"
+      sub={`user=${JSON.stringify(data.user)?.slice(0,60)}`}
+      retry={sync}
+    />
+  );
+
   return (
+  <ErrorBoundary>
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
       background: '#17212b', color: '#fff',
@@ -98,6 +147,7 @@ export default function App() {
         ))}
       </nav>
     </div>
+  </ErrorBoundary>
   );
 }
 
