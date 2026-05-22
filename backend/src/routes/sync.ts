@@ -13,6 +13,8 @@ import { telegramAuthHook } from '../auth/telegramAuth';
 import { sync }             from '../db/queries';
 import { getLiveIgcStatus } from '../monitoring/igcMonitor';
 import { sendTgMessage }    from '../notifications/sendTgNotification';
+import { redis }            from '../redis/client';
+import { REDIS_TAP_PREFIX } from '../epoch/constants';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -72,6 +74,13 @@ export async function syncRoutes(app: FastifyInstance) {
       ? poolRow.drip_rate * (1 + 0.25 * Math.sin(2 * Math.PI * poolRow.cycle_day / 28))
       : 0;
 
+    // ── Tap-to-Cool буст ─────────────────────
+    let tapBoost = { active: false, secondsLeft: 0 };
+    try {
+      const ttl = await redis.ttl(`${REDIS_TAP_PREFIX}boost:${user.id}`);
+      if (ttl > 0) tapBoost = { active: true, secondsLeft: ttl };
+    } catch { /* Redis недоступен */ }
+
     // ── Активные системные события ────────────
     const { rows: events } = await pool.query(
       `SELECT type, payload FROM system_events WHERE active_until > NOW()`,
@@ -123,6 +132,7 @@ export async function syncRoutes(app: FastifyInstance) {
           poolTon:    parseFloat(poolRow?.reserve_pool_ton ?? '0'),
           totalPaid:  parseFloat(poolRow?.total_paid_out ?? '0'),
         },
+        tapBoost,
         events: events.reduce((acc: Record<string, any>, e: any) => {
           acc[e.type] = e.payload;
           return acc;

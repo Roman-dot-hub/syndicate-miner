@@ -22,6 +22,7 @@ import {
   REFERRAL_L2_HASHRATE_BONUS,
   REDIS_EPOCH_LOCK,
   REDIS_GLOBAL_H,
+  REDIS_TAP_PREFIX,
   EPOCH_INTERVAL_MS,
 } from './constants';
 
@@ -191,7 +192,17 @@ export async function runEpoch(): Promise<EpochResult | null> {
         if (ref) refHashrate += (ref.baseHashrate ?? 0) * REFERRAL_L2_HASHRATE_BONUS;
       }
 
-      const totalUserH = farmHashrate + refHashrate;
+      let totalUserH = farmHashrate + refHashrate;
+
+      // Применяем буст от Tap-to-Cool (+10% если ключ в Redis жив)
+      try {
+        const boostTtl = await redis.ttl(`${REDIS_TAP_PREFIX}boost:${user.id}`);
+        if (boostTtl > 0) {
+          totalUserH *= 1.10;
+          console.log(`[Epoch] ❄️ Tap boost: user ${user.id} ${(totalUserH / 1.1).toFixed(2)} → ${totalUserH.toFixed(2)} H`);
+        }
+      } catch { /* Redis недоступен — без буста */ }
+
       globalHashrate  += totalUserH;
       activeMinerCount++;
 
