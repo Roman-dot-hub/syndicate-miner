@@ -131,8 +131,9 @@ export async function actionRoutes(app: FastifyInstance) {
       }
 
       // ── Разгон / выключение разгона ────────
+      case 'overclock':
       case 'toggle_overclock': {
-        const { gpuId } = body as { gpuId: string };
+        const gpuId: string = body.gpuId ?? body.gpu_id;
         const { rows: [gpu] } = await pool.query(
           `SELECT id, overclocked, health FROM gpus WHERE id = $1 AND user_id = $2`,
           [gpuId, user.id],
@@ -149,8 +150,9 @@ export async function actionRoutes(app: FastifyInstance) {
       }
 
       // ── Ремонт карты (базовый) ─────────────
+      case 'refurbish':
       case 'repair_gpu': {
-        const { gpuId } = body as { gpuId: string };
+        const gpuId: string = body.gpuId ?? body.gpu_id;
         const { rows: [gpu] } = await pool.query(
           `SELECT g.*, f.workbench_level
            FROM gpus g JOIN farms f ON f.id = g.farm_id
@@ -201,13 +203,14 @@ export async function actionRoutes(app: FastifyInstance) {
       }
 
       // ── Переключение Solo / Pool ───────────
+      case 'set_mode':
       case 'set_mining_mode': {
         const { mode } = body as { mode: 'pool' | 'solo' };
         if (!['pool', 'solo'].includes(mode)) {
           return reply.code(400).send({ error: 'mode должен быть pool или solo' });
         }
         await pool.query(
-          `UPDATE farms SET mining_mode = $1 WHERE user_id = $2`,
+          `UPDATE users SET mining_mode = $1 WHERE id = $2`,
           [mode, user.id],
         );
         return reply.send({ ok: true, mode });
@@ -283,8 +286,77 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, upgraded: upgradeType });
       }
 
-      default:
+      // ── Покупка инфраструктуры (прямой вызов) ─
+      default: {
+        // Фронтенд может слать тип апгрейда напрямую: 'farm_level_2', 'cooling_1' и т.д.
+        if (INFRA_COSTS[type]) {
+          body.upgradeType = type;
+          body.type = 'upgrade_infra';
+          // fall through to upgrade_infra via recursive re-dispatch would be complex,
+          // so we inline the logic here:
+          const cost = INFRA_COSTS[type];
+          const upgradeType = type;
+
+          if (upgradeType === 'farm_level_4' && currentPhase < 2) {
+            return reply.code(403).send({ error: 'Ангар доступен с Фазы 2' });
+          }
+          if (cost.ton > 0 && parseFloat(user.ton_balance) < cost.ton) {
+            return reply.code(400).send({ error: 'Недостаточно TON' });
+          }
+          if (cost.igc > 0 && parseFloat(user.igc_balance) < cost.igc) {
+            return reply.code(400).send({ error: 'Недостаточно IGC' });
+          }
+
+          await pool.query(`BEGIN`);
+          try {
+            if (cost.ton > 0) {
+              await pool.query(
+                `UPDATE users SET ton_balance = ton_balance - $1 WHERE id = $2`,
+                [cost.ton, user.id],
+              );
+              await pool.query(
+                `UPDATE pool_stats SET
+                   reserve_pool_ton = reserve_pool_ton + $1,
+                   admin_earned_ton = admin_earned_ton + $2
+                 WHERE id = 1`,
+                [cost.ton * 0.9, cost.ton * 0.1],
+              );
+            }
+            if (cost.igc > 0) {
+              await pool.query(
+                `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
+                [cost.igc, user.id],
+              );
+            }
+            if (upgradeType.startsWith('farm_level_')) {
+              const level = parseInt(upgradeType.split('_').pop()!);
+              await pool.query(
+                `UPDATE farms SET level = $1, max_slots = $2 WHERE user_id = $3`,
+                [level, cost.maxSlots, user.id],
+              );
+            } else if (upgradeType.startsWith('cooling_')) {
+              const lvl = parseInt(upgradeType.split('_').pop()!);
+              await pool.query(
+                `UPDATE farms SET cooling_level = $1 WHERE user_id = $2`,
+                [lvl, user.id],
+              );
+            } else if (upgradeType.startsWith('workbench_')) {
+              const lvl = parseInt(upgradeType.split('_').pop()!);
+              await pool.query(
+                `UPDATE farms SET workbench_level = $1 WHERE user_id = $2`,
+                [lvl, user.id],
+              );
+            }
+            await pool.query(`COMMIT`);
+          } catch (e) {
+            await pool.query(`ROLLBACK`);
+            throw e;
+          }
+          return reply.send({ ok: true, upgraded: upgradeType });
+        }
+
         return reply.code(400).send({ error: `Неизвестный тип действия: ${type}` });
+      }
     }
   });
 }
