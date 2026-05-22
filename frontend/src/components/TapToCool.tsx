@@ -4,7 +4,9 @@ import { useAction } from '../hooks/useAction';
 
 export function TapToCool({ onUpdate }: { onUpdate: () => void }) {
   const { action } = useAction();
-  const [taps, setTaps]       = useState(0);
+  const [taps, setTaps] = useState(() => {
+    return parseInt(sessionStorage.getItem('tapToCool_taps') ?? '0', 10);
+  });
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   const lastTap = useRef(0);
   let rippleId  = useRef(0);
@@ -22,7 +24,11 @@ export function TapToCool({ onUpdate }: { onUpdate: () => void }) {
     setRipples(r => [...r, { id, x, y }]);
     setTimeout(() => setRipples(r => r.filter(rp => rp.id !== id)), 600);
 
-    setTaps(t => t + 1);
+    setTaps(t => {
+      const next = t + 1;
+      sessionStorage.setItem('tapToCool_taps', String(next));
+      return next;
+    });
     WebApp.HapticFeedback.impactOccurred('light');
 
     try {

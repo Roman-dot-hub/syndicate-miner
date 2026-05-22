@@ -59,7 +59,18 @@ export function GpuCard({ gpu, onUpdate }: Props) {
       {/* Шапка */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 22 }}>{spec.emoji}</span>
+          <div style={{ position: 'relative' }}>
+            <span style={{ fontSize: 22 }}>{spec.emoji}</span>
+            {!isBroken && !isOffline && (
+              <span style={{
+                position: 'absolute', top: 0, right: -2,
+                width: 8, height: 8, borderRadius: '50%',
+                background: '#2ECC71',
+                boxShadow: '0 0 6px #2ECC71',
+                animation: 'pulse 1.5s ease-in-out infinite',
+              }} />
+            )}
+          </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{spec.name}</div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
@@ -98,6 +109,7 @@ export function GpuCard({ gpu, onUpdate }: Props) {
           </button>
         )}
       </div>
+      <style>{`@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.3)} }`}</style>
     </div>
   );
 }
