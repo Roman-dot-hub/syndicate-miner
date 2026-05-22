@@ -12,9 +12,9 @@ export function Dashboard({ data, onUpdate }: Props) {
   const raw  = data.user as any;
   const user = {
     ...data.user,
-    tonBalance: raw.tonBalance ?? raw.ton_balance ?? 0,
-    igcBalance: raw.igcBalance ?? raw.igc_balance ?? 0,
-    miningMode: raw.miningMode ?? raw.mining_mode ?? 'pool',
+    tonBalance: parseFloat(raw.tonBalance ?? raw.ton_balance ?? '0'),
+    igcBalance: parseFloat(raw.igcBalance ?? raw.igc_balance ?? '0'),
+    miningMode: (raw.miningMode ?? raw.mining_mode ?? 'pool') as 'pool' | 'solo',
   };
   const { season, igc } = data;
   const { action } = useAction();
