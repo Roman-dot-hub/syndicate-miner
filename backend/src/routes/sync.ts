@@ -77,15 +77,17 @@ export async function syncRoutes(app: FastifyInstance) {
     // ── Tap-to-Cool буст ─────────────────────
     let tapBoost = { active: false, secondsLeft: 0, cooldownSeconds: 0, tapsUsed: 0, tapsRemaining: TAP_SESSION_LIMIT };
     try {
-      const [boostTtl, cooldownTtl, tapCountRaw] = await Promise.all([
-        redis.ttl(`${REDIS_TAP_PREFIX}boost:${user.id}`),
+      const nowSec = Math.floor(Date.now() / 1000);
+      const [storedEndRaw, cooldownTtl, tapCountRaw] = await Promise.all([
+        redis.get(`${REDIS_TAP_PREFIX}end:${user.id}`),
         redis.ttl(`${REDIS_TAP_PREFIX}cooldown:${user.id}`),
         redis.get(`${REDIS_TAP_PREFIX}count:${user.id}`),
       ]);
-      const tapsUsed = parseInt(tapCountRaw ?? '0', 10);
+      const secondsLeft = Math.max(0, parseInt(storedEndRaw ?? '0', 10) - nowSec);
+      const tapsUsed    = parseInt(tapCountRaw ?? '0', 10);
       tapBoost = {
-        active:          boostTtl > 0,
-        secondsLeft:     Math.max(0, boostTtl),
+        active:          secondsLeft > 0,
+        secondsLeft,
         cooldownSeconds: Math.max(0, cooldownTtl),
         tapsUsed,
         tapsRemaining:   Math.max(0, TAP_SESSION_LIMIT - tapsUsed),

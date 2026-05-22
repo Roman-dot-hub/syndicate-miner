@@ -194,12 +194,13 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       let totalUserH = farmHashrate + refHashrate;
 
-      // Применяем буст от Tap-to-Cool (+10% если ключ в Redis жив)
+      // Применяем буст от Tap-to-Cool (+10% если boost_end > now)
       try {
-        const boostTtl = await redis.ttl(`${REDIS_TAP_PREFIX}boost:${user.id}`);
-        if (boostTtl > 0) {
+        const nowSec   = Math.floor(Date.now() / 1000);
+        const storedEnd = parseInt(await redis.get(`${REDIS_TAP_PREFIX}end:${user.id}`) ?? '0', 10);
+        if (storedEnd > nowSec) {
           totalUserH *= 1.10;
-          console.log(`[Epoch] ❄️ Tap boost: user ${user.id} ${(totalUserH / 1.1).toFixed(2)} → ${totalUserH.toFixed(2)} H`);
+          console.log(`[Epoch] ❄️ Tap boost: user ${user.id} → ${totalUserH.toFixed(2)} H (+10%)`);
         }
       } catch { /* Redis недоступен — без буста */ }
 
