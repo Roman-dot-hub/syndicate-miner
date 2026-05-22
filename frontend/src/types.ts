@@ -50,6 +50,11 @@ export interface TapBoost {
   tapsRemaining:   number;
 }
 
+export interface NetworkStats {
+  totalUsers:   number;
+  activeMiners: number;
+}
+
 export interface SyncData {
   user:     UserData;
   farm:     Farm;
@@ -57,6 +62,7 @@ export interface SyncData {
   season:   SeasonData;
   igc:      IgcStatus;
   tapBoost?: TapBoost;
+  network?: NetworkStats;
   events:   Record<string, unknown>;
 }
 

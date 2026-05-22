@@ -121,6 +121,8 @@ export function Dashboard({ data, onUpdate }: Props) {
           icon=""
         />
         <StatCard label="Фаза пула" value={`Фаза ${season.phase}`} icon="🔄" />
+        <StatCard label="В сети" value={`${data.network?.totalUsers ?? '—'} чел.`} icon="👥" />
+        <StatCard label="Майнеров" value={`${data.network?.activeMiners ?? '—'} GPU`} icon="🖥️" />
       </div>
 
       {/* Пул */}

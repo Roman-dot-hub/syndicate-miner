@@ -94,6 +94,13 @@ export async function syncRoutes(app: FastifyInstance) {
       };
     } catch { /* Redis недоступен */ }
 
+    // ── Сетевая статистика ────────────────────
+    const { rows: [netStats] } = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM users)                         AS total_users,
+         (SELECT COUNT(*) FROM gpus WHERE status = 'active') AS active_miners`,
+    );
+
     // ── Активные системные события ────────────
     const { rows: events } = await pool.query(
       `SELECT type, payload FROM system_events WHERE active_until > NOW()`,
@@ -146,6 +153,10 @@ export async function syncRoutes(app: FastifyInstance) {
           totalPaid:  parseFloat(poolRow?.total_paid_out ?? '0'),
         },
         tapBoost,
+        network: {
+          totalUsers:    parseInt(netStats?.total_users  ?? '0', 10),
+          activeMiners:  parseInt(netStats?.active_miners ?? '0', 10),
+        },
         events: events.reduce((acc: Record<string, any>, e: any) => {
           acc[e.type] = e.payload;
           return acc;
