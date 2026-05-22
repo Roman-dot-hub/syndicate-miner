@@ -10,6 +10,8 @@ export function Shop({ data, onUpdate }: Props) {
   const { action } = useAction();
   const [busy, setBusy] = useState<number | null>(null);
   const phase = data.season.phase;
+  const rawUser   = data.user as any;
+  const tonBalance = parseFloat(rawUser.tonBalance ?? rawUser.ton_balance ?? '0');
 
   const buy = async (tier: number) => {
     if (busy !== null) return;
@@ -35,13 +37,13 @@ export function Shop({ data, onUpdate }: Props) {
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
-        Доступно в Фазе {phase} · Баланс: {data.user.tonBalance.toFixed(3)} TON
+        Доступно в Фазе {phase} · Баланс: {tonBalance.toFixed(3)} TON
       </div>
 
       {Object.entries(GPU_SPECS).map(([tierStr, spec]) => {
         const tier      = Number(tierStr);
         const locked    = phase < spec.availablePhase;
-        const canAfford = data.user.tonBalance >= spec.priceTon;
+        const canAfford = tonBalance >= spec.priceTon;
         const isBusy    = busy === tier;
 
         return (
