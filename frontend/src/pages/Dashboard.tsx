@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
-import { SEASON_EMOJI } from '../types';
+import { SEASON_EMOJI, GPU_SPECS } from '../types';
+
+function fmtH(h: number): string {
+  if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
+  if (h >= 1)    return `${h.toFixed(2)} GH/s`;
+  return `${(h * 1000).toFixed(0)} MH/s`;
+}
 import { FearGreedIndex } from '../components/FearGreedIndex';
 import { useAction } from '../hooks/useAction';
 import { useTonConnect } from '../hooks/useTonConnect';
@@ -24,8 +30,9 @@ export function Dashboard({ data, onUpdate }: Props) {
   const totalHashrate = data.gpus
     .filter(g => g.status === 'active')
     .reduce((s, g) => {
-      // Только отображение — расчёт на backend
-      return s + (g.overclocked ? 1.1 : 1);
+      const spec = GPU_SPECS[g.modelTier] ?? GPU_SPECS[0];
+      const mult = (g.overclocked ? 1.20 : 1.0) * (g.undervolted ? 0.85 : 1.0);
+      return s + spec.hashrate * mult;
     }, 0);
 
   const toggleMode = async () => {
@@ -113,7 +120,7 @@ export function Dashboard({ data, onUpdate }: Props) {
 
       {/* Статы */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <StatCard label="Хешрейт" value={`~${totalHashrate.toFixed(0)} H/s`} icon="⚡" />
+        <StatCard label="Хешрейт" value={fmtH(totalHashrate)} icon="⚡" />
         <StatCard label="Ставка" value={`${dripPct}%/день`} icon="📈" />
         <StatCard
           label={`${SEASON_EMOJI[season.name]} Сезон`}

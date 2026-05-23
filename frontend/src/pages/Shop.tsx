@@ -2,6 +2,12 @@ import { useState } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 import { GPU_SPECS } from '../types';
+
+function fmtH(h: number): string {
+  if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
+  if (h >= 1)    return `${h.toFixed(2)} GH/s`;
+  return `${(h * 1000).toFixed(0)} MH/s`;
+}
 import { useAction } from '../hooks/useAction';
 
 interface Props { data: SyncData; onUpdate: () => void }
@@ -40,7 +46,7 @@ export function Shop({ data, onUpdate }: Props) {
         Доступно в Фазе {phase} · Баланс: {tonBalance.toFixed(3)} TON
       </div>
 
-      {Object.entries(GPU_SPECS).map(([tierStr, spec]) => {
+      {Object.entries(GPU_SPECS).filter(([tierStr]) => Number(tierStr) !== 0).map(([tierStr, spec]) => {
         const tier      = Number(tierStr);
         const locked    = phase < spec.availablePhase;
         const canAfford = tonBalance >= spec.priceTon;
@@ -59,7 +65,7 @@ export function Shop({ data, onUpdate }: Props) {
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{spec.name}</div>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                    {spec.hashrate} H/s · {spec.watt}W
+                    {fmtH(spec.hashrate)} · {spec.watt}W
                   </div>
                   {locked && (
                     <div style={{ fontSize: 11, color: '#E74C3C', marginTop: 2 }}>
