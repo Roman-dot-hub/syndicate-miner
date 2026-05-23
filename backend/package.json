@@ -1,7 +1,7 @@
 {
-  "name": "ton-miner-backend",
+  "name": "syndicate-server",
   "version": "0.1.0",
-  "description": "GameFi TON Mining Simulator — Backend",
+  "description": "Syndicate GameFi — Backend",
   "main": "dist/main.js",
   "scripts": {
     "dev": "tsx --env-file=.env --watch src/main.ts",
