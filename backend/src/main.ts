@@ -27,6 +27,7 @@ app.register(cors, {
     'https://t.me',
     /\.telegram\.org$/,
     /\.vercel\.app$/,
+    /\.railway\.app$/,
   ],
   methods: ['GET', 'POST'],
 });
