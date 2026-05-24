@@ -59,7 +59,9 @@ const COOLING_LEVELS = [
     cost: '100 IGC',
     costIgc: 100, costTon: 0,
     kTemp: 1.3,
-    perks: ['Износ ×1.3 (было ×1.8)', 'Снижает перегрев', 'Меньше поломок'],
+    wearLabel: '−28% износа vs без кулера',
+    wearColor: '#F39C12',
+    perks: ['Без кулера GPU ломаются вдвое чаще', 'Снижает перегрев — хорошее начало', 'Рекомендуется купить сразу'],
     availablePhase: 1,
   },
   {
@@ -70,7 +72,9 @@ const COOLING_LEVELS = [
     cost: '3 TON',
     costIgc: 0, costTon: 3,
     kTemp: 1.0,
-    perks: ['Износ ×1.0 (норма)', 'Базовый срок жизни GPU', 'Рекомендуется для RTX'],
+    wearLabel: 'Нормальный износ — базовая норма',
+    wearColor: '#2ECC71',
+    perks: ['Полностью убирает штраф за перегрев', 'GPU живут столько, сколько задумано', 'Достаточно для RX 580 — RTX 3070'],
     availablePhase: 1,
   },
   {
@@ -81,7 +85,9 @@ const COOLING_LEVELS = [
     cost: '15 TON',
     costIgc: 0, costTon: 15,
     kTemp: 0.85,
-    perks: ['Износ ×0.85 (−15%)', 'GPU живут дольше нормы', 'Обязателен для ASIC'],
+    wearLabel: '−15% износа даже ниже нормы',
+    wearColor: '#0098EA',
+    perks: ['GPU стареют медленнее нормы', 'Реже ломаются дорогие карты (RTX 4090, ASIC)', 'Окупается на топ-тирах'],
     availablePhase: 1,
   },
 ];
@@ -340,7 +346,7 @@ export function Shop({ data, onUpdate }: Props) {
                   {c.name}
                 </div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                  Износ ×{c.kTemp} · {c.cost}
+                  {c.wearLabel}
                 </div>
               </div>
               {owned
@@ -355,13 +361,30 @@ export function Shop({ data, onUpdate }: Props) {
 
             {open && (
               <div style={expandedBox}>
-                <Row label="Коэфф. износа" value={`×${c.kTemp}`} color={c.kTemp < 1 ? '#2ECC71' : c.kTemp === 1 ? '#F39C12' : '#E74C3C'} />
-                <Row label="Без кулера" value="×1.8 износа" color="#E74C3C" />
+                <Row label="Скорость износа" value={c.wearLabel} color={c.wearColor} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, marginBottom: 4 }}>
+                  {([
+                    { label: 'Нет кулера', v: '×1.8', bad: true },
+                    { label: 'Lv1', v: '×1.3', warn: true },
+                    { label: 'Lv2', v: '×1.0' },
+                    { label: 'Lv3', v: '×0.85', good: true },
+                  ] as any[]).map(item => (
+                    <div key={item.label} style={{
+                      flex: 1, textAlign: 'center', padding: '5px 2px', borderRadius: 7,
+                      background: item.bad ? 'rgba(231,76,60,0.15)' : item.warn ? 'rgba(243,156,18,0.12)' : item.good ? 'rgba(0,152,234,0.12)' : 'rgba(46,204,113,0.12)',
+                      border: `1px solid ${item.bad ? 'rgba(231,76,60,0.3)' : item.warn ? 'rgba(243,156,18,0.25)' : item.good ? 'rgba(0,152,234,0.25)' : 'rgba(46,204,113,0.25)'}`,
+                      outline: c.kTemp === (item.label === 'Нет кулера' ? 1.8 : item.label === 'Lv1' ? 1.3 : item.label === 'Lv2' ? 1.0 : 0.85) ? '2px solid #fff' : 'none',
+                    }}>
+                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginBottom: 1 }}>{item.label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: item.bad ? '#E74C3C' : item.warn ? '#F39C12' : item.good ? '#0098EA' : '#2ECC71' }}>{item.v}</div>
+                    </div>
+                  ))}
+                </div>
                 {c.perks.map(p => (
-                  <div key={p} style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', paddingLeft: 4, marginTop: 2 }}>✓ {p}</div>
+                  <div key={p} style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', paddingLeft: 4, marginTop: 4 }}>✓ {p}</div>
                 ))}
-                <div style={{ marginTop: 6, fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
-                  * Разгон (OC) дополнительно умножает износ ×2.5 поверх кулера
+                <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+                  * Разгон (OC) дополнительно ×2.5 к износу поверх кулера
                 </div>
               </div>
             )}
