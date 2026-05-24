@@ -67,6 +67,11 @@ export async function actionRoutes(app: FastifyInstance) {
         const spec = GPU_SPECS[modelTier];
         if (!spec) return reply.code(400).send({ error: 'Неизвестный тир оборудования' });
 
+        // USB Nano выдаётся бесплатно при регистрации, купить нельзя
+        if (modelTier === 0) {
+          return reply.code(400).send({ error: 'USB Nano нельзя купить — он выдаётся бесплатно при первом входе' });
+        }
+
         // Проверка доступности по фазе
         if (currentPhase < spec.availablePhase) {
           return reply.code(403).send({
@@ -96,7 +101,7 @@ export async function actionRoutes(app: FastifyInstance) {
           `SELECT f.id, f.max_slots,
                   COUNT(g.id) AS gpu_count
            FROM farms f
-           LEFT JOIN gpus g ON g.farm_id = f.id AND g.status != 'broken'
+           LEFT JOIN gpus g ON g.farm_id = f.id AND g.status NOT IN ('broken', 'stored')
            WHERE f.user_id = $1
            GROUP BY f.id`, [user.id],
         );
@@ -141,18 +146,23 @@ export async function actionRoutes(app: FastifyInstance) {
       case 'toggle_overclock': {
         const gpuId: string = body.gpuId ?? body.gpu_id;
         const { rows: [gpu] } = await pool.query(
-          `SELECT id, overclocked, health FROM gpus WHERE id = $1 AND user_id = $2`,
+          `SELECT id, overclocked, undervolted, health, model_tier FROM gpus WHERE id = $1 AND user_id = $2`,
           [gpuId, user.id],
         );
         if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
+        if (gpu.model_tier === 0) {
+          return reply.code(400).send({ error: 'USB Nano нельзя разгонять — базовый майнер без настроек' });
+        }
         if (gpu.health < 30) {
           return reply.code(400).send({ error: 'Нельзя разгонять карту с health < 30%' });
         }
+        const enableOC = !gpu.overclocked;
+        // Enabling OC clears undervolting (they are mutually exclusive)
         await pool.query(
-          `UPDATE gpus SET overclocked = NOT overclocked WHERE id = $1`,
-          [gpuId],
+          `UPDATE gpus SET overclocked = $1, undervolted = CASE WHEN $1 THEN FALSE ELSE undervolted END WHERE id = $2`,
+          [enableOC, gpuId],
         );
-        return reply.send({ ok: true, overclocked: !gpu.overclocked });
+        return reply.send({ ok: true, overclocked: enableOC, undervolted: enableOC ? false : gpu.undervolted });
       }
 
       // ── Ремонт карты (базовый) ─────────────
@@ -187,6 +197,66 @@ export async function actionRoutes(app: FastifyInstance) {
 
         await refurbish.restoreGpu(user.id, gpuId, finalCost);
         return reply.send({ ok: true, igcSpent: finalCost });
+      }
+
+      // ── Снижение напряжения (андервольтинг) ───
+      case 'toggle_undervolting': {
+        const gpuId: string = body.gpuId ?? body.gpu_id;
+        const { rows: [gpu] } = await pool.query(
+          `SELECT id, overclocked, undervolted, model_tier FROM gpus WHERE id = $1 AND user_id = $2`,
+          [gpuId, user.id],
+        );
+        if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
+        if (gpu.model_tier === 0) {
+          return reply.code(400).send({ error: 'USB Nano нельзя андервольтить — базовый майнер без настроек' });
+        }
+        const enableUV = !gpu.undervolted;
+        // Enabling UV clears overclocking (mutually exclusive)
+        await pool.query(
+          `UPDATE gpus SET undervolted = $1, overclocked = CASE WHEN $1 THEN FALSE ELSE overclocked END WHERE id = $2`,
+          [enableUV, gpuId],
+        );
+        return reply.send({ ok: true, undervolted: enableUV, overclocked: enableUV ? false : gpu.overclocked });
+      }
+
+      // ── Снять GPU на склад ─────────────────
+      case 'move_to_storage': {
+        const gpuId: string = body.gpuId ?? body.gpu_id;
+        const { rows: [gpu] } = await pool.query(
+          `SELECT id, status FROM gpus WHERE id = $1 AND user_id = $2`,
+          [gpuId, user.id],
+        );
+        if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
+        if (gpu.status === 'stored') return reply.code(400).send({ error: 'GPU уже на складе' });
+        await pool.query(`UPDATE gpus SET status = 'stored' WHERE id = $1`, [gpuId]);
+        return reply.send({ ok: true });
+      }
+
+      // ── Вернуть GPU из склада в слот ──────
+      case 'move_from_storage': {
+        const gpuId: string = body.gpuId ?? body.gpu_id;
+        const { rows: [gpu] } = await pool.query(
+          `SELECT id, status FROM gpus WHERE id = $1 AND user_id = $2`,
+          [gpuId, user.id],
+        );
+        if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
+        if (gpu.status !== 'stored') return reply.code(400).send({ error: 'GPU не на складе' });
+
+        // Проверяем слоты
+        const { rows: [farm] } = await pool.query(
+          `SELECT f.max_slots, COUNT(g.id) AS gpu_count
+           FROM farms f
+           LEFT JOIN gpus g ON g.farm_id = f.id AND g.status NOT IN ('broken', 'stored')
+           WHERE f.user_id = $1
+           GROUP BY f.max_slots`, [user.id],
+        );
+        if (!farm) return reply.code(400).send({ error: 'Ферма не найдена' });
+        if (parseInt(farm.gpu_count) >= farm.max_slots) {
+          return reply.code(400).send({ error: 'Нет свободных слотов. Расширьте ферму.' });
+        }
+
+        await pool.query(`UPDATE gpus SET status = 'active' WHERE id = $1`, [gpuId]);
+        return reply.send({ ok: true });
       }
 
       // ── Tap-to-Cool (буст хешрейта) ────────
@@ -270,8 +340,10 @@ export async function actionRoutes(app: FastifyInstance) {
             tapsRemaining: Math.max(0, TAP_SESSION_LIMIT - tapCount),
           });
 
-        } catch {
-          return reply.send({ ok: true, boostSeconds: 0, tapsUsed: 0, tapsRemaining: TAP_SESSION_LIMIT });
+        } catch (err) {
+          console.error('[tap_cool] Redis error:', (err as Error)?.message ?? err);
+          // Redis unavailable — give 1 sec boost per tap so the feature still works
+          return reply.send({ ok: true, boostSeconds: 1, tapsUsed: 0, tapsRemaining: TAP_SESSION_LIMIT });
         }
       }
 

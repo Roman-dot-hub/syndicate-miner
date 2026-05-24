@@ -31,6 +31,7 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
   const isOffline = gpu.status === 'offline';
   const isStored  = gpu.status === 'stored';
   const isActive  = !isBroken && !isOffline && !isStored;
+  const isNano    = tier === 0;
 
   const healthColor = gpu.health > 60 ? '#2ECC71' : gpu.health > 30 ? '#F39C12' : '#E74C3C';
 
@@ -155,8 +156,21 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
             ))}
           </div>
 
-          {/* Performance toggles */}
-          {!isStored && (
+          {/* Nano restriction notice */}
+          {isNano && !isStored && (
+            <div style={{
+              background: 'rgba(243,156,18,0.08)',
+              border: '1px solid rgba(243,156,18,0.25)',
+              borderRadius: 10, padding: '9px 12px',
+              fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5,
+            }}>
+              🔌 <b style={{ color: 'rgba(255,255,255,0.7)' }}>USB Nano</b> — стартовый майнер.
+              Разгон и андервольтинг недоступны. Купи GPU в магазине для полного контроля.
+            </div>
+          )}
+
+          {/* Performance toggles — недоступны для USB Nano */}
+          {!isStored && !isNano && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 7, textTransform: 'uppercase', letterSpacing: 0.6 }}>
                 Производительность
