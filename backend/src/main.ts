@@ -11,8 +11,10 @@ import cors           from '@fastify/cors';
 import { syncRoutes }     from './routes/sync';
 import { actionRoutes }   from './routes/action';
 import { marketRoutes }   from './routes/market';
-import { withdrawRoutes } from './routes/withdraw';
-import { devRoutes }      from './routes/dev';
+import { withdrawRoutes }     from './routes/withdraw';
+import { leaderboardRoutes }  from './routes/leaderboard';
+import { devRoutes }          from './routes/dev';
+import { redis }          from './redis/client';
 
 // Запускаем игровой цикл и суточный крон
 import './cron';
@@ -33,13 +35,23 @@ app.register(cors, {
 });
 
 // ── Health check ──────────────────────────────
-app.get('/health', async () => ({ ok: true, ts: Date.now() }));
+app.get('/health', async () => {
+  let redisOk = false;
+  try {
+    await redis.ping();
+    redisOk = true;
+  } catch (e) {
+    console.error('[Health] Redis ping failed:', (e as Error)?.message);
+  }
+  return { ok: true, ts: Date.now(), redis: redisOk };
+});
 
 // ── API routes ────────────────────────────────
 app.register(syncRoutes);
 app.register(actionRoutes);
 app.register(marketRoutes);
 app.register(withdrawRoutes);
+app.register(leaderboardRoutes);
 
 // ── Dev routes (только в development) ────────
 if (process.env.NODE_ENV !== 'production') {

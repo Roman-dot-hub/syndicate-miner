@@ -10,6 +10,10 @@ import Redis from 'ioredis';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
+// Log masked URL at startup so we can verify which Redis we're connecting to
+const maskedUrl = REDIS_URL.replace(/:([^@]+)@/, ':***@');
+console.log(`[Redis] Connecting to: ${maskedUrl}`);
+
 export const redis = new Redis(REDIS_URL, {
   maxRetriesPerRequest: 3,
   retryStrategy: (times) => {

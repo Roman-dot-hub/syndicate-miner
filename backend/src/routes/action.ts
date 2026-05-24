@@ -431,6 +431,97 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, upgraded: upgradeType });
       }
 
+      // ── IGC → TON (продажа IGC) ────────────────
+      case 'sell_igc': {
+        const amountIgc: number = parseFloat(body.amount_igc ?? body.amountIgc ?? '0');
+        if (amountIgc < 100) return reply.code(400).send({ error: 'Минимальная продажа: 100 IGC' });
+        if (parseFloat(user.igc_balance) < amountIgc) {
+          return reply.code(400).send({ error: 'Недостаточно IGC' });
+        }
+
+        // Динамическая цена: price = FLOOR / ratio (дороже при дефиците)
+        const { rows: [ps] } = await pool.query(
+          `SELECT total_igc_minted, total_igc_burned, reserve_pool_ton FROM pool_stats WHERE id = 1`,
+        );
+        const igcRatioRow = await pool.query(
+          `SELECT daily_ratio FROM igc_monitor_log ORDER BY logged_at DESC LIMIT 1`,
+        );
+        const ratio     = parseFloat(igcRatioRow.rows[0]?.daily_ratio ?? '1');
+        const IGC_FLOOR = 0.0001; // 1 IGC = 0.0001 TON базово
+        const pricePerIgc = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR / Math.max(0.5, ratio)));
+        const tonPayout  = amountIgc * pricePerIgc;
+        const poolTon    = parseFloat(ps?.reserve_pool_ton ?? '0');
+
+        if (poolTon < tonPayout) {
+          return reply.code(400).send({ error: 'В пуле недостаточно TON для выкупа. Попробуй позже.' });
+        }
+
+        await pool.query('BEGIN');
+        try {
+          await pool.query(
+            `UPDATE users SET igc_balance = igc_balance - $1, ton_balance = ton_balance + $2 WHERE id = $3`,
+            [amountIgc, tonPayout, user.id],
+          );
+          await pool.query(
+            `UPDATE pool_stats SET
+               reserve_pool_ton = reserve_pool_ton - $1,
+               total_igc_burned = total_igc_burned + $2
+             WHERE id = 1`,
+            [tonPayout, amountIgc],
+          );
+          await pool.query('COMMIT');
+        } catch (e) { await pool.query('ROLLBACK'); throw e; }
+
+        return reply.send({ ok: true, igcSold: amountIgc, tonReceived: tonPayout, pricePerIgc });
+      }
+
+      // ── TON → IGC (покупка IGC) ─────────────────
+      case 'buy_igc': {
+        const amountTon: number = parseFloat(body.amount_ton ?? body.amountTon ?? '0');
+        if (amountTon < 0.001) return reply.code(400).send({ error: 'Минимальная покупка: 0.001 TON' });
+        if (parseFloat(user.ton_balance) < amountTon) {
+          return reply.code(400).send({ error: 'Недостаточно TON' });
+        }
+
+        const { rows: [ps2] } = await pool.query(
+          `SELECT total_igc_minted, reserve_pool_ton FROM pool_stats WHERE id = 1`,
+        );
+        const igcRatioRow2 = await pool.query(
+          `SELECT daily_ratio FROM igc_monitor_log ORDER BY logged_at DESC LIMIT 1`,
+        );
+        const ratio2      = parseFloat(igcRatioRow2.rows[0]?.daily_ratio ?? '1');
+        const IGC_FLOOR2  = 0.0001;
+        const pricePerIgc2 = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR2 / Math.max(0.5, ratio2)));
+
+        const IGC_MAX_SUPPLY = 1_000_000_000;
+        const igcMinted = parseFloat(ps2?.total_igc_minted ?? '0');
+        const igcAvailable = IGC_MAX_SUPPLY - igcMinted;
+        const igcAmount = Math.min(amountTon / pricePerIgc2, igcAvailable);
+
+        if (igcAmount <= 0) {
+          return reply.code(400).send({ error: 'IGC исчерпан — все 1 миллиард добыты' });
+        }
+        const actualTonCost = igcAmount * pricePerIgc2;
+
+        await pool.query('BEGIN');
+        try {
+          await pool.query(
+            `UPDATE users SET ton_balance = ton_balance - $1, igc_balance = igc_balance + $2 WHERE id = $3`,
+            [actualTonCost, igcAmount, user.id],
+          );
+          await pool.query(
+            `UPDATE pool_stats SET
+               reserve_pool_ton = reserve_pool_ton + $1,
+               total_igc_minted = total_igc_minted + $2
+             WHERE id = 1`,
+            [actualTonCost, igcAmount],
+          );
+          await pool.query('COMMIT');
+        } catch (e) { await pool.query('ROLLBACK'); throw e; }
+
+        return reply.send({ ok: true, igcReceived: igcAmount, tonSpent: actualTonCost, pricePerIgc: pricePerIgc2 });
+      }
+
       // ── Покупка инфраструктуры (прямой вызов) ─
       default: {
         // Фронтенд может слать тип апгрейда напрямую: 'farm_level_2', 'cooling_1' и т.д.

@@ -61,7 +61,8 @@ export async function syncRoutes(app: FastifyInstance) {
     try {
       const { rows: [row] } = await pool.query(
         `SELECT cycle_day, season, drip_rate, current_phase,
-                reserve_pool_ton, total_paid_out
+                reserve_pool_ton, total_paid_out,
+                total_igc_minted, total_igc_burned
          FROM pool_stats WHERE id = 1`,
       );
       poolRow = row;
@@ -93,6 +94,15 @@ export async function syncRoutes(app: FastifyInstance) {
         tapsRemaining:   Math.max(0, TAP_SESSION_LIMIT - tapsUsed),
       };
     } catch { /* Redis недоступен */ }
+
+    // ── Текущий IGC ratio из igc_monitor_log ─────────────
+    let igcRatio = 1;
+    try {
+      const { rows: [lastLog] } = await pool.query(
+        `SELECT daily_ratio FROM igc_monitor_log ORDER BY logged_at DESC LIMIT 1`,
+      );
+      igcRatio = parseFloat(lastLog?.daily_ratio ?? '1');
+    } catch { /* нет логов ещё */ }
 
     // ── Глобальный хешрейт: Redis → fallback БД ──────────
     let globalHashrate = 0;
@@ -172,6 +182,13 @@ export async function syncRoutes(app: FastifyInstance) {
           phase:      poolRow?.current_phase ?? 1,
           poolTon:    parseFloat(poolRow?.reserve_pool_ton ?? '0'),
           totalPaid:  parseFloat(poolRow?.total_paid_out ?? '0'),
+        },
+        igcSupply: {
+          totalMinted:   parseFloat(poolRow?.total_igc_minted ?? '0'),
+          totalBurned:   parseFloat(poolRow?.total_igc_burned  ?? '0'),
+          remaining:     1_000_000_000 - parseFloat(poolRow?.total_igc_minted ?? '0'),
+          ratio:         igcRatio,
+          pricePerIgc:   Math.max(0.00005, Math.min(0.0005, 0.0001 / Math.max(0.5, igcRatio))),
         },
         tapBoost,
         network: {

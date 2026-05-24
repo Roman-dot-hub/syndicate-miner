@@ -58,6 +58,14 @@ export interface NetworkStats {
   globalHashrate: number;
 }
 
+export interface IgcSupply {
+  totalMinted: number;
+  totalBurned: number;
+  remaining:   number;
+  ratio:       number;
+  pricePerIgc: number;
+}
+
 export interface SyncData {
   user:       UserData;
   farm:       Farm;
@@ -65,6 +73,7 @@ export interface SyncData {
   storedGpus: GPU[];
   season:     SeasonData;
   igc:        IgcStatus;
+  igcSupply?: IgcSupply;
   tapBoost?:  TapBoost;
   network?:   NetworkStats;
   events:     Record<string, unknown>;

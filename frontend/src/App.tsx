@@ -45,17 +45,19 @@ import { BalanceBar } from './components/BalanceBar';
 import { Farm }      from './pages/Farm';
 import { Shop }      from './pages/Shop';
 import { Dashboard } from './pages/Dashboard';
-import { Market }    from './pages/Market';
-import { Company }   from './pages/Company';
+import { Market }      from './pages/Market';
+import { Company }     from './pages/Company';
+import { Leaderboard } from './pages/Leaderboard';
 
-type Tab = 'farm' | 'shop' | 'dashboard' | 'market' | 'company';
+type Tab = 'farm' | 'shop' | 'dashboard' | 'market' | 'company' | 'leaderboard';
 
 const TABS: { id: Tab; emoji: string; label: string }[] = [
-  { id: 'dashboard', emoji: '📊', label: 'Стата'    },
-  { id: 'farm',      emoji: '🏭', label: 'Ферма'    },
-  { id: 'shop',      emoji: '🛒', label: 'Магазин'  },
-  { id: 'market',    emoji: '🔄', label: 'Маркет'   },
-  { id: 'company',   emoji: '🏢', label: 'Компания' },
+  { id: 'dashboard',   emoji: '📊', label: 'Стата'   },
+  { id: 'farm',        emoji: '🏭', label: 'Ферма'   },
+  { id: 'shop',        emoji: '🛒', label: 'Магазин' },
+  { id: 'market',      emoji: '🔄', label: 'Маркет'  },
+  { id: 'leaderboard', emoji: '🏆', label: 'Топ'     },
+  { id: 'company',     emoji: '🏢', label: 'Компания'},
 ];
 
 export default function App() {
@@ -115,10 +117,11 @@ export default function App() {
       {/* Page content */}
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
         {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} />}
-        {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
+        {tab === 'farm'      && <Farm      data={data} onUpdate={sync} onSwitchTab={(t) => switchTab(t as any)} />}
         {tab === 'shop'      && <Shop      data={data} onUpdate={sync} />}
-        {tab === 'market'    && <Market    data={data} onUpdate={sync} />}
-        {tab === 'company'   && <Company   data={data} />}
+        {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
+        {tab === 'leaderboard' && <Leaderboard />}
+        {tab === 'company'     && <Company     data={data} />}
       </div>
 
       {/* Bottom nav */}

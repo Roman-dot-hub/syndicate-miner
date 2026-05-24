@@ -44,6 +44,8 @@ export interface PoolStats {
   currentPhase:   1 | 2 | 3 | 4;
   totalPaidOut:   number;
   adminEarnedTon: number;
+  totalIgcMinted: number;   // всего IGC добыто с начала игры
+  totalIgcBurned: number;   // всего IGC сожжено (электро, ремонт, продажа)
   cycle_day?:     number;   // день 28-дневного цикла (1–28)
   season?:        string;   // spring | summer | autumn | winter
 }

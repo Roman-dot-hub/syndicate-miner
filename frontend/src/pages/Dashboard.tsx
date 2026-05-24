@@ -8,6 +8,12 @@ function fmtH(h: number): string {
   if (h >= 1)    return `${h.toFixed(2)} GH/s`;
   return `${(h * 1000).toFixed(0)} MH/s`;
 }
+
+function fmtBig(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}K`;
+  return n.toFixed(0);
+}
 import { FearGreedIndex } from '../components/FearGreedIndex';
 import { useAction } from '../hooks/useAction';
 import { useTonConnect } from '../hooks/useTonConnect';
@@ -150,6 +156,37 @@ export function Dashboard({ data, onUpdate }: Props) {
           Выплачено: {season.totalPaid.toFixed(1)} TON
         </div>
       </div>
+
+      {/* IGC эмиссия */}
+      {data.igcSupply && (() => {
+        const s = data.igcSupply!;
+        const IGC_MAX = 1_000_000_000;
+        const circulating = s.totalMinted - s.totalBurned;
+        const rows = [
+          { label: '🟣 Добыто всего', value: fmtBig(s.totalMinted),   pct: s.totalMinted / IGC_MAX,  color: '#9B59B6' },
+          { label: '🔥 Сожжено',      value: fmtBig(s.totalBurned),   pct: s.totalBurned  / IGC_MAX,  color: '#E74C3C' },
+          { label: '🔄 В обращении',  value: fmtBig(circulating),      pct: circulating    / IGC_MAX,  color: '#F39C12' },
+          { label: '⬜ Не добыто',    value: fmtBig(s.remaining),      pct: s.remaining    / IGC_MAX,  color: 'rgba(255,255,255,0.2)' },
+        ];
+        return (
+          <div style={card}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', marginBottom: 10 }}>
+              💎 Эмиссия IGC — 1 000 000 000 max
+            </div>
+            {rows.map(r => (
+              <div key={r.label} style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{r.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: r.color }}>{r.value}</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
+                  <div style={{ height: '100%', width: `${Math.min(100, r.pct * 100)}%`, background: r.color, borderRadius: 2, opacity: 0.75 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Fear & Greed */}
       <FearGreedIndex igc={igc} />

@@ -130,6 +130,9 @@ export async function runEpoch(): Promise<EpochResult | null> {
     const farmIgcUpdates:  Array<{ farmId: string; igcBalance: number }>         = [];
     const offlineGpuSets:  Set<string>                                           = new Set();
 
+    // Уведомления о низком IGC (отправляем после транзакции)
+    const lowIgcAlerts: Array<{ tgUserId: number | string; igcRemaining: number; daysLeft: number }> = [];
+
     // IGC-мониторинг: накопители за эпоху
     let totalIgcProduced  = 0;  // supply: IGC добыто всеми майнерами
     let totalIgcConsumed  = 0;  // demand: IGC потреблено (свет + износ)
@@ -146,9 +149,41 @@ export async function runEpoch(): Promise<EpochResult | null> {
       farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcRemaining });
       elec.offlineGpuIds.forEach(id => offlineGpuSets.add(id));
 
-      if (elec.farmShutdown) {
-        console.log(`[Epoch] Ферма ${farm.id} остановлена — нет IGC на электричество.`);
-        continue;
+      // Проверяем низкий IGC: хватит ли на 1 день (288 эпох)
+      if (elec.igcCharged > 0) {
+        const dailyCost = elec.igcCharged * EPOCHS_PER_DAY;
+        const daysLeft  = elec.igcRemaining / dailyCost;
+        if (daysLeft < 1) {
+          const farmUser = usersMap.get(farm.userId);
+          if (farmUser?.tgUserId) {
+            lowIgcAlerts.push({ tgUserId: farmUser.tgUserId, igcRemaining: elec.igcRemaining, daysLeft });
+          }
+        }
+      }
+
+      if (elec.farmShutdown || elec.offlineGpuIds.length > 0) {
+        const farmUser = usersMap.get(farm.userId);
+        if (farmUser?.tgUserId) {
+          const shutdownKey = `igc_offline:${farmUser.tgUserId}`;
+          // Уведомление об остановке — не чаще раза в 4 часа
+          redis.exists(shutdownKey).then(async (already) => {
+            if (!already) {
+              await redis.set(shutdownKey, '1', 'EX', 14_400);
+              const count = elec.offlineGpuIds.length;
+              sendTgMessage(
+                farmUser.tgUserId,
+                `🔴 <b>${elec.farmShutdown ? 'Ферма остановлена!' : `${count} майнер(ов) отключено`}</b>\n\n` +
+                `Не хватило IGC на оплату электричества.\n` +
+                `${elec.farmShutdown ? 'Все майнеры ушли в offline.' : `Отключены самые дорогие карты (${count} шт.).`}\n\n` +
+                `Зайди в игру — как только IGC пополнится, карты можно перезапустить.`,
+              ).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+        if (elec.farmShutdown) {
+          console.log(`[Epoch] Ферма ${farm.id} остановлена — нет IGC на электричество.`);
+          continue;
+        }
       }
 
       // 4. Износ каждой карты
@@ -261,6 +296,8 @@ export async function runEpoch(): Promise<EpochResult | null> {
       reservePoolTon: poolStats.reservePoolTon - totalDistributed,
       totalPaidOut:   poolStats.totalPaidOut   + totalDistributed,
       adminEarnedTon: poolStats.adminEarnedTon + distribution.commissionTaken,
+      totalIgcMinted: (poolStats.totalIgcMinted ?? 0) + totalIgcProduced,
+      totalIgcBurned: poolStats.totalIgcBurned ?? 0,
     };
 
     const halvingResult   = checkHalving(updatedStats);
@@ -339,6 +376,26 @@ export async function runEpoch(): Promise<EpochResult | null> {
         activeMinerCount,
       });
     });
+
+    // ── Уведомления о низком IGC (fire-and-forget) ─────────
+    for (const alert of lowIgcAlerts) {
+      const warnKey = `igc_warn:${alert.tgUserId}`;
+      try {
+        // Отправляем не чаще раза в 20 часов
+        const already = await redis.exists(warnKey);
+        if (!already) {
+          await redis.set(warnKey, '1', 'EX', 79_200); // 22 часа
+          sendTgMessage(
+            alert.tgUserId,
+            `⚠️ <b>Мало IGC на электричество!</b>\n\n` +
+            `Остаток: <b>${alert.igcRemaining.toFixed(1)} IGC</b>\n` +
+            `Хватит примерно на <b>${(alert.daysLeft * 24).toFixed(0)} часов</b>.\n\n` +
+            `Если IGC закончится — самые дорогие майнеры уйдут в offline. ` +
+            `Зайди в игру и проверь ферму 👇`,
+          ).catch(() => {});
+        }
+      } catch { /* Redis недоступен — пропускаем */ }
+    }
 
     const result: EpochResult = {
       epochAt,

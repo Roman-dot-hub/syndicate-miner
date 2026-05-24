@@ -90,11 +90,13 @@ function rowToUser(row: Record<string, unknown>): User & { inviter_id?: string; 
 
 function rowToPoolStats(row: Record<string, unknown>): PoolStats {
   return {
-    reservePoolTon: parseFloat(row.reserve_pool_ton as string),
-    dripRate:       parseFloat(row.drip_rate        as string),
+    reservePoolTon: parseFloat(row.reserve_pool_ton  as string),
+    dripRate:       parseFloat(row.drip_rate         as string),
     currentPhase:   row.current_phase as PoolStats['currentPhase'],
-    totalPaidOut:   parseFloat(row.total_paid_out   as string),
-    adminEarnedTon: parseFloat(row.admin_earned_ton as string),
+    totalPaidOut:   parseFloat(row.total_paid_out    as string),
+    adminEarnedTon: parseFloat(row.admin_earned_ton  as string),
+    totalIgcMinted: parseFloat((row.total_igc_minted as string) ?? '0'),
+    totalIgcBurned: parseFloat((row.total_igc_burned  as string) ?? '0'),
   };
 }
 
@@ -213,12 +215,14 @@ export const db: DbClient = {
     const q = client ?? pool;
     await q.query(`
       UPDATE pool_stats SET
-        reserve_pool_ton = $1,
-        drip_rate        = $2,
-        current_phase    = $3,
-        total_paid_out   = $4,
-        admin_earned_ton = $5,
-        updated_at       = NOW()
+        reserve_pool_ton  = $1,
+        drip_rate         = $2,
+        current_phase     = $3,
+        total_paid_out    = $4,
+        admin_earned_ton  = $5,
+        total_igc_minted  = $6,
+        total_igc_burned  = $7,
+        updated_at        = NOW()
       WHERE id = 1
     `, [
       stats.reservePoolTon,
@@ -226,6 +230,8 @@ export const db: DbClient = {
       stats.currentPhase,
       stats.totalPaidOut,
       stats.adminEarnedTon,
+      stats.totalIgcMinted,
+      stats.totalIgcBurned,
     ]);
   },
 
