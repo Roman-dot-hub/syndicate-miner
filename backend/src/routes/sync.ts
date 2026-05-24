@@ -13,8 +13,8 @@ import { telegramAuthHook } from '../auth/telegramAuth';
 import { sync }             from '../db/queries';
 import { getLiveIgcStatus } from '../monitoring/igcMonitor';
 import { sendTgMessage }    from '../notifications/sendTgNotification';
-import { redis }                              from '../redis/client';
-import { REDIS_TAP_PREFIX, TAP_SESSION_LIMIT } from '../epoch/constants';
+import { redis }                                                  from '../redis/client';
+import { REDIS_TAP_PREFIX, REDIS_GLOBAL_H, TAP_SESSION_LIMIT } from '../epoch/constants';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -94,6 +94,21 @@ export async function syncRoutes(app: FastifyInstance) {
       };
     } catch { /* Redis недоступен */ }
 
+    // ── Глобальный хешрейт: Redis → fallback БД ──────────
+    let globalHashrate = 0;
+    try {
+      const raw = await redis.get(REDIS_GLOBAL_H);
+      globalHashrate = parseFloat(raw ?? '0');
+    } catch { /* Redis недоступен */ }
+    if (!globalHashrate) {
+      try {
+        const { rows: [lastEpoch] } = await pool.query(
+          `SELECT global_hashrate FROM epoch_log ORDER BY epoch_at DESC LIMIT 1`,
+        );
+        globalHashrate = parseFloat(lastEpoch?.global_hashrate ?? '0');
+      } catch { /* нет данных эпохи */ }
+    }
+
     // ── Сетевая статистика ────────────────────
     const { rows: [netStats] } = await pool.query(
       `SELECT
@@ -120,29 +135,35 @@ export async function syncRoutes(app: FastifyInstance) {
     } : null;
 
     const mappedFarm = rawFarm ? {
-      id:           rawFarm.id,
-      level:        rawFarm.level,
-      coolingLevel: rawFarm.cooling_level ?? 0,
-      maxSlots:     rawFarm.max_slots ?? 5,
-      igcBalance:   parseFloat(rawUser?.igc_balance ?? '0'),
+      id:             rawFarm.id,
+      level:          rawFarm.level,
+      coolingLevel:   rawFarm.cooling_level   ?? 0,
+      workbenchLevel: rawFarm.workbench_level ?? 0,
+      maxSlots:       rawFarm.max_slots ?? 5,
+      igcBalance:     parseFloat(rawUser?.igc_balance ?? '0'),
     } : null;
 
-    const mappedGpus = rawGpus.map((g: any) => ({
+    const mapGpu = (g: any) => ({
       id:            g.id,
       modelTier:     g.model_tier,
       health:        parseFloat(g.health ?? '100'),
       status:        g.status,
       overclocked:   g.overclocked ?? false,
+      undervolted:   g.undervolted ?? false,
       coolingLevel:  g.cooling_level ?? 0,
       isRefurbished: g.is_refurbished ?? false,
-    }));
+    });
+
+    const mappedGpus      = rawGpus.filter((g: any) => g.status !== 'stored').map(mapGpu);
+    const mappedStoredGpus = rawGpus.filter((g: any) => g.status === 'stored').map(mapGpu);
 
     return reply.send({
       ok: true,
       data: {
-        user:  mappedUser,
-        farm:  mappedFarm,
-        gpus:  mappedGpus,
+        user:       mappedUser,
+        farm:       mappedFarm,
+        gpus:       mappedGpus,
+        storedGpus: mappedStoredGpus,
         igc:   igcStatus,
         season: {
           day:        poolRow?.cycle_day ?? 1,
@@ -156,6 +177,7 @@ export async function syncRoutes(app: FastifyInstance) {
         network: {
           totalUsers:    parseInt(netStats?.total_users  ?? '0', 10),
           activeMiners:  parseInt(netStats?.active_miners ?? '0', 10),
+          globalHashrate,
         },
         events: events.reduce((acc: Record<string, any>, e: any) => {
           acc[e.type] = e.payload;

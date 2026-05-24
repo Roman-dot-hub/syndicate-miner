@@ -14,11 +14,12 @@ export interface GPU {
 }
 
 export interface Farm {
-  id:           string;
-  level:        number;
-  coolingLevel: number;
-  maxSlots:     number;
-  igcBalance:   number;
+  id:             string;
+  level:          number;
+  coolingLevel:   number;
+  workbenchLevel: number;
+  maxSlots:       number;
+  igcBalance:     number;
 }
 
 export interface UserData {
