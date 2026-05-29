@@ -255,17 +255,45 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
           }}>✕</button>
         </div>
 
+        {/* ── Быстрые статы — ВСЕГДА видны, вне скролла ── */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr',
+          gap: 1, flexShrink: 0,
+          background: 'rgba(0,212,255,0.08)',
+          borderBottom: `1px solid ${CYE}`,
+        }}>
+          {[
+            { label: 'ХЕШРЕЙТ',   value: effectiveHash,                                               color: CY  },
+            { label: 'ДОХОД/ДЕНЬ',value: `+${spec.igcPerDay.toFixed(0)} IGC`,                         color: PU  },
+            { label: 'HP',        value: isStored ? '💤' : isBroken ? '💥' : `${health}%`,           color: healthColor },
+            { label: 'ТЕМП',      value: isStored ? '—' : `${gpuTemp}°C`,                            color: isStored ? DIM : tempMeta.color },
+          ].map((s, i) => (
+            <div key={i} style={{ padding: '8px 6px', textAlign: 'center', background: 'rgba(0,0,0,0.3)' }}>
+              <div style={{ fontSize: 7, letterSpacing: 1.5, color: DIM, marginBottom: 3 }}>{s.label}</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: s.color, textShadow: `0 0 8px ${s.color}66` }}>
+                {s.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Scrollable content */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '14px 14px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{
+          overflowY: 'scroll',
+          WebkitOverflowScrolling: 'touch' as any,
+          flex: 1,
+          padding: '12px 14px 28px',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
 
           {/* Health bar */}
           {!isStored && (
             <div style={{ background: CYB, borderRadius: 12, border: `1px solid ${CYE}`, padding: '10px 12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>СОСТОЯНИЕ</span>
+                <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>СОСТОЯНИЕ GPU</span>
                 <span style={{ fontSize: 13, fontWeight: 800, color: healthColor,
                   textShadow: `0 0 8px ${healthGlow}` }}>
-                  {isBroken ? '💥 BROKEN' : `${health}%`}
+                  {isBroken ? '💥 ТРЕБУЕТ РЕМОНТА' : `${health}%`}
                 </span>
               </div>
               <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
