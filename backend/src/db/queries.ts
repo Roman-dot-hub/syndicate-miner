@@ -351,7 +351,7 @@ export const sync = {
       { rows: refRows },
     ] = await Promise.all([
       pool.query(
-        `SELECT id, ton_balance, igc_balance, mining_mode,
+        `SELECT id, tg_user_id, ton_balance, igc_balance, mining_mode,
                 daily_spend_ton, last_spend_reset
          FROM users WHERE id = $1`,
         [userId],
