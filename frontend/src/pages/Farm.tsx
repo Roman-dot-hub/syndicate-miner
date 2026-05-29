@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import WebApp from '@twa-dev/sdk';
 import type { SyncData, TapBoost, GPU } from '../types';
-import { FARM_LEVELS, GPU_SPECS } from '../types';
+import { FARM_LEVELS, GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS } from '../types';
+import { useAction } from '../hooks/useAction';
 import { GpuCard }       from '../components/GpuCard';
 import { GpuDetailModal } from '../components/GpuDetailModal';
-import { TapToCool }     from '../components/TapToCool';
+import { GpuShopModal }  from '../components/GpuShopModal';
+import { AdBoost }       from '../components/AdBoost';
 
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
@@ -25,8 +28,14 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
     totalHashrate += spec.hashrate * overcMult * uvMult;
     igcEarnDay    += spec.igcPerDay * overcMult * uvMult;
 
-    const extraWatt = gpu.overclocked ? spec.wattBackend * 0.40 * 0.001 * 288 : 0;
-    igcCostDay += (spec.igcCostPerDay + extraWatt) * (gpu.undervolted ? 0.75 : 1.0);
+    if (gpu.overclocked) {
+      igcCostDay += spec.igcCostPerDay * 1.20;
+    } else if (gpu.undervolted) {
+      const elecPerDay = spec.wattBackend * 0.001 * 288;
+      igcCostDay += spec.igcCostPerDay - elecPerDay * 0.10;
+    } else {
+      igcCostDay += spec.igcCostPerDay;
+    }
   }
 
   const dailyPoolTon = poolTon * dripRate;
@@ -43,45 +52,49 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
 interface Props {
   data:        SyncData;
   onUpdate:    () => void;
-  onSwitchTab: (tab: string) => void;
+  onSwitchTab?: (tab: string) => void;
 }
 
-export function Farm({ data, onUpdate, onSwitchTab }: Props) {
-  const [boostEndTime, setBoostEndTime] = useState(0);
-  const [, setTick] = useState(0);
-  const [selectedGpu, setSelectedGpu] = useState<GPU | null>(null);
+export function Farm({ data, onUpdate }: Props) {
+  const [boostEndTime, setBoostEndTime] = useState(() => {
+    const stored = localStorage.getItem('adBoost_endTime');
+    return stored ? parseInt(stored, 10) : 0;
+  });
+  const [selectedGpu, setSelectedGpu]   = useState<GPU | null>(null);
   const [showStorage,  setShowStorage]  = useState(false);
+  const [showGpuShop,  setShowGpuShop]  = useState(false);
 
-  // Tick every second while boost is active
-  useEffect(() => {
-    if (boostEndTime <= Date.now()) return;
-    const id = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [boostEndTime]);
-
-  const localSecondsLeft = Math.max(0, Math.round((boostEndTime - Date.now()) / 1000));
   const serverBoost = data.tapBoost;
   const mergedBoost: TapBoost = {
-    active:          localSecondsLeft > 0 || (serverBoost?.active ?? false),
-    secondsLeft:     Math.max(localSecondsLeft, serverBoost?.secondsLeft ?? 0),
-    cooldownSeconds: serverBoost?.cooldownSeconds ?? 0,
-    tapsUsed:        serverBoost?.tapsUsed ?? 0,
-    tapsRemaining:   serverBoost?.tapsRemaining ?? 3600,
+    active:            boostEndTime > Date.now() || (serverBoost?.active ?? false),
+    secondsLeft:       Math.max(
+      Math.round((boostEndTime - Date.now()) / 1000),
+      serverBoost?.secondsLeft ?? 0,
+    ),
+    adViewsInCycle:    serverBoost?.adViewsInCycle    ?? 0,
+    adViewsPerCycle:   serverBoost?.adViewsPerCycle   ?? 10,
+    adCooldownSeconds: serverBoost?.adCooldownSeconds ?? 0,
   };
 
-  const handleBoostTap = (boostSeconds: number) => {
+  const handleBoostActivate = (boostSeconds: number) => {
     setBoostEndTime(prev => {
       const base = Math.max(prev, Date.now());
-      return base + boostSeconds * 1000;
+      const next = base + boostSeconds * 1000;
+      localStorage.setItem('adBoost_endTime', String(next));
+      return next;
     });
   };
 
   const rawFarm = data.farm as any;
   const farm = {
     ...data.farm,
-    maxSlots:     rawFarm.maxSlots     ?? rawFarm.max_slots     ?? 5,
-    coolingLevel: rawFarm.coolingLevel ?? rawFarm.cooling_level ?? 0,
-    igcBalance:   rawFarm.igcBalance   ?? rawFarm.igc_balance   ?? 0,
+    maxSlots:        rawFarm.maxSlots        ?? rawFarm.max_slots        ?? 5,
+    coolingLevel:    rawFarm.coolingLevel    ?? rawFarm.cooling_level    ?? 0,
+    igcBalance:      rawFarm.igcBalance      ?? rawFarm.igc_balance      ?? 0,
+    serverRoomLevel: rawFarm.serverRoomLevel ?? rawFarm.server_room_level ?? 1,
+    upsLevel:        rawFarm.upsLevel        ?? rawFarm.ups_level         ?? 1,
+    providerLevel:   rawFarm.providerLevel   ?? rawFarm.provider_level   ?? 1,
+    workbenchLevel:  rawFarm.workbenchLevel  ?? rawFarm.workbench_level  ?? 0,
   };
 
   const activeGpus = data.gpus.filter(g => g.status !== 'stored');
@@ -113,7 +126,7 @@ export function Farm({ data, onUpdate, onSwitchTab }: Props) {
             🏭 {FARM_LEVELS[farm.level] ?? 'Ферма'}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-            {activeGpus.length} / {farm.maxSlots} слотов · Охлаждение Lv{farm.coolingLevel}
+            {activeGpus.length} / {farm.maxSlots} слотов
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -179,8 +192,28 @@ export function Farm({ data, onUpdate, onSwitchTab }: Props) {
         </div>
       )}
 
-      {/* Tap to Cool */}
-      <TapToCool onUpdate={onUpdate} tapBoost={mergedBoost} onBoostTap={handleBoostTap} />
+      {/* Ферма & Верстак */}
+      <FarmUpgradesSection
+        farm={farm}
+        userTon={data.user.tonBalance}
+        userIgc={farm.igcBalance}
+        onUpdate={onUpdate}
+      />
+
+      {/* Server Room */}
+      <ServerRoom
+        farm={farm}
+        userTon={data.user.tonBalance}
+        onUpdate={onUpdate}
+      />
+
+      {/* Ad Boost */}
+      <AdBoost
+        tapBoost={mergedBoost}
+        onUpdate={onUpdate}
+        boostEndTime={boostEndTime}
+        onBoostActivate={handleBoostActivate}
+      />
 
       {/* Active GPUs */}
       <div>
@@ -205,15 +238,19 @@ export function Farm({ data, onUpdate, onSwitchTab }: Props) {
         </div>
 
         {activeGpus.length === 0 ? (
-          <div style={{
-            textAlign: 'center', color: 'rgba(255,255,255,0.3)',
-            padding: '24px 16px', fontSize: 13,
-            background: 'rgba(255,255,255,0.03)', borderRadius: 12,
-            border: '1px dashed rgba(255,255,255,0.08)',
-          }}>
+          <button
+            onClick={() => setShowGpuShop(true)}
+            style={{
+              width: '100%', textAlign: 'center', color: 'rgba(255,255,255,0.3)',
+              padding: '24px 16px', fontSize: 13,
+              background: 'rgba(255,255,255,0.03)', borderRadius: 12,
+              border: '1px dashed rgba(0,152,234,0.2)',
+              cursor: 'pointer',
+            }}
+          >
             Нет активных майнеров.<br />
-            <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>Купи GPU в магазине →</span>
-          </div>
+            <span style={{ color: '#0098EA', fontSize: 11 }}>Нажми чтобы купить GPU →</span>
+          </button>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {activeGpus.map(gpu => (
@@ -227,17 +264,23 @@ export function Farm({ data, onUpdate, onSwitchTab }: Props) {
           </div>
         )}
 
-        {/* Empty slots */}
+        {/* Empty slots — кликабельны, открывают магазин */}
         {freeSlots > 0 && activeGpus.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
             {Array.from({ length: freeSlots }).map((_, i) => (
-              <div key={i} style={{
-                borderRadius: 12, padding: '12px 16px', textAlign: 'center',
-                border: '1px dashed rgba(255,255,255,0.08)',
-                color: 'rgba(255,255,255,0.18)', fontSize: 12,
-              }}>
-                + Пустой слот
-              </div>
+              <button
+                key={i}
+                onClick={() => setShowGpuShop(true)}
+                style={{
+                  borderRadius: 12, padding: '12px 16px', textAlign: 'center',
+                  border: '1px dashed rgba(0,152,234,0.18)',
+                  background: 'rgba(0,152,234,0.03)',
+                  color: 'rgba(0,152,234,0.45)', fontSize: 12, cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                + Купить GPU
+              </button>
             ))}
           </div>
         )}
@@ -269,12 +312,367 @@ export function Farm({ data, onUpdate, onSwitchTab }: Props) {
         <GpuDetailModal
           gpu={refreshedSelected ?? selectedGpu}
           farmIgc={farm.igcBalance}
-          farmCooling={farm.coolingLevel}
+          farmWorkbench={farm.workbenchLevel}
+          farmServerRoom={farm.serverRoomLevel}
+          farmUps={farm.upsLevel}
+          farmProvider={farm.providerLevel}
           tapBoost={mergedBoost}
           onClose={() => setSelectedGpu(null)}
           onUpdate={() => { onUpdate(); }}
-          onGoToShop={() => { setSelectedGpu(null); onSwitchTab('shop'); }}
         />
+      )}
+
+      {/* GPU shop modal (пустой слот) */}
+      {showGpuShop && (
+        <GpuShopModal
+          data={data}
+          onClose={() => setShowGpuShop(false)}
+          onUpdate={onUpdate}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Ферма & Верстак ───────────────────────────────────────────────────────────
+
+const FARM_UPGRADE_DATA = [
+  { type: 'farm_level_2', level: 2, emoji: '📦', name: 'Кладовка',  slots: 10, costIgc: 300, costTon: 0  },
+  { type: 'farm_level_3', level: 3, emoji: '🚗', name: 'Гараж',     slots: 20, costIgc: 0,   costTon: 12 },
+  { type: 'farm_level_4', level: 4, emoji: '🏭', name: 'Ангар',     slots: 50, costIgc: 0,   costTon: 50 },
+];
+
+const WORKBENCH_UPGRADE_DATA = [
+  { type: 'workbench_1', level: 1, emoji: '🔧', name: 'Верстак Lv1', costIgc: 500, costTon: 0  },
+  { type: 'workbench_2', level: 2, emoji: '⚙️', name: 'Верстак Lv2', costIgc: 0,   costTon: 5  },
+  { type: 'workbench_3', level: 3, emoji: '🏗️', name: 'Верстак Lv3', costIgc: 0,   costTon: 25 },
+];
+
+const FARM_SLOT_LABELS: Record<number, number> = { 1: 5, 2: 10, 3: 20, 4: 50 };
+
+interface FarmUpgradesProps {
+  farm:     { level: number; workbenchLevel: number };
+  userTon:  number;
+  userIgc:  number;
+  onUpdate: () => void;
+}
+
+function FarmUpgradesSection({ farm, userTon, userIgc, onUpdate }: FarmUpgradesProps) {
+  const { action }       = useAction();
+  const [busy, setBusy]  = useState<string | null>(null);
+  const [open, setOpen]  = useState(false);
+
+  const farmLevel = farm.level;
+  const wbLevel   = farm.workbenchLevel;
+
+  const nextFarm = FARM_UPGRADE_DATA.find(f => f.level === farmLevel + 1);
+  const nextWb   = WORKBENCH_UPGRADE_DATA.find(w => w.level === wbLevel + 1);
+
+  const do_ = async (type: string, costIgc: number, costTon: number, label: string) => {
+    if (busy) return;
+    const balStr = costTon > 0
+      ? `${userTon.toFixed(3)} TON`
+      : `${Math.floor(userIgc)} IGC`;
+    const costStr = costTon > 0 ? `${costTon} TON` : `${costIgc} IGC`;
+    const ok = await new Promise<boolean>(res =>
+      WebApp.showConfirm(`${label}\n\nСтоимость: ${costStr}\nБаланс: ${balStr}\n\nПодтвердить?`, res),
+    );
+    if (!ok) return;
+    setBusy(type);
+    try {
+      await action(type, {});
+      WebApp.HapticFeedback.notificationOccurred('success');
+      onUpdate();
+    } catch (e) {
+      WebApp.showAlert(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)', borderRadius: 14,
+      border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden',
+    }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🏠</span>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Ферма & Верстак</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+              {FARM_LEVELS[farmLevel] ?? 'Балкон'} · {FARM_SLOT_LABELS[farmLevel] ?? 5} слотов
+              {wbLevel > 0 ? ` · Верстак Lv${wbLevel}` : ' · Верстак не установлен'}
+            </div>
+          </div>
+        </div>
+        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          padding: '4px 12px 12px',
+          display: 'flex', flexDirection: 'column', gap: 6,
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          {/* Farm level */}
+          <MixedUpgradeRow
+            emoji={nextFarm?.emoji ?? '🏠'}
+            label="Уровень фермы"
+            currentInfo={`${FARM_LEVELS[farmLevel] ?? 'Балкон'} · ${FARM_SLOT_LABELS[farmLevel] ?? 5} слотов`}
+            nextInfo={nextFarm ? `→ ${nextFarm.name} · ${nextFarm.slots} слотов` : null}
+            costIgc={nextFarm?.costIgc ?? null}
+            costTon={nextFarm?.costTon ?? null}
+            canAfford={nextFarm
+              ? (nextFarm.costTon > 0 ? userTon >= nextFarm.costTon : userIgc >= nextFarm.costIgc)
+              : false}
+            busy={busy === nextFarm?.type}
+            isMax={!nextFarm}
+            onPress={() => nextFarm && do_(nextFarm.type, nextFarm.costIgc, nextFarm.costTon, `${nextFarm.emoji} ${nextFarm.name}`)}
+          />
+          {/* Workbench */}
+          <MixedUpgradeRow
+            emoji={nextWb?.emoji ?? '🔧'}
+            label="Верстак (ремонт GPU)"
+            currentInfo={wbLevel === 0 ? 'Не установлен · ремонт недоступен' : `Lv${wbLevel} · ремонт до T${wbLevel * 2}`}
+            nextInfo={nextWb ? `→ ${nextWb.name}` : null}
+            costIgc={nextWb?.costIgc ?? null}
+            costTon={nextWb?.costTon ?? null}
+            canAfford={nextWb
+              ? (nextWb.costTon > 0 ? userTon >= nextWb.costTon : userIgc >= nextWb.costIgc)
+              : false}
+            busy={busy === nextWb?.type}
+            isMax={!nextWb}
+            onPress={() => nextWb && do_(nextWb.type, nextWb.costIgc, nextWb.costTon, `${nextWb.emoji} ${nextWb.name}`)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MixedUpgradeRow({ emoji, label, currentInfo, nextInfo, costIgc, costTon, canAfford, busy, isMax, onPress }: {
+  emoji: string; label: string; currentInfo: string; nextInfo: string | null;
+  costIgc: number | null; costTon: number | null;
+  canAfford: boolean; busy: boolean; isMax: boolean; onPress: () => void;
+}) {
+  const costLabel = costTon ? `${costTon} TON` : costIgc ? `${costIgc} IGC` : null;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '9px 10px', borderRadius: 11,
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.06)',
+    }}>
+      <span style={{ fontSize: 18, flexShrink: 0 }}>{emoji}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
+          {currentInfo}
+          {nextInfo && <span style={{ color: '#0098EA' }}> {nextInfo}</span>}
+        </div>
+      </div>
+      {isMax ? (
+        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>МАКС</span>
+      ) : (
+        <button
+          onClick={onPress}
+          disabled={busy || !canAfford}
+          style={{
+            padding: '5px 10px', borderRadius: 8, border: 'none',
+            cursor: canAfford && !busy ? 'pointer' : 'not-allowed',
+            background: canAfford
+              ? costTon ? 'linear-gradient(135deg,#0098EA,#005FA3)' : 'linear-gradient(135deg,#9B59B6,#6C3483)'
+              : 'rgba(255,255,255,0.08)',
+            color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
+            fontSize: 10, fontWeight: 700, flexShrink: 0,
+            opacity: busy ? 0.5 : 1,
+            boxShadow: canAfford ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+            transition: 'all 0.15s', whiteSpace: 'nowrap',
+          }}
+        >
+          {costLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Серверная — глобальные апгрейды, влияющие на все GPU ─────────────────────
+
+interface ServerRoomProps {
+  farm:     { serverRoomLevel: number; upsLevel: number; providerLevel: number };
+  userTon:  number;
+  onUpdate: () => void;
+}
+
+function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
+  const { action }        = useAction();
+  const [busy, setBusy]   = useState<string | null>(null);
+  const [open, setOpen]   = useState(false);
+
+  const do_ = async (type: string, costTon: number, confirmLabel: string) => {
+    if (busy) return;
+    const ok = await new Promise<boolean>(res =>
+      WebApp.showConfirm(
+        `${confirmLabel}\n\nСтоимость: ${costTon} TON\nБаланс: ${userTon.toFixed(3)} TON\n\nПодтвердить?`,
+        res,
+      ),
+    );
+    if (!ok) return;
+    setBusy(type);
+    try {
+      await action(type, {});
+      WebApp.HapticFeedback.notificationOccurred('success');
+      onUpdate();
+    } catch (e) {
+      WebApp.showAlert(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const srLevel   = farm.serverRoomLevel;
+  const upsLevel  = farm.upsLevel;
+  const provLevel = farm.providerLevel;
+
+  const srCur   = SERVER_ROOM_LEVELS.find(l => l.level === srLevel)!;
+  const srNext  = SERVER_ROOM_LEVELS.find(l => l.level === srLevel + 1);
+  const upsCur  = UPS_LEVELS.find(l => l.level === upsLevel)!;
+  const upsNext = UPS_LEVELS.find(l => l.level === upsLevel + 1);
+  const provCur  = PROVIDER_LEVELS.find(l => l.level === provLevel)!;
+  const provNext = PROVIDER_LEVELS.find(l => l.level === provLevel + 1);
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)', borderRadius: 14,
+      border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden',
+    }}>
+      {/* Toggle header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🏢</span>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Серверная</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+              Инфраструктура · влияет на все GPU
+            </div>
+          </div>
+        </div>
+        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Collapsible upgrade rows */}
+      {open && (
+        <div style={{
+          padding: '4px 12px 12px',
+          display: 'flex', flexDirection: 'column', gap: 6,
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          <InfraUpgradeRow
+            emoji="❄️"
+            label="Серверная комната"
+            levelInfo={`Lv${srLevel}/${SERVER_ROOM_LEVELS.length}`}
+            currentEffect={srCur.tempReduction > 0 ? `−${srCur.tempReduction}°C температура` : 'Без бонуса'}
+            nextEffect={srNext ? `→ −${srNext.tempReduction}°C` : null}
+            costTon={srNext?.costTon ?? null}
+            canAfford={srNext ? userTon >= srNext.costTon : false}
+            busy={busy === 'upgrade_server_room'}
+            isMax={!srNext}
+            onPress={() => do_('upgrade_server_room', srNext!.costTon, `❄️ Серверная Lv${srLevel} → Lv${srLevel + 1}`)}
+          />
+          <InfraUpgradeRow
+            emoji="🔋"
+            label="ИБП (UPS)"
+            levelInfo={`Lv${upsLevel}/${UPS_LEVELS.length}`}
+            currentEffect={upsCur.uptimeBonus > 0 ? `+${upsCur.uptimeBonus}% стабильность` : 'Без бонуса'}
+            nextEffect={upsNext ? `→ +${upsNext.uptimeBonus}%` : null}
+            costTon={upsNext?.costTon ?? null}
+            canAfford={upsNext ? userTon >= upsNext.costTon : false}
+            busy={busy === 'upgrade_ups'}
+            isMax={!upsNext}
+            onPress={() => do_('upgrade_ups', upsNext!.costTon, `🔋 ИБП Lv${upsLevel} → Lv${upsLevel + 1}`)}
+          />
+          <InfraUpgradeRow
+            emoji="📡"
+            label="Провайдер"
+            levelInfo={`Lv${provLevel}/${PROVIDER_LEVELS.length}`}
+            currentEffect={
+              provCur.igcDiscountPct > 0
+                ? `−${provCur.igcDiscountPct}% IGC · +${provCur.uptimeBonus}% стаб.`
+                : 'Без бонуса'
+            }
+            nextEffect={provNext ? `→ −${provNext.igcDiscountPct}% IGC` : null}
+            costTon={provNext?.costTon ?? null}
+            canAfford={provNext ? userTon >= provNext.costTon : false}
+            busy={busy === 'upgrade_provider'}
+            isMax={!provNext}
+            onPress={() => do_('upgrade_provider', provNext!.costTon, `📡 Провайдер Lv${provLevel} → Lv${provLevel + 1}`)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, costTon, canAfford, busy, isMax, onPress }: {
+  emoji: string; label: string; levelInfo: string;
+  currentEffect: string; nextEffect: string | null;
+  costTon: number | null; canAfford: boolean; busy: boolean; isMax: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '9px 10px', borderRadius: 11,
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.06)',
+    }}>
+      <span style={{ fontSize: 18, flexShrink: 0 }}>{emoji}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{label}</span>
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>{levelInfo}</span>
+        </div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
+          {currentEffect}
+          {nextEffect && <span style={{ color: '#0098EA' }}> {nextEffect}</span>}
+        </div>
+      </div>
+      {isMax ? (
+        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>МАКС</span>
+      ) : (
+        <button
+          onClick={onPress}
+          disabled={busy || !canAfford}
+          style={{
+            padding: '5px 10px', borderRadius: 8, border: 'none',
+            cursor: canAfford && !busy ? 'pointer' : 'not-allowed',
+            background: canAfford
+              ? 'linear-gradient(135deg, #0098EA, #005FA3)'
+              : 'rgba(255,255,255,0.08)',
+            color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
+            fontSize: 10, fontWeight: 700, flexShrink: 0,
+            opacity: busy ? 0.5 : 1,
+            boxShadow: canAfford ? '0 2px 8px rgba(0,152,234,0.35)' : 'none',
+            transition: 'all 0.15s',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {costTon} TON
+        </button>
       )}
     </div>
   );
