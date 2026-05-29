@@ -15,19 +15,22 @@ const BONUS_LABELS: Record<string, { name: string; desc: string; icon: string }>
   boost_x1:      { name: '+10% Хешрейт',    desc: '2 часа для всего синдиката',      icon: '⚡' },
   boost_x2:      { name: '+20% Хешрейт',    desc: '4 часа для всего синдиката',      icon: '🚀' },
   shield_break:  { name: 'Щит поломок',     desc: '24ч — карты не ломаются',         icon: '🛡️' },
-  season_shield: { name: 'Иммунитет зимы',  desc: '7 дней — нет зимних штрафов',    icon: '❄️' },
+  season_shield: { name: 'Иммунитет зимы',  desc: '48ч — нет зимних штрафов',       icon: '❄️' },
   double_reward: { name: '×2 Соло-награда', desc: '1ч — удвоенный приз блока',       icon: '💎' },
   domination:    { name: '+50% Хешрейт',    desc: '1ч — для всего синдиката',        icon: '👑' },
 };
 
+// Базовые цены (до применения igcRatio рынка). Мьютекс: boost_x1 ↔ boost_x2 взаимоисключающие.
 const BONUS_COSTS: Record<string, { igcCost: number; requiredLevel: number }> = {
   boost_x1:      { igcCost: 200,   requiredLevel: 1  },
   boost_x2:      { igcCost: 500,   requiredLevel: 10 },
   shield_break:  { igcCost: 800,   requiredLevel: 20 },
-  season_shield: { igcCost: 600,   requiredLevel: 30 },
+  season_shield: { igcCost: 2_000, requiredLevel: 30 },
   double_reward: { igcCost: 1_500, requiredLevel: 40 },
   domination:    { igcCost: 3_000, requiredLevel: 50 },
 };
+
+const HASHRATE_MUTEX = new Set(['boost_x1', 'boost_x2']);
 
 function timeLeft(expiresAt: string): string {
   const sec = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
@@ -289,24 +292,50 @@ export function Syndicate({ data, onUpdate }: Props) {
 
   // ── Магазин бонусов ──────────────────────────────────
   if (view === 'bonusShop') {
+    const igcRatio  = (data as any).igcSupply?.ratio ?? (data as any).igc?.ratio ?? 1;
+    const adjCost   = (base: number) => Math.ceil(base * igcRatio);
+    const showRatio = Math.abs(igcRatio - 1) >= 0.02;
+
     return (
       <div style={wrap}>
         <div style={cardTitle}>🛒 Магазин бонусов</div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 12 }}>
-          Казна: <b style={{ color: '#9B59B6' }}>{syn.treasuryIgc.toFixed(0)} IGC</b>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+            Казна: <b style={{ color: '#9B59B6' }}>{syn.treasuryIgc.toFixed(0)} IGC</b>
+          </span>
+          {showRatio && (
+            <span style={{ fontSize: 10, color: igcRatio > 1 ? '#E74C3C' : '#2ECC71' }}>
+              Рынок ×{igcRatio.toFixed(2)}
+            </span>
+          )}
         </div>
         {Object.entries(BONUS_LABELS).map(([type, info]) => {
-          const def        = BONUS_COSTS[type];
-          const isActive   = syn.activeBonuses.some(b => b.type === type);
-          const affordable = syn.treasuryIgc >= def.igcCost;
+          const def       = BONUS_COSTS[type];
+          const isActive  = syn.activeBonuses.some(b => b.type === type);
+          const finalCost = adjCost(def.igcCost);
+          const affordable = syn.treasuryIgc >= finalCost;
           const unlocked   = syn.level >= def.requiredLevel;
+
+          // Mutex: буст хешрейта — только один одновременно
+          const isHashrateBoost   = HASHRATE_MUTEX.has(type);
+          const mutexBlocked      = isHashrateBoost && !isActive &&
+            syn.activeBonuses.some(b => HASHRATE_MUTEX.has(b.type) && b.type !== type);
+          const activeConflict    = mutexBlocked
+            ? syn.activeBonuses.find(b => HASHRATE_MUTEX.has(b.type) && b.type !== type)
+            : null;
+
+          const canBuy = !isActive && !mutexBlocked && affordable && unlocked;
+
           return (
-            <div key={type} style={{ ...card, marginBottom: 8, opacity: unlocked ? 1 : 0.6 }}>
+            <div key={type} style={{ ...card, marginBottom: 8, opacity: unlocked ? 1 : 0.55 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                 <span style={{ fontSize: 20 }}>{info.icon}</span>
                 <span style={{ fontSize: 13, fontWeight: 700 }}>{info.name}</span>
                 {isActive && (
                   <span style={{ fontSize: 10, color: '#2ECC71', marginLeft: 4 }}>● Активен</span>
+                )}
+                {mutexBlocked && (
+                  <span style={{ fontSize: 10, color: '#E67E22', marginLeft: 4 }}>⛔ Заблокирован</span>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
@@ -317,28 +346,39 @@ export function Syndicate({ data, onUpdate }: Props) {
                   Осталось: {timeLeft(syn.activeBonuses.find(b => b.type === type)!.expiresAt)}
                 </div>
               )}
+              {mutexBlocked && activeConflict && (
+                <div style={{ fontSize: 10, color: '#E67E22', marginBottom: 4 }}>
+                  «{BONUS_LABELS[activeConflict.type]?.name}» активен ещё {timeLeft(activeConflict.expiresAt)}
+                </div>
+              )}
               {!unlocked && (
-                <div style={{ fontSize: 10, color: '#E74C3C', marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: '#E74C3C', marginBottom: 4 }}>
                   Требуется уровень {def.requiredLevel}
                 </div>
               )}
               {isLeader && (
                 <button
                   onClick={() => {
-                    if (isActive) { WebApp.showAlert('Этот бонус уже активен — подожди пока он закончится.'); return; }
+                    if (isActive)     { WebApp.showAlert('Этот бонус уже активен — подожди пока он закончится.'); return; }
+                    if (mutexBlocked) { WebApp.showAlert(`Уже активен другой буст хешрейта. Дождись его окончания.`); return; }
+                    const ratioNote = showRatio ? `\nЦена × рынок (×${igcRatio.toFixed(2)})` : '';
                     WebApp.showConfirm(
-                      `Купить "${info.name}" за ${def.igcCost} IGC из казны?`,
+                      `Купить «${info.name}» за ${finalCost} IGC из казны?${ratioNote}`,
                       (ok) => { if (ok) doAction('buy_syndicate_bonus', { bonusType: type }); },
                     );
                   }}
-                  disabled={busy || !affordable || !unlocked || isActive}
+                  disabled={busy || !canBuy}
                   style={{
                     ...btnPrimary,
                     marginTop: 4,
-                    opacity: (affordable && unlocked && !isActive) ? 1 : 0.4,
+                    opacity: canBuy ? 1 : 0.4,
                   }}
                 >
-                  {isActive ? '✓ Активен' : `${def.igcCost} IGC`}
+                  {isActive
+                    ? '✓ Активен'
+                    : mutexBlocked
+                      ? '⛔ Другой буст активен'
+                      : `${finalCost} IGC${showRatio ? ` ×${igcRatio.toFixed(2)}` : ''}`}
                 </button>
               )}
             </div>
