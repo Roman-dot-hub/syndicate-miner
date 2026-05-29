@@ -361,7 +361,10 @@ export function Syndicate({ data, onUpdate }: Props) {
                   onClick={() => {
                     if (isActive)     { WebApp.showAlert('Этот бонус уже активен — подожди пока он закончится.'); return; }
                     if (mutexBlocked) { WebApp.showAlert(`Уже активен другой буст хешрейта. Дождись его окончания.`); return; }
-                    const ratioNote = showRatio ? `\nЦена × рынок (×${igcRatio.toFixed(2)})` : '';
+                    const delta     = Math.abs(finalCost - def.igcCost);
+                    const ratioNote = showRatio
+                      ? `\nЦена скорректирована рынком (${igcRatio > 1 ? '+' : '−'}${delta} IGC)`
+                      : '';
                     WebApp.showConfirm(
                       `Купить «${info.name}» за ${finalCost} IGC из казны?${ratioNote}`,
                       (ok) => { if (ok) doAction('buy_syndicate_bonus', { bonusType: type }); },
@@ -378,7 +381,7 @@ export function Syndicate({ data, onUpdate }: Props) {
                     ? '✓ Активен'
                     : mutexBlocked
                       ? '⛔ Другой буст активен'
-                      : `${finalCost} IGC${showRatio ? ` ×${igcRatio.toFixed(2)}` : ''}`}
+                      : `${finalCost} IGC${showRatio ? ` (${igcRatio > 1 ? '+' : '−'}${Math.abs(finalCost - def.igcCost)} рынок)` : ''}`}
                 </button>
               )}
             </div>
