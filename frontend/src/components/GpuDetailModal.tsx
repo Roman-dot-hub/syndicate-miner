@@ -35,6 +35,9 @@ function requiredWorkbench(tier: number): number {
   return 3;
 }
 
+// Температура → ширина полоски (0–100°C → 0–100%)
+function tempBarPct(t: number): number { return Math.min(100, Math.max(0, (t / 100) * 100)); }
+
 interface Props {
   gpu:            GPU;
   farmIgc:        number;
@@ -111,6 +114,7 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
       : spec.igcCostPerDay;
   const effectiveCost = rawDayCost.toFixed(1);
   const daysLeft      = rawDayCost > 0 ? (farmIgc / rawDayCost).toFixed(1) : '∞';
+  const igcIncomeDay  = (spec.igcPerDay * overcMult * undervoltMult).toFixed(1);
 
   const repairCost    = calcRepairCost(tier, g.health);
   const needWorkbench = requiredWorkbench(tier);
@@ -157,30 +161,31 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
           to   { transform: translateY(0);    opacity: 1; }
         }
         @keyframes modal-glow {
-          0%,100% { box-shadow: 0 -4px 30px rgba(0,212,255,0.15), 0 -20px 60px rgba(0,0,0,0.8); }
-          50%      { box-shadow: 0 -4px 50px rgba(0,212,255,0.3),  0 -20px 60px rgba(0,0,0,0.8); }
+          0%,100% { box-shadow: 0 -4px 30px rgba(0,212,255,0.12), 0 -20px 60px rgba(0,0,0,0.8); }
+          50%      { box-shadow: 0 -4px 50px rgba(0,212,255,0.28), 0 -20px 60px rgba(0,0,0,0.8); }
         }
       `}</style>
 
       {/* Backdrop */}
       <div onClick={onClose} style={{
         position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(0,5,15,0.75)', backdropFilter: 'blur(4px)',
+        background: 'rgba(0,5,15,0.8)', backdropFilter: 'blur(4px)',
       }} />
 
       {/* Bottom sheet */}
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
-        background: 'linear-gradient(180deg, #0D1E35 0%, #080F1E 100%)',
+        background: 'linear-gradient(180deg, #0D1E35 0%, #060D1A 100%)',
         borderRadius: '20px 20px 0 0',
         borderTop: `1px solid ${CYE}`,
-        maxHeight: '90vh',
+        maxHeight: '92vh',
         display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
         animation: 'modal-up 0.25s cubic-bezier(0.32,0.72,0,1), modal-glow 3s ease-in-out 0.25s infinite',
       }}>
 
         {/* Drag handle */}
-        <div style={{ padding: '10px 0 4px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+        <div style={{ padding: '10px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
           <div style={{
             width: 36, height: 4, borderRadius: 2,
             background: `linear-gradient(90deg, transparent, ${CY}, transparent)`,
@@ -188,29 +193,26 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
           }} />
         </div>
 
-        {/* Header */}
+        {/* ── ШАПКА: emoji + имя + бейдж + кнопка закрытия ── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 14,
-          padding: '8px 16px 14px',
-          borderBottom: `1px solid ${CYE}`,
-          flexShrink: 0, position: 'relative',
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '0 14px 0',
+          flexShrink: 0,
         }}>
-          {/* Emoji с кольцом */}
+          {/* Иконка GPU */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <div style={{
-              width: 56, height: 56, borderRadius: 14,
-              background: CYB,
-              border: `1px solid ${CYE}`,
+              width: 52, height: 52, borderRadius: 13,
+              background: CYB, border: `1px solid ${CYE}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 32,
+              fontSize: 28,
               boxShadow: isActive ? `0 0 16px rgba(0,212,255,0.2)` : 'none',
             }}>
               {spec.emoji}
             </div>
-            {/* Статус-точка */}
             <div style={{
               position: 'absolute', bottom: -2, right: -2,
-              width: 12, height: 12, borderRadius: '50%',
+              width: 11, height: 11, borderRadius: '50%',
               background: statusColor,
               boxShadow: `0 0 8px ${statusColor}`,
               border: '2px solid #0D1E35',
@@ -218,57 +220,68 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
             }} />
           </div>
 
+          {/* Название + бейдж */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
-              <span style={{ fontSize: 17, fontWeight: 900, color: '#E0F0FF', letterSpacing: 0.3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 16, fontWeight: 900, color: '#E0F0FF', letterSpacing: 0.2 }}>
                 {spec.name}
               </span>
               <span style={{
-                fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
+                fontSize: 8, fontWeight: 800, letterSpacing: 1.5,
                 color: statusColor,
                 background: `${statusColor}18`,
                 border: `1px solid ${statusColor}55`,
-                borderRadius: 5, padding: '2px 7px',
-                boxShadow: `0 0 8px ${statusColor}44`,
+                borderRadius: 4, padding: '2px 6px',
               }}>
                 {statusLabel}
               </span>
-            </div>
-            <div style={{ fontSize: 10, color: DIM, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <span>T{tier}</span>
-              <span>·</span>
-              <span>{spec.watt}W</span>
-              {gpu.isRefurbished && <><span>·</span><span style={{ color: GR }}>♻️ REFURB</span></>}
-              {tapBoost?.active && isActive && <><span>·</span><span style={{ color: CY, animation: 'oc-pulse 1s infinite' }}>⚡ BOOST</span></>}
-              {!isStored && (
-                <><span>·</span>
-                <span style={{ color: tempMeta.color }}>🌡 {gpuTemp}°C</span></>
+              {g.overclocked && (
+                <span style={{ fontSize: 8, fontWeight: 800, color: CY,
+                  background: `${CY}18`, border: `1px solid ${CY}55`,
+                  borderRadius: 4, padding: '2px 6px', animation: 'oc-pulse 2s ease-in-out infinite' }}>
+                  ⚡ OC
+                </span>
               )}
+              {g.undervolted && (
+                <span style={{ fontSize: 8, fontWeight: 800, color: GR,
+                  background: `${GR}18`, border: `1px solid ${GR}55`,
+                  borderRadius: 4, padding: '2px 6px' }}>
+                  🔋 UV
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 9, color: DIM, marginTop: 2, display: 'flex', gap: 6 }}>
+              <span>T{tier}</span><span>·</span><span>{spec.watt}W</span>
+              {gpu.isRefurbished && <><span>·</span><span style={{ color: GR }}>♻️ REFURB</span></>}
+            {tapBoost?.active && isActive && <><span>·</span><span style={{ color: CY, animation: 'oc-pulse 1s infinite' }}>⚡ BOOST</span></>}
             </div>
           </div>
 
           <button onClick={onClose} style={{
-            width: 30, height: 30, borderRadius: 8,
+            width: 28, height: 28, borderRadius: 7,
             background: CYB, border: `1px solid ${CYE}`,
-            color: DIM, fontSize: 14, cursor: 'pointer', flexShrink: 0,
+            color: DIM, fontSize: 13, cursor: 'pointer', flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>✕</button>
         </div>
 
-        {/* ── Быстрые статы — ВСЕГДА видны, вне скролла ── */}
+        {/* ── СТРОКА СТАТОВ: хешрейт · доход · расход ── */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr',
-          gap: 1, flexShrink: 0,
-          background: 'rgba(0,212,255,0.08)',
-          borderBottom: `1px solid ${CYE}`,
+          display: 'flex', gap: 0, flexShrink: 0,
+          margin: '10px 14px 0',
+          borderRadius: 11, overflow: 'hidden',
+          border: `1px solid ${CYE}`,
         }}>
           {[
-            { label: 'ХЕШРЕЙТ',   value: effectiveHash,                                               color: CY  },
-            { label: 'ДОХОД/ДЕНЬ',value: `+${spec.igcPerDay.toFixed(0)} IGC`,                         color: PU  },
-            { label: 'HP',        value: isStored ? '💤' : isBroken ? '💥' : `${health}%`,           color: healthColor },
-            { label: 'ТЕМП',      value: isStored ? '—' : `${gpuTemp}°C`,                            color: isStored ? DIM : tempMeta.color },
-          ].map((s, i) => (
-            <div key={i} style={{ padding: '8px 6px', textAlign: 'center', background: 'rgba(0,0,0,0.3)' }}>
+            { label: 'ХЕШРЕЙТ',    value: effectiveHash,              color: CY,       flex: 1.2 },
+            { label: 'ДОХОД/ДЕНЬ', value: `+${igcIncomeDay} IGC`,     color: PU,       flex: 1   },
+            { label: 'РАСХОД/ДЕНЬ',value: `−${effectiveCost} IGC`,    color: '#FF3355',flex: 1   },
+          ].map((s, i, arr) => (
+            <div key={i} style={{
+              flex: s.flex, padding: '8px 0', textAlign: 'center',
+              background: 'rgba(0,0,0,0.35)',
+              borderRight: i < arr.length - 1 ? `1px solid ${CYE}` : 'none',
+            }}>
               <div style={{ fontSize: 7, letterSpacing: 1.5, color: DIM, marginBottom: 3 }}>{s.label}</div>
               <div style={{ fontSize: 12, fontWeight: 800, color: s.color, textShadow: `0 0 8px ${s.color}66` }}>
                 {s.value}
@@ -277,49 +290,69 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
           ))}
         </div>
 
-        {/* Scrollable content */}
+        {/* ── ДВЕ ПОЛОСКИ: Состояние GPU + Температура ── */}
+        {!isStored && (
+          <div style={{ margin: '8px 14px 0', display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+            {/* Полоска: Состояние GPU */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 8, letterSpacing: 1.5, color: DIM }}>СОСТОЯНИЕ GPU</span>
+                <span style={{ fontSize: 10, fontWeight: 800, color: healthColor,
+                  textShadow: `0 0 6px ${healthGlow}` }}>
+                  {isBroken ? '💥 BROKEN' : `${health}%`}
+                </span>
+              </div>
+              <div style={{ height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${health}%`, borderRadius: 3,
+                  background: `linear-gradient(90deg, ${healthColor}88, ${healthColor})`,
+                  boxShadow: `0 0 8px ${healthGlow}`,
+                  transition: 'width 0.7s ease',
+                }} />
+              </div>
+            </div>
+
+            {/* Полоска: Температура */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 8, letterSpacing: 1.5, color: DIM }}>ТЕМПЕРАТУРА</span>
+                <span style={{ fontSize: 10, fontWeight: 800, color: tempMeta.color,
+                  textShadow: `0 0 6px ${tempMeta.color}88` }}>
+                  {gpuTemp}°C · {tempMeta.label}
+                </span>
+              </div>
+              <div style={{ height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${tempBarPct(gpuTemp)}%`, borderRadius: 3,
+                  background: `linear-gradient(90deg, #2ECC7188, ${tempMeta.color})`,
+                  boxShadow: `0 0 8px ${tempMeta.color}88`,
+                  transition: 'width 0.7s ease',
+                }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ height: 1, background: CYE, margin: '10px 0 0', flexShrink: 0 }} />
+
+        {/* ── СКРОЛЛИРУЕМЫЙ КОНТЕНТ ── */}
         <div style={{
           overflowY: 'scroll',
           WebkitOverflowScrolling: 'touch' as any,
           flex: 1,
-          padding: '12px 14px 28px',
+          padding: '12px 14px 32px',
           display: 'flex', flexDirection: 'column', gap: 10,
         }}>
 
-          {/* Health bar */}
-          {!isStored && (
-            <div style={{ background: CYB, borderRadius: 12, border: `1px solid ${CYE}`, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>СОСТОЯНИЕ GPU</span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: healthColor,
-                  textShadow: `0 0 8px ${healthGlow}` }}>
-                  {isBroken ? '💥 ТРЕБУЕТ РЕМОНТА' : `${health}%`}
-                </span>
-              </div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', width: `${health}%`, borderRadius: 3,
-                  background: `linear-gradient(90deg, ${healthColor}88, ${healthColor})`,
-                  boxShadow: `0 0 10px ${healthGlow}`,
-                  transition: 'width 0.6s ease',
-                }} />
-              </div>
-            </div>
-          )}
-
-          {/* Stats grid */}
+          {/* Доп. статы */}
           <div style={{ background: CYB, borderRadius: 12, border: `1px solid ${CYE}`, overflow: 'hidden' }}>
             {[
-              { label: 'HASHRATE',     value: effectiveHash,                                   color: CY  },
-              { label: 'ДОХОД/ДЕНЬ',   value: `+${spec.igcPerDay.toFixed(1)} IGC`,             color: PU  },
-              { label: 'РАСХОД/ДЕНЬ',  value: `${effectiveCost} IGC`,                          color: '#FF3355' },
-              { label: 'БАЛАНС ФЕРМЫ', value: `${Math.floor(farmIgc)} IGC  (~${daysLeft}д)`,   color: farmIgc < rawDayCost * 2 ? OR : DIM },
-              { label: 'ОХЛАЖДЕНИЕ',   value: `Жидк. Lv${g.coolingLevel ?? 1}`,               color: DIM },
-              { label: 'ТЕМПЕРАТУРА',  value: isStored ? '—' : `${gpuTemp}°C · ${tempMeta.label}`, color: isStored ? 'rgba(255,255,255,0.2)' : tempMeta.color },
-              { label: 'СТАБИЛЬНОСТЬ', value: `${effectiveUptime}%`,                           color: effectiveUptime >= 88 ? GR : effectiveUptime >= 84 ? OR : '#FF3355' },
+              { label: 'БАЛАНС ФЕРМЫ',  value: `${Math.floor(farmIgc)} IGC (~${daysLeft}д)`, color: farmIgc < rawDayCost * 2 ? OR : DIM },
+              { label: 'ОХЛАЖДЕНИЕ',    value: `Жидкостное Lv${g.coolingLevel ?? 1}`,        color: DIM },
+              { label: 'СТАБИЛЬНОСТЬ',  value: `${effectiveUptime}%`,                         color: effectiveUptime >= 88 ? GR : effectiveUptime >= 84 ? OR : '#FF3355' },
             ].map((row, i, arr) => (
               <div key={row.label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 13px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 13px' }}>
                   <span style={{ fontSize: 9, letterSpacing: 1.5, color: DIM }}>{row.label}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: row.color,
                     textShadow: row.color !== DIM ? `0 0 8px ${row.color}44` : 'none' }}>
@@ -352,21 +385,17 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
               <div style={{ display: 'flex', gap: 8 }}>
                 <CyberToggle
                   emoji="⚡" label="РАЗГОН" hint="+20% мощь · −HP быстрее"
-                  active={g.overclocked}
-                  activeColor={CY}
+                  active={g.overclocked} activeColor={CY}
                   disabled={isBroken || isOffline || g.undervolted || g.health < 30}
                   disabledReason={g.undervolted ? 'Отключи Undervolt' : g.health < 30 ? 'HP < 30%' : undefined}
-                  busy={busy}
-                  onPress={() => do_('toggle_overclock')}
+                  busy={busy} onPress={() => do_('toggle_overclock')}
                 />
                 <CyberToggle
                   emoji="🔋" label="UNDERVOLT" hint="−15% мощь · −30% износ"
-                  active={g.undervolted}
-                  activeColor={GR}
+                  active={g.undervolted} activeColor={GR}
                   disabled={isBroken || isOffline || g.overclocked}
                   disabledReason={g.overclocked ? 'Отключи Разгон' : undefined}
-                  busy={busy}
-                  onPress={() => do_('toggle_undervolting')}
+                  busy={busy} onPress={() => do_('toggle_undervolting')}
                 />
               </div>
             </Section>
@@ -582,7 +611,6 @@ function UpgradeRow({ emoji, label, currentLevel, maxLevel, currentEffect, nextE
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#E0F0FF' }}>{label}</span>
-          {/* Level pips */}
           <div style={{ display: 'flex', gap: 2, marginLeft: 2 }}>
             {Array.from({ length: maxLevel }, (_, i) => (
               <div key={i} style={{
