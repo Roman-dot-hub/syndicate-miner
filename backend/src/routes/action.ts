@@ -672,8 +672,15 @@ export async function actionRoutes(app: FastifyInstance) {
         if (syn.level < def.requiredLevel) {
           return reply.code(400).send({ error: `Требуется уровень синдиката ${def.requiredLevel}` });
         }
-        if (parseFloat(syn.treasury_igc) < def.igcCost) {
-          return reply.code(400).send({ error: `Нужно ${def.igcCost} IGC в казне` });
+
+        // Динамическая цена бонуса: baseCost × igcRatio рынка
+        const igcRatioBonus  = await getIgcRatio();
+        const finalBonusCost = Math.ceil(def.igcCost * igcRatioBonus);
+
+        if (parseFloat(syn.treasury_igc) < finalBonusCost) {
+          return reply.code(400).send({
+            error: `Нужно ${finalBonusCost} IGC в казне (×${igcRatioBonus.toFixed(2)} рынок)`,
+          });
         }
 
         // Нельзя активировать бонус пока предыдущий такого же типа ещё действует
@@ -685,12 +692,30 @@ export async function actionRoutes(app: FastifyInstance) {
           return reply.code(400).send({ error: 'Этот бонус уже активен — подожди пока он закончится' });
         }
 
+        // Бусты хэшрейта взаимоисключающие: boost_x1 и boost_x2 не могут быть активны одновременно
+        const HASHRATE_BOOST_TYPES = ['boost_x1', 'boost_x2'];
+        if (HASHRATE_BOOST_TYPES.includes(bonusType)) {
+          const { rows: [conflicting] } = await pool.query(
+            `SELECT type FROM syndicate_bonuses
+             WHERE syndicate_id = $1
+               AND type = ANY($2::text[])
+               AND type != $3
+               AND expires_at > NOW()`,
+            [syn.id, HASHRATE_BOOST_TYPES, bonusType],
+          );
+          if (conflicting) {
+            return reply.code(400).send({
+              error: `Буст хэшрейта "${conflicting.type}" уже активен — дождись окончания перед активацией другого`,
+            });
+          }
+        }
+
         const client3 = await pool.connect();
         try {
           await client3.query('BEGIN');
           await client3.query(
             `UPDATE syndicates SET treasury_igc = treasury_igc - $1 WHERE id = $2`,
-            [def.igcCost, syn.id],
+            [finalBonusCost, syn.id],
           );
           await client3.query(`
             UPDATE pool_stats SET
@@ -698,7 +723,7 @@ export async function actionRoutes(app: FastifyInstance) {
               igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
               igc_daily_date   = CURRENT_DATE
             WHERE id = 1`,
-            [def.igcCost],
+            [finalBonusCost],
           );
           const expiresAt = new Date(Date.now() + def.durationSec * 1000);
           await client3.query(
@@ -706,7 +731,7 @@ export async function actionRoutes(app: FastifyInstance) {
             [syn.id, bonusType, expiresAt],
           );
           await client3.query('COMMIT');
-          return reply.send({ ok: true, expiresAt });
+          return reply.send({ ok: true, expiresAt, igcSpent: finalBonusCost, igcRatio: igcRatioBonus });
         } catch (e) {
           await client3.query('ROLLBACK'); throw e;
         } finally { client3.release(); }
