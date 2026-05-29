@@ -258,8 +258,11 @@ function LoadingSplash({ retrying }: { retrying: boolean }) {
       background: '#17212b', color: '#fff', padding: '0 32px',
     }}>
       {/* Иконка */}
-      <div style={{ fontSize: 52, marginBottom: 24, filter: 'drop-shadow(0 0 16px rgba(155,89,182,0.5))' }}>
-        ⛏️
+      <div style={{ fontSize: 52, marginBottom: 16, filter: 'drop-shadow(0 0 16px rgba(0,152,234,0.6))' }}>
+        🖥️
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, fontSize: 18, opacity: 0.55 }}>
+        <span>🎮</span><span>⚡</span><span>🚀</span>
       </div>
 
       {/* Заголовок */}
@@ -316,7 +319,7 @@ function Splash({ text, sub, retry }: { text: string; sub?: string; retry?: () =
       alignItems: 'center', justifyContent: 'center',
       background: '#17212b', color: '#fff', gap: 12,
     }}>
-      <div style={{ fontSize: 40 }}>⛏️</div>
+      <div style={{ fontSize: 40 }}>🖥️</div>
       <div style={{ fontSize: 15, fontWeight: 600 }}>{text}</div>
       {sub && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', textAlign: 'center', maxWidth: 260, padding: '0 20px' }}>{sub}</div>}
       {retry && (
