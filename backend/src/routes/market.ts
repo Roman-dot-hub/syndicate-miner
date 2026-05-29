@@ -4,8 +4,7 @@
 
 import { FastifyInstance }  from 'fastify';
 import { telegramAuthHook } from '../auth/telegramAuth';
-import { marketplace, refurbish } from '../db/queries';
-import { refurbishCost }    from '../epoch/wearEngine';
+import { marketplace } from '../db/queries';
 import { Pool }             from 'pg';
 import { pgPoolConfig }     from '../db/client';
 
@@ -104,48 +103,6 @@ export async function marketRoutes(app: FastifyInstance) {
     try {
       await marketplace.cancelListing(listingId, user.id);
       return reply.send({ ok: true });
-    } catch (err: any) {
-      return reply.code(400).send({ error: err.message });
-    }
-  });
-
-  // ── POST /api/market/refurbish — восстановить GPU ─
-  app.post('/api/market/refurbish', {
-    preHandler: telegramAuthHook,
-  }, async (req, reply) => {
-    const tgUser = (req as any).tgUser;
-    const { gpuId } = req.body as { gpuId: string };
-
-    const { rows: [user] } = await pool.query(
-      `SELECT id, igc_balance FROM users WHERE tg_user_id = $1`, [tgUser.id],
-    );
-    if (!user) return reply.code(404).send({ error: 'Пользователь не найден' });
-
-    const { rows: [gpu] } = await pool.query(
-      `SELECT g.*, f.workbench_level FROM gpus g
-       JOIN farms f ON f.id = g.farm_id
-       WHERE g.id = $1 AND g.user_id = $2`,
-      [gpuId, user.id],
-    );
-    if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
-    if (gpu.health >= 100) return reply.code(400).send({ error: 'GPU уже в 100% состоянии' });
-
-    if (!refurbish.canRefurbish(gpu.workbench_level, gpu.model_tier)) {
-      return reply.code(400).send({ error: 'Недостаточный уровень верстака' });
-    }
-
-    // Учитываем скидку refurbish_discount если активна
-    const { rows: [discountEvent] } = await pool.query(
-      `SELECT payload FROM system_events
-       WHERE type = 'refurbish_discount' AND active_until > NOW()`,
-    );
-    const mult      = discountEvent?.payload?.multiplier ?? 1.0;
-    const baseCost  = refurbishCost(gpu);
-    const finalCost = Math.ceil(baseCost * mult);
-
-    try {
-      await refurbish.restoreGpu(user.id, gpuId, finalCost);
-      return reply.send({ ok: true, igcSpent: finalCost, discount: mult < 1 });
     } catch (err: any) {
       return reply.code(400).send({ error: err.message });
     }

@@ -926,11 +926,14 @@ export async function actionRoutes(app: FastifyInstance) {
         );
         const ratio     = parseFloat(ps?.igc_ratio_smoothed ?? '1');
         const IGC_FLOOR = 0.0001;
-        const pricePerIgc = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR / Math.max(0.5, ratio)));
-        const tonPayout  = amountIgc * pricePerIgc;
-        const poolTon    = parseFloat(ps?.reserve_pool_ton ?? '0');
+        const pricePerIgc  = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR / Math.max(0.5, ratio)));
+        // 3% комиссия: пул выплачивает полный gross, игрок получает net, 3% → admin
+        const grossPayout  = parseFloat((amountIgc * pricePerIgc).toFixed(8));
+        const commission   = parseFloat((grossPayout * 0.03).toFixed(8));
+        const netPayout    = parseFloat((grossPayout - commission).toFixed(8));
+        const poolTon      = parseFloat(ps?.reserve_pool_ton ?? '0');
 
-        if (poolTon < tonPayout) {
+        if (poolTon < grossPayout) {
           return reply.code(400).send({ error: 'В пуле недостаточно TON для выкупа. Попробуй позже.' });
         }
 
@@ -938,22 +941,24 @@ export async function actionRoutes(app: FastifyInstance) {
         try {
           await pool.query(
             `UPDATE users SET igc_balance = igc_balance - $1, ton_balance = ton_balance + $2 WHERE id = $3`,
-            [amountIgc, tonPayout, user.id],
+            [amountIgc, netPayout, user.id],
           );
           // sell_igc убирает IGC из обращения → demand в рыночном индексе
+          // Пул выплачивает grossPayout: netPayout → игроку, commission → admin
           await pool.query(`
             UPDATE pool_stats SET
               reserve_pool_ton = reserve_pool_ton - $1,
-              total_igc_minted = total_igc_minted  - $2,
-              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $2 ELSE $2 END,
+              admin_earned_ton = admin_earned_ton + $2,
+              total_igc_minted = total_igc_minted - $3,
+              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $3 ELSE $3 END,
               igc_daily_date   = CURRENT_DATE
             WHERE id = 1`,
-            [tonPayout, amountIgc],
+            [grossPayout, commission, amountIgc],
           );
           await pool.query('COMMIT');
         } catch (e) { await pool.query('ROLLBACK'); throw e; }
 
-        return reply.send({ ok: true, igcSold: amountIgc, tonReceived: tonPayout, pricePerIgc });
+        return reply.send({ ok: true, igcSold: amountIgc, tonReceived: netPayout, grossPayout, commission, pricePerIgc });
       }
 
       // ── TON → IGC (покупка IGC) ─────────────────
@@ -987,20 +992,24 @@ export async function actionRoutes(app: FastifyInstance) {
             `UPDATE users SET ton_balance = ton_balance - $1, igc_balance = igc_balance + $2 WHERE id = $3`,
             [actualTonCost, igcAmount, user.id],
           );
-          // buy_igc вводит IGC в обращение → supply в рыночном индексе
+          // buy_igc: 3% комиссия → admin, 97% → reserve_pool_ton
+          // IGC вводит в обращение → supply в рыночном индексе
+          const buyCommission  = parseFloat((actualTonCost * 0.03).toFixed(8));
+          const buyToPool      = parseFloat((actualTonCost - buyCommission).toFixed(8));
           await pool.query(`
             UPDATE pool_stats SET
               reserve_pool_ton = reserve_pool_ton + $1,
-              total_igc_minted = total_igc_minted + $2,
-              igc_daily_supply = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $2 ELSE $2 END,
+              admin_earned_ton = admin_earned_ton + $2,
+              total_igc_minted = total_igc_minted + $3,
+              igc_daily_supply = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $3 ELSE $3 END,
               igc_daily_date   = CURRENT_DATE
             WHERE id = 1`,
-            [actualTonCost, igcAmount],
+            [buyToPool, buyCommission, igcAmount],
           );
           await pool.query('COMMIT');
         } catch (e) { await pool.query('ROLLBACK'); throw e; }
 
-        return reply.send({ ok: true, igcReceived: igcAmount, tonSpent: actualTonCost, pricePerIgc: pricePerIgc2 });
+        return reply.send({ ok: true, igcReceived: igcAmount, tonSpent: actualTonCost, commission: parseFloat((actualTonCost * 0.03).toFixed(8)), pricePerIgc: pricePerIgc2 });
       }
 
       // ── Апгрейды серверной (глобальные, за TON) ────────
@@ -1038,9 +1047,13 @@ export async function actionRoutes(app: FastifyInstance) {
             [costTon, user.id],
           );
           if (costTon > 0) {
+            // 10% комиссия → admin_earned_ton (аналогично buy_gpu)
             await pool.query(
-              `UPDATE pool_stats SET reserve_pool_ton = reserve_pool_ton + $1 WHERE id = 1`,
-              [costTon],
+              `UPDATE pool_stats SET
+                 reserve_pool_ton = reserve_pool_ton + $1,
+                 admin_earned_ton = admin_earned_ton + $2
+               WHERE id = 1`,
+              [costTon * 0.9, costTon * 0.1],
             );
           }
           await pool.query('COMMIT');
