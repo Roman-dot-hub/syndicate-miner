@@ -75,26 +75,51 @@ export async function monitorIgcBalance(
   adminTon:     number,
 ): Promise<IgcEpochStats> {
 
-  // ── Накапливаем суточные счётчики в Redis ──
-  const [dailySupplyRaw, dailyDemandRaw] = await Promise.all([
-    redis.incrbyfloat(R_SUPPLY, epochSupply),
-    redis.incrbyfloat(R_DEMAND, epochDemand),
-  ]);
+  // ── Накапливаем суточные счётчики в БД (атомарный сброс при смене даты) ──
+  // Надёжнее Redis: не теряется при перезапуске сервиса
+  const { rows: [ps] } = await pool.query<{
+    igc_daily_supply: string;
+    igc_daily_demand: string;
+    igc_ratio_smoothed: string;
+  }>(`
+    UPDATE pool_stats
+    SET
+      igc_daily_supply = CASE
+        WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $1
+        ELSE $1
+      END,
+      igc_daily_demand = CASE
+        WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $2
+        ELSE $2
+      END,
+      igc_daily_date = CURRENT_DATE
+    WHERE id = 1
+    RETURNING igc_daily_supply, igc_daily_demand, igc_ratio_smoothed
+  `, [epochSupply, epochDemand]);
 
-  // TTL 25 часов — автосброс после суток
-  await redis.expire(R_SUPPLY, 25 * 3600);
-  await redis.expire(R_DEMAND, 25 * 3600);
+  const dailySupply = parseFloat(ps.igc_daily_supply);
+  const dailyDemand = parseFloat(ps.igc_daily_demand);
 
-  const dailySupply = parseFloat(dailySupplyRaw);
-  const dailyDemand = parseFloat(dailyDemandRaw);
-
-  // ── Считаем отношение ─────────────────────
-  // Избегаем деления на ноль в начале суток
-  const ratio = dailyDemand > 0.01
+  // ── Считаем raw отношение ────────────────
+  const rawRatio = dailyDemand > 0.01
     ? dailySupply / dailyDemand
-    : dailySupply > 0 ? 99 : 1; // много supply без demand = гиперинфляция
+    : dailySupply > 0 ? 99 : 1;
 
-  await redis.set(R_RATIO, ratio.toFixed(4));
+  // ── EMA-сглаживание (α=0.1) ──────────────
+  const EMA_ALPHA    = 0.1;
+  const prevSmoothed = parseFloat(ps.igc_ratio_smoothed ?? '1');
+  const ratio        = EMA_ALPHA * rawRatio + (1 - EMA_ALPHA) * prevSmoothed;
+
+  // Сохраняем сглаженный ratio в БД
+  await pool.query(
+    `UPDATE pool_stats SET igc_ratio_smoothed = $1 WHERE id = 1`,
+    [parseFloat(ratio.toFixed(6))],
+  );
+  // Redis — best-effort кэш для getLiveIgcStatus
+  try {
+    await redis.set(R_RATIO, ratio.toFixed(6));
+    await redis.set('igc:smoothed:ratio', ratio.toFixed(6));
+  } catch { /* Redis недоступен — ratio читается из pool_stats */ }
 
   const status     = classifyRatio(ratio);
   let   actionTaken: string | null = null;
@@ -277,32 +302,31 @@ async function logToDb(log: IgcMonitorLog): Promise<void> {
 // Утилиты для dashboard / аналитики
 // ═════════════════════════════════════════════
 
-/** Текущий live-статус из Redis (для /api/sync) */
+/** Текущий live-статус (для /api/sync) — читает из БД, Redis как кэш */
 export async function getLiveIgcStatus(): Promise<{
   ratio:  number;
   status: IgcHealthStatus;
   supply: number;
   demand: number;
 }> {
-  const DEFAULT = { ratio: 1, status: 'healthy' as IgcHealthStatus, supply: 0, demand: 0 };
-
+  // Источник правды — pool_stats в БД (не сбрасывается при рестарте Redis)
   try {
-    const [ratioRaw, supplyRaw, demandRaw] = await Promise.all([
-      redis.get(R_RATIO),
-      redis.get(R_SUPPLY),
-      redis.get(R_DEMAND),
-    ]);
+    const { rows: [ps] } = await pool.query<{
+      igc_ratio_smoothed: string;
+      igc_daily_supply:   string;
+      igc_daily_demand:   string;
+    }>(`SELECT igc_ratio_smoothed, igc_daily_supply, igc_daily_demand
+        FROM pool_stats WHERE id = 1`);
 
-    const ratio = parseFloat(ratioRaw ?? '1');
+    const ratio = parseFloat(ps?.igc_ratio_smoothed ?? '1');
     return {
       ratio,
       status: classifyRatio(ratio),
-      supply: parseFloat(supplyRaw ?? '0'),
-      demand: parseFloat(demandRaw ?? '0'),
+      supply: parseFloat(ps?.igc_daily_supply ?? '0'),
+      demand: parseFloat(ps?.igc_daily_demand ?? '0'),
     };
   } catch {
-    // Redis недоступен (dev-режим без Redis) — возвращаем нейтральный статус
-    return DEFAULT;
+    return { ratio: 1, status: 'healthy', supply: 0, demand: 0 };
   }
 }
 
