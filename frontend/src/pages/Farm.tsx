@@ -197,6 +197,7 @@ export function Farm({ data, onUpdate }: Props) {
         farm={farm}
         userTon={data.user.tonBalance}
         userIgc={farm.igcBalance}
+        igcRatio={data.igcSupply?.ratio ?? data.igc?.ratio ?? 1}
         onUpdate={onUpdate}
       />
 
@@ -316,6 +317,7 @@ export function Farm({ data, onUpdate }: Props) {
           farmServerRoom={farm.serverRoomLevel}
           farmUps={farm.upsLevel}
           farmProvider={farm.providerLevel}
+          igcRatio={data.igcSupply?.ratio ?? data.igc?.ratio ?? 1}
           tapBoost={mergedBoost}
           onClose={() => setSelectedGpu(null)}
           onUpdate={() => { onUpdate(); }}
@@ -354,10 +356,11 @@ interface FarmUpgradesProps {
   farm:     { level: number; workbenchLevel: number };
   userTon:  number;
   userIgc:  number;
+  igcRatio: number;
   onUpdate: () => void;
 }
 
-function FarmUpgradesSection({ farm, userTon, userIgc, onUpdate }: FarmUpgradesProps) {
+function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: FarmUpgradesProps) {
   const { action }       = useAction();
   const [busy, setBusy]  = useState<string | null>(null);
   const [open, setOpen]  = useState(false);
@@ -368,12 +371,21 @@ function FarmUpgradesSection({ farm, userTon, userIgc, onUpdate }: FarmUpgradesP
   const nextFarm = FARM_UPGRADE_DATA.find(f => f.level === farmLevel + 1);
   const nextWb   = WORKBENCH_UPGRADE_DATA.find(w => w.level === wbLevel + 1);
 
-  const do_ = async (type: string, costIgc: number, costTon: number, label: string) => {
+  // Скорректированная IGC-цена с учётом рыночного индекса
+  const adjIgc = (base: number) => base > 0 ? Math.ceil(base * igcRatio) : 0;
+  const ratioSuffix = Math.abs(igcRatio - 1) >= 0.02
+    ? ` ×${igcRatio.toFixed(2)}`
+    : '';
+
+  const do_ = async (type: string, baseIgc: number, costTon: number, label: string) => {
     if (busy) return;
+    const finalIgc = adjIgc(baseIgc);
     const balStr = costTon > 0
       ? `${userTon.toFixed(3)} TON`
       : `${Math.floor(userIgc)} IGC`;
-    const costStr = costTon > 0 ? `${costTon} TON` : `${costIgc} IGC`;
+    const costStr = costTon > 0
+      ? `${costTon} TON`
+      : `${finalIgc} IGC${ratioSuffix}`;
     const ok = await new Promise<boolean>(res =>
       WebApp.showConfirm(`${label}\n\nСтоимость: ${costStr}\nБаланс: ${balStr}\n\nПодтвердить?`, res),
     );
@@ -427,11 +439,12 @@ function FarmUpgradesSection({ farm, userTon, userIgc, onUpdate }: FarmUpgradesP
             label="Уровень фермы"
             currentInfo={`${FARM_LEVELS[farmLevel] ?? 'Балкон'} · ${FARM_SLOT_LABELS[farmLevel] ?? 5} слотов`}
             nextInfo={nextFarm ? `→ ${nextFarm.name} · ${nextFarm.slots} слотов` : null}
-            costIgc={nextFarm?.costIgc ?? null}
+            costIgc={nextFarm?.costIgc ? adjIgc(nextFarm.costIgc) : null}
             costTon={nextFarm?.costTon ?? null}
             canAfford={nextFarm
-              ? (nextFarm.costTon > 0 ? userTon >= nextFarm.costTon : userIgc >= nextFarm.costIgc)
+              ? (nextFarm.costTon > 0 ? userTon >= nextFarm.costTon : userIgc >= adjIgc(nextFarm.costIgc))
               : false}
+            ratioSuffix={nextFarm?.costIgc && nextFarm.costIgc > 0 ? ratioSuffix : ''}
             busy={busy === nextFarm?.type}
             isMax={!nextFarm}
             onPress={() => nextFarm && do_(nextFarm.type, nextFarm.costIgc, nextFarm.costTon, `${nextFarm.emoji} ${nextFarm.name}`)}
@@ -442,11 +455,12 @@ function FarmUpgradesSection({ farm, userTon, userIgc, onUpdate }: FarmUpgradesP
             label="Верстак (ремонт GPU)"
             currentInfo={wbLevel === 0 ? 'Не установлен · ремонт недоступен' : `Lv${wbLevel} · ремонт до T${wbLevel * 2}`}
             nextInfo={nextWb ? `→ ${nextWb.name}` : null}
-            costIgc={nextWb?.costIgc ?? null}
+            costIgc={nextWb?.costIgc ? adjIgc(nextWb.costIgc) : null}
             costTon={nextWb?.costTon ?? null}
             canAfford={nextWb
-              ? (nextWb.costTon > 0 ? userTon >= nextWb.costTon : userIgc >= nextWb.costIgc)
+              ? (nextWb.costTon > 0 ? userTon >= nextWb.costTon : userIgc >= adjIgc(nextWb.costIgc))
               : false}
+            ratioSuffix={nextWb?.costIgc && nextWb.costIgc > 0 ? ratioSuffix : ''}
             busy={busy === nextWb?.type}
             isMax={!nextWb}
             onPress={() => nextWb && do_(nextWb.type, nextWb.costIgc, nextWb.costTon, `${nextWb.emoji} ${nextWb.name}`)}
@@ -457,12 +471,12 @@ function FarmUpgradesSection({ farm, userTon, userIgc, onUpdate }: FarmUpgradesP
   );
 }
 
-function MixedUpgradeRow({ emoji, label, currentInfo, nextInfo, costIgc, costTon, canAfford, busy, isMax, onPress }: {
+function MixedUpgradeRow({ emoji, label, currentInfo, nextInfo, costIgc, costTon, canAfford, busy, isMax, ratioSuffix, onPress }: {
   emoji: string; label: string; currentInfo: string; nextInfo: string | null;
   costIgc: number | null; costTon: number | null;
-  canAfford: boolean; busy: boolean; isMax: boolean; onPress: () => void;
+  canAfford: boolean; busy: boolean; isMax: boolean; ratioSuffix?: string; onPress: () => void;
 }) {
-  const costLabel = costTon ? `${costTon} TON` : costIgc ? `${costIgc} IGC` : null;
+  const costLabel = costTon ? `${costTon} TON` : costIgc ? `${costIgc} IGC${ratioSuffix ?? ''}` : null;
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10,

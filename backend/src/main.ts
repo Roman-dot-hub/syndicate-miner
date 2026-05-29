@@ -13,7 +13,9 @@ import { actionRoutes }   from './routes/action';
 import { marketRoutes }   from './routes/market';
 import { withdrawRoutes }     from './routes/withdraw';
 import { leaderboardRoutes }  from './routes/leaderboard';
+import { syndicateRoutes }    from './routes/syndicates';
 import { devRoutes }          from './routes/dev';
+import { adsgramRewardRoutes }from './routes/adsgramReward';
 import { redis }          from './redis/client';
 
 // Запускаем игровой цикл и суточный крон
@@ -52,6 +54,8 @@ app.register(actionRoutes);
 app.register(marketRoutes);
 app.register(withdrawRoutes);
 app.register(leaderboardRoutes);
+app.register(syndicateRoutes);
+app.register(adsgramRewardRoutes);
 
 // ── Dev routes (только в development) ────────
 if (process.env.NODE_ENV !== 'production') {

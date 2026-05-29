@@ -12,18 +12,24 @@ export interface GPU {
   modelTier:     number;   // 0–6
   health:        number;   // 0–100
   overclocked:   boolean;
+  undervolted:   boolean;
   coolingLevel:  number;   // 0–3 (уровень кулера в помещении)
   status:        GpuStatus;
   isRefurbished: boolean;
+  pasteLevel:    number;   // 1–4 (термопаста, снижает температуру)
+  fanLevel:      number;   // 1–5 (вентилятор, бонус uptime)
 }
 
 export interface Farm {
-  id:           string;
-  userId:       string;
-  miningMode:   MiningMode;
-  level:        number;   // 0–4 (Стол→Ангар)
-  coolingLevel: number;
-  igcBalance:   number;   // баланс IGC для оплаты расходов
+  id:              string;
+  userId:          string;
+  miningMode:      MiningMode;
+  level:           number;   // 0–4 (Стол→Ангар)
+  coolingLevel:    number;
+  igcBalance:      number;   // баланс IGC для оплаты расходов
+  serverRoomLevel: number;   // 1–4 (серверная, снижает T_ambient)
+  upsLevel:        number;   // 1–4 (ИБП, бонус uptime всей фермы)
+  providerLevel:   number;   // 1–5 (провайдер, uptime + скидка IGC)
 }
 
 export interface User {
@@ -72,4 +78,28 @@ export interface MinerSnapshot {
   baseH:     number;  // собственный хешрейт
   mode:      MiningMode;
   igcBal:    number;
+}
+
+export interface Syndicate {
+  id:           string;
+  name:         string;
+  leaderId:     string;
+  level:        number;
+  xp:           number;
+  treasuryIgc:  number;
+  createdAt:    Date;
+}
+
+export interface SyndicateMember {
+  syndicateId: string;
+  userId:      string;
+  role:        'leader' | 'member';
+  joinedAt:    Date;
+}
+
+export interface SyndicateBonus {
+  id:          string;
+  syndicateId: string;
+  type:        string;
+  expiresAt:   Date;
 }

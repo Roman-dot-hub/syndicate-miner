@@ -1,11 +1,38 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 import { useAction } from '../hooks/useAction';
 
-interface Props { data: SyncData; onUpdate: () => void }
+/** Плавно анимирует число от предыдущего значения к новому при каждом изменении target */
+function useAnimatedNumber(target: number, duration = 1500): number {
+  const [displayed, setDisplayed] = useState(target);
+  const rafRef   = useRef<number>();
+  const fromRef  = useRef(target);
+  const startRef = useRef<number | null>(null);
 
-const IGC_MAX = 1_000_000_000;
+  useEffect(() => {
+    fromRef.current  = displayed;
+    startRef.current = null;
+
+    const animate = (ts: number) => {
+      if (startRef.current === null) startRef.current = ts;
+      const t = Math.min((ts - startRef.current) / duration, 1);
+      const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      setDisplayed(fromRef.current + (target - fromRef.current) * eased);
+      if (t < 1) rafRef.current = requestAnimationFrame(animate);
+    };
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(animate);
+
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+
+  return displayed;
+}
+
+interface Props { data: SyncData; onUpdate: () => void }
 
 function fmtNum(n: number, dec = 0): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -37,10 +64,12 @@ export function Market({ data, onUpdate }: Props) {
   const igcBalance   = parseFloat(rawUser.igcBalance ?? rawUser.igc_balance ?? '0');
   const supply       = data.igcSupply;
 
-  const ratio        = supply?.ratio       ?? 1;
-  const pricePerIgc  = supply?.pricePerIgc ?? 0.0001;
-  const totalMinted  = supply?.totalMinted ?? 0;
-  const totalBurned  = supply?.totalBurned ?? 0;
+  const ratioRaw     = supply?.ratio       ?? 1;
+  const priceRaw     = supply?.pricePerIgc ?? 0.0001;
+
+  // Плавная анимация: число едет от старого к новому при каждом sync-апдейте
+  const ratio       = useAnimatedNumber(ratioRaw, 1800);
+  const pricePerIgc = useAnimatedNumber(priceRaw, 1800);
 
   const [sellAmt, setSellAmt]   = useState('');
   const [busySell, setBusySell] = useState(false);
@@ -234,37 +263,11 @@ export function Market({ data, onUpdate }: Props) {
         </div>
       </div>
 
-      {/* IGC эмиссия */}
-      <div style={panel}>
-        <div style={secLabel}>🔥 Эмиссия IGC</div>
-        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <StatRow label="Добыто всего" value={fmtNum(totalMinted, 0)} max="1B" color="#9B59B6" pct={totalMinted / IGC_MAX} />
-          <StatRow label="Сожжено"      value={fmtNum(totalBurned, 0)}  max="1B" color="#E74C3C" pct={totalBurned / IGC_MAX} />
-          <StatRow label="В обращении"  value={fmtNum(totalMinted - totalBurned, 0)} max="1B" color="#F39C12" pct={(totalMinted - totalBurned) / IGC_MAX} />
-          <StatRow label="Не добыто"    value={fmtNum(IGC_MAX - totalMinted, 0)} max="1B" color="#2ECC71" pct={(IGC_MAX - totalMinted) / IGC_MAX} />
-        </div>
-      </div>
-
       <div style={{ height: 8 }} />
     </div>
   );
 }
 
-function StatRow({ label, value, max, color, pct }: { label: string; value: string; max: string; color: string; pct: number }) {
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{label}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color }}>
-          {value} <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)' }}>/ {max}</span>
-        </span>
-      </div>
-      <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${Math.min(100, pct * 100).toFixed(1)}%`, background: color, borderRadius: 2, opacity: 0.7 }} />
-      </div>
-    </div>
-  );
-}
 
 const balChip: React.CSSProperties = {
   flex: 1, background: 'rgba(255,255,255,0.06)', borderRadius: 12,

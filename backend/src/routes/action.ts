@@ -14,17 +14,50 @@ import { refurbishCost }     from '../epoch/wearEngine';
 import { GPU_SPECS,
          TAP_MAX_RPS,
          REDIS_TAP_PREFIX,
+         REDIS_AD_COUNT_PREFIX,
+         REDIS_AD_COOLDOWN_PREFIX,
          PHASE1_MAX_ASIC_PER_USER,
          TAP_BOOST_PER_TAP_SEC,
          TAP_BOOST_MAX_SEC,
          TAP_SESSION_LIMIT,
          TAP_COOLDOWN_SEC,
          TAP_JITTER_MIN_MS,
-         TAP_JITTER_SAMPLE }  from '../epoch/constants';
+         TAP_JITTER_SAMPLE,
+         AD_BOOST_SEC,
+         AD_VIEWS_PER_CYCLE,
+         AD_COOLDOWN_SEC,
+         SYNDICATE_CREATION_COST_IGC,
+         SYNDICATE_LEVEL_XP_COSTS,
+         SYNDICATE_LEVEL_MILESTONES,
+         SYNDICATE_BASE_MAX_MEMBERS,
+         SYNDICATE_BONUS_DEFS,
+         SERVER_ROOM_LEVELS,
+         UPS_LEVELS,
+         PROVIDER_LEVELS,
+         PASTE_LEVELS,
+         FAN_LEVELS,
+         LIQUID_COOLING_LEVELS } from '../epoch/constants';
 import { redis }             from '../redis/client';
 import { refurbish }         from '../db/queries';
 
 const pool = new Pool(pgPoolConfig);
+
+// ── IGC ratio для динамического ценообразования ──────────
+// Возвращает сглаженный ratio из pool_stats, зажатый в [0.5, 2.0].
+// Формула: finalIgcCost = Math.ceil(baseCost * ratio)
+// ratio > 1 (профицит) → дороже → сжигаем больше IGC
+// ratio < 1 (дефицит)  → дешевле → сохраняем IGC
+async function getIgcRatio(): Promise<number> {
+  try {
+    const { rows: [ps] } = await pool.query(
+      `SELECT igc_ratio_smoothed FROM pool_stats WHERE id = 1`,
+    );
+    const r = parseFloat(ps?.igc_ratio_smoothed ?? '1');
+    return Math.max(0.5, Math.min(2.0, isNaN(r) ? 1 : r));
+  } catch {
+    return 1.0;
+  }
+}
 
 // Цены инфраструктуры (TON/IGC)
 const INFRA_COSTS: Record<string, { ton: number; igc: number; maxSlots: number }> = {
@@ -81,7 +114,7 @@ export async function actionRoutes(app: FastifyInstance) {
 
         // Цена из магазина (динамическая, упрощённо — базовая)
         const BASE_PRICES: Record<number, number> = {
-          0:0, 1:1, 2:2.5, 3:8, 4:25, 5:70, 6:200,
+          0: 0, 1: 1.5, 2: 2.5, 3: 8, 4: 25, 5: 55, 6: 140,
         };
         const price = BASE_PRICES[modelTier];
 
@@ -141,6 +174,38 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, message: `GPU tier ${modelTier} куплен` });
       }
 
+      // ── Перезапуск offline GPU ──────────────
+      case 'restart_gpu': {
+        const gpuId: string = body.gpuId ?? body.gpu_id;
+        const { rows: [gpu] } = await pool.query(
+          `SELECT g.id, g.status, g.model_tier, f.id AS farm_id, f.max_slots,
+                  COUNT(g2.id) AS used_slots
+           FROM gpus g
+           JOIN farms f ON f.id = g.farm_id
+           LEFT JOIN gpus g2 ON g2.farm_id = f.id AND g2.status NOT IN ('broken','stored','offline') AND g2.id != g.id
+           WHERE g.id = $1 AND g.user_id = $2
+           GROUP BY g.id, f.id`,
+          [gpuId, user.id],
+        );
+        if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
+        if (gpu.status !== 'offline') return reply.code(400).send({ error: 'GPU не offline' });
+        if (parseInt(gpu.used_slots) >= gpu.max_slots) {
+          return reply.code(400).send({ error: 'Нет свободных слотов — освободи место' });
+        }
+
+        // Проверяем что IGC хватает хотя бы на 1 эпоху
+        const spec = GPU_SPECS[gpu.model_tier];
+        const igcPerEpoch = spec.igcMaintenancePerEpoch;
+        if (parseFloat(user.igc_balance) < igcPerEpoch) {
+          return reply.code(400).send({
+            error: `Недостаточно IGC. Нужно минимум ${igcPerEpoch.toFixed(2)} IGC для запуска`,
+          });
+        }
+
+        await pool.query(`UPDATE gpus SET status = 'active' WHERE id = $1`, [gpuId]);
+        return reply.send({ ok: true, message: 'GPU перезапущена' });
+      }
+
       // ── Разгон / выключение разгона ────────
       case 'overclock':
       case 'toggle_overclock': {
@@ -183,20 +248,24 @@ export async function actionRoutes(app: FastifyInstance) {
             error: `Требуется верстак уровня ${gpu.model_tier <= 2 ? 1 : gpu.model_tier <= 4 ? 2 : 3}`,
           });
         }
-        if (parseFloat(user.igc_balance) < cost) {
-          return reply.code(400).send({ error: `Недостаточно IGC. Нужно ${cost}` });
+
+        // Динамическая цена: ratio × baseCost × системная скидка
+        const [igcRatioRefurbish, { rows: [discountEvent] }] = await Promise.all([
+          getIgcRatio(),
+          pool.query(
+            `SELECT payload FROM system_events
+             WHERE type = 'refurbish_discount' AND active_until > NOW()`,
+          ),
+        ]);
+        const discountMult = discountEvent?.payload?.multiplier ?? 1.0;
+        const finalCost    = Math.ceil(cost * igcRatioRefurbish * discountMult);
+
+        if (parseFloat(user.igc_balance) < finalCost) {
+          return reply.code(400).send({ error: `Недостаточно IGC. Нужно ${finalCost} IGC (×${igcRatioRefurbish.toFixed(2)} рынок)` });
         }
 
-        // Проверяем скидку из system_events
-        const { rows: [discountEvent] } = await pool.query(
-          `SELECT payload FROM system_events
-           WHERE type = 'refurbish_discount' AND active_until > NOW()`,
-        );
-        const discountMult = discountEvent?.payload?.multiplier ?? 1.0;
-        const finalCost    = Math.ceil(cost * discountMult);
-
         await refurbish.restoreGpu(user.id, gpuId, finalCost);
-        return reply.send({ ok: true, igcSpent: finalCost });
+        return reply.send({ ok: true, igcSpent: finalCost, igcRatio: igcRatioRefurbish });
       }
 
       // ── Снижение напряжения (андервольтинг) ───
@@ -259,7 +328,60 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true });
       }
 
-      // ── Tap-to-Cool (буст хешрейта) ────────
+      // ── Ad Boost (+5 мин за просмотр, 10 просмотров = 50 мин, потом 4ч пауза) ────────
+      case 'watch_ad_boost': {
+        const endKey      = `${REDIS_TAP_PREFIX}end:${user.id}`;
+        const countKey    = `${REDIS_AD_COUNT_PREFIX}${user.id}`;
+        const cooldownKey = `${REDIS_AD_COOLDOWN_PREFIX}${user.id}`;
+
+        try {
+          const nowSec = Math.floor(Date.now() / 1000);
+
+          // 1. Проверяем паузу после цикла
+          const cooldownTtl = await redis.ttl(cooldownKey);
+          if (cooldownTtl > 0) {
+            const storedEnd  = parseInt(await redis.get(endKey) ?? '0', 10);
+            const boostSeconds = Math.max(0, storedEnd - nowSec);
+            return reply.code(429).send({
+              error: 'cooldown',
+              message: 'Пауза после цикла. Возвращайся позже!',
+              cooldownSeconds: cooldownTtl,
+              boostSeconds,
+            });
+          }
+
+          // 2. Добавляем +5 мин к бусту
+          const storedEnd = parseInt(await redis.get(endKey) ?? '0', 10);
+          const baseEnd   = Math.max(storedEnd, nowSec);
+          const newEnd    = baseEnd + AD_BOOST_SEC;
+          await redis.set(endKey, String(newEnd), 'EX', AD_BOOST_SEC * AD_VIEWS_PER_CYCLE + 3600);
+
+          // 3. Счётчик просмотров в цикле
+          const viewCount = await redis.incr(countKey);
+          // TTL счётчика: чуть больше паузы, чтобы не пропал раньше
+          if (viewCount === 1) await redis.expire(countKey, AD_COOLDOWN_SEC + 600);
+
+          // 4. После 10-го просмотра — ставим 4-часовую паузу и сбрасываем счётчик
+          if (viewCount >= AD_VIEWS_PER_CYCLE) {
+            await redis.set(cooldownKey, '1', 'EX', AD_COOLDOWN_SEC);
+            await redis.del(countKey);
+          }
+
+          const boostSeconds = newEnd - nowSec;
+          return reply.send({
+            ok: true,
+            boostSeconds,
+            adViewsInCycle:  Math.min(viewCount, AD_VIEWS_PER_CYCLE),
+            adViewsPerCycle: AD_VIEWS_PER_CYCLE,
+          });
+
+        } catch (err) {
+          console.error('[watch_ad_boost] Redis error:', (err as Error)?.message ?? err);
+          return reply.send({ ok: true, boostSeconds: AD_BOOST_SEC, adViewsInCycle: 1, adViewsPerCycle: AD_VIEWS_PER_CYCLE });
+        }
+      }
+
+      // ── Tap-to-Cool (буст хешрейта) — legacy, оставлен для совместимости ────────
       case 'tap_cool': {
         // boost_end хранит unix-секунду окончания буста (не TTL, а конкретный момент)
         // Это решает проблему гонки: TTL-ключ истекает за время round-trip,
@@ -354,11 +476,327 @@ export async function actionRoutes(app: FastifyInstance) {
         if (!['pool', 'solo'].includes(mode)) {
           return reply.code(400).send({ error: 'mode должен быть pool или solo' });
         }
+        // Pool-майнинг требует участия в синдикате
+        if (mode === 'pool') {
+          const { rows: [membership] } = await pool.query(
+            `SELECT 1 FROM syndicate_members WHERE user_id = $1`, [user.id],
+          );
+          if (!membership) {
+            return reply.code(403).send({ error: 'Pool-майнинг требует синдиката. Вступи или создай синдикат.' });
+          }
+        }
         await pool.query(
           `UPDATE users SET mining_mode = $1 WHERE id = $2`,
           [mode, user.id],
         );
         return reply.send({ ok: true, mode });
+      }
+
+      // ── Создать синдикат ──────────────────
+      case 'create_syndicate': {
+        const { name } = body as { name: string };
+        if (!name || name.trim().length < 3 || name.trim().length > 30) {
+          return reply.code(400).send({ error: 'Название: 3–30 символов' });
+        }
+        if (parseFloat(user.igc_balance) < SYNDICATE_CREATION_COST_IGC) {
+          return reply.code(400).send({ error: `Нужно ${SYNDICATE_CREATION_COST_IGC} IGC` });
+        }
+        // Проверяем, не состоит ли уже в синдикате
+        const { rows: [existingMember] } = await pool.query(
+          `SELECT 1 FROM syndicate_members WHERE user_id = $1`, [user.id],
+        );
+        if (existingMember) {
+          return reply.code(400).send({ error: 'Ты уже в синдикате. Выйди перед созданием нового.' });
+        }
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query(
+            `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
+            [SYNDICATE_CREATION_COST_IGC, user.id],
+          );
+          await client.query(
+            `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+            [SYNDICATE_CREATION_COST_IGC],
+          );
+          const { rows: [syn] } = await client.query(
+            `INSERT INTO syndicates (name, leader_id) VALUES ($1, $2) RETURNING id`,
+            [name.trim(), user.id],
+          );
+          await client.query(
+            `INSERT INTO syndicate_members (syndicate_id, user_id, role) VALUES ($1, $2, 'leader')`,
+            [syn.id, user.id],
+          );
+          await client.query(
+            `UPDATE users SET mining_mode = 'pool' WHERE id = $1`,
+            [user.id],
+          );
+          await client.query('COMMIT');
+          return reply.send({ ok: true, syndicateId: syn.id });
+        } catch (e) {
+          await client.query('ROLLBACK');
+          if ((e as any)?.code === '23505') {
+            return reply.code(400).send({ error: 'Название уже занято' });
+          }
+          throw e;
+        } finally { client.release(); }
+      }
+
+      // ── Вступить в синдикат ───────────────
+      case 'join_syndicate': {
+        const { syndicateId } = body as { syndicateId: string };
+        const { rows: [existingMember] } = await pool.query(
+          `SELECT 1 FROM syndicate_members WHERE user_id = $1`, [user.id],
+        );
+        if (existingMember) {
+          return reply.code(400).send({ error: 'Ты уже в синдикате' });
+        }
+        const { rows: [syn] } = await pool.query(
+          `SELECT s.id, s.level,
+                  COUNT(sm.user_id) AS member_count
+           FROM syndicates s
+           LEFT JOIN syndicate_members sm ON sm.syndicate_id = s.id
+           WHERE s.id = $1
+           GROUP BY s.id`, [syndicateId],
+        );
+        if (!syn) return reply.code(404).send({ error: 'Синдикат не найден' });
+        // Проверяем лимит участников по уровню
+        const milestone = Object.entries(SYNDICATE_LEVEL_MILESTONES)
+          .filter(([lvl]) => parseInt(lvl) <= syn.level)
+          .sort(([a], [b]) => parseInt(b) - parseInt(a))[0];
+        const maxMembers = milestone ? milestone[1].maxMembers : SYNDICATE_BASE_MAX_MEMBERS;
+        if (parseInt(syn.member_count) >= maxMembers) {
+          return reply.code(400).send({ error: `Синдикат заполнен (макс. ${maxMembers})` });
+        }
+        await pool.query(
+          `INSERT INTO syndicate_members (syndicate_id, user_id, role) VALUES ($1, $2, 'member')`,
+          [syndicateId, user.id],
+        );
+        await pool.query(`UPDATE users SET mining_mode = 'pool' WHERE id = $1`, [user.id]);
+        return reply.send({ ok: true });
+      }
+
+      // ── Выйти из синдиката ───────────────
+      case 'leave_syndicate': {
+        const { rows: [membership] } = await pool.query(
+          `SELECT sm.syndicate_id, sm.role
+           FROM syndicate_members sm WHERE sm.user_id = $1`, [user.id],
+        );
+        if (!membership) return reply.code(400).send({ error: 'Ты не в синдикате' });
+        if (membership.role === 'leader') {
+          return reply.code(400).send({ error: 'Лидер не может покинуть синдикат. Передай роль или растворь синдикат.' });
+        }
+        await pool.query(`DELETE FROM syndicate_members WHERE user_id = $1`, [user.id]);
+        await pool.query(`UPDATE users SET mining_mode = 'solo' WHERE id = $1`, [user.id]);
+        return reply.send({ ok: true });
+      }
+
+      // ── Пополнить казну (взнос IGC) ──────
+      case 'contribute_igc': {
+        const amount = parseFloat(body.amount ?? '0');
+        if (amount < 1) return reply.code(400).send({ error: 'Минимальный взнос: 1 IGC' });
+        if (parseFloat(user.igc_balance) < amount) {
+          return reply.code(400).send({ error: 'Недостаточно IGC' });
+        }
+        const { rows: [membership] } = await pool.query(
+          `SELECT sm.syndicate_id FROM syndicate_members sm WHERE sm.user_id = $1`, [user.id],
+        );
+        if (!membership) return reply.code(400).send({ error: 'Ты не в синдикате' });
+
+        const client2 = await pool.connect();
+        try {
+          await client2.query('BEGIN');
+          await client2.query(
+            `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
+            [amount, user.id],
+          );
+          const { rows: [synRow] } = await client2.query(
+            `UPDATE syndicates SET treasury_igc = treasury_igc + $1, xp = xp + $1
+             WHERE id = $2 RETURNING xp, level`,
+            [amount, membership.syndicate_id],
+          );
+          // Пересчитываем уровень по накопленному XP
+          const newLevel = calcSyndicateLevel(parseFloat(synRow.xp));
+          if (newLevel > parseInt(synRow.level)) {
+            await client2.query(
+              `UPDATE syndicates SET level = $1 WHERE id = $2`,
+              [newLevel, membership.syndicate_id],
+            );
+          }
+          await client2.query('COMMIT');
+          return reply.send({ ok: true, newXp: parseFloat(synRow.xp), newLevel });
+        } catch (e) {
+          await client2.query('ROLLBACK'); throw e;
+        } finally { client2.release(); }
+      }
+
+      // ── Купить бонус синдиката ────────────
+      case 'buy_syndicate_bonus': {
+        const { bonusType } = body as { bonusType: string };
+        const def = SYNDICATE_BONUS_DEFS[bonusType];
+        if (!def) return reply.code(400).send({ error: 'Неизвестный бонус' });
+
+        const { rows: [membership] } = await pool.query(
+          `SELECT sm.syndicate_id, sm.role FROM syndicate_members sm WHERE sm.user_id = $1`, [user.id],
+        );
+        if (!membership) return reply.code(400).send({ error: 'Ты не в синдикате' });
+        if (membership.role !== 'leader') {
+          return reply.code(403).send({ error: 'Только лидер может покупать бонусы' });
+        }
+
+        const { rows: [syn] } = await pool.query(
+          `SELECT id, level, treasury_igc FROM syndicates WHERE id = $1`, [membership.syndicate_id],
+        );
+        if (syn.level < def.requiredLevel) {
+          return reply.code(400).send({ error: `Требуется уровень синдиката ${def.requiredLevel}` });
+        }
+        if (parseFloat(syn.treasury_igc) < def.igcCost) {
+          return reply.code(400).send({ error: `Нужно ${def.igcCost} IGC в казне` });
+        }
+
+        // Нельзя активировать бонус пока предыдущий такого же типа ещё действует
+        const { rows: [existing] } = await pool.query(
+          `SELECT id FROM syndicate_bonuses WHERE syndicate_id = $1 AND type = $2 AND expires_at > NOW()`,
+          [syn.id, bonusType],
+        );
+        if (existing) {
+          return reply.code(400).send({ error: 'Этот бонус уже активен — подожди пока он закончится' });
+        }
+
+        const client3 = await pool.connect();
+        try {
+          await client3.query('BEGIN');
+          await client3.query(
+            `UPDATE syndicates SET treasury_igc = treasury_igc - $1 WHERE id = $2`,
+            [def.igcCost, syn.id],
+          );
+          await client3.query(
+            `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+            [def.igcCost],
+          );
+          const expiresAt = new Date(Date.now() + def.durationSec * 1000);
+          await client3.query(
+            `INSERT INTO syndicate_bonuses (syndicate_id, type, expires_at) VALUES ($1, $2, $3)`,
+            [syn.id, bonusType, expiresAt],
+          );
+          await client3.query('COMMIT');
+          return reply.send({ ok: true, expiresAt });
+        } catch (e) {
+          await client3.query('ROLLBACK'); throw e;
+        } finally { client3.release(); }
+      }
+
+      // ── Проголосовать за нового лидера ────
+      case 'vote_leader': {
+        const { candidateId } = body as { candidateId: string };
+        const { rows: [voterMembership] } = await pool.query(
+          `SELECT sm.syndicate_id FROM syndicate_members sm WHERE sm.user_id = $1`, [user.id],
+        );
+        if (!voterMembership) return reply.code(400).send({ error: 'Ты не в синдикате' });
+        // Кандидат должен быть в том же синдикате
+        const { rows: [candidateMembership] } = await pool.query(
+          `SELECT 1 FROM syndicate_members WHERE user_id = $1 AND syndicate_id = $2`,
+          [candidateId, voterMembership.syndicate_id],
+        );
+        if (!candidateMembership) return reply.code(400).send({ error: 'Кандидат не в синдикате' });
+
+        // Upsert голос
+        await pool.query(
+          `INSERT INTO syndicate_votes (syndicate_id, candidate_id, voter_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (syndicate_id, voter_id) DO UPDATE SET candidate_id = $2, created_at = NOW()`,
+          [voterMembership.syndicate_id, candidateId, user.id],
+        );
+
+        // Считаем голоса: если кандидат набрал >50% — становится лидером
+        const { rows: [voteResult] } = await pool.query(
+          `SELECT
+             (SELECT COUNT(*) FROM syndicate_votes WHERE syndicate_id = $1 AND candidate_id = $2) AS votes_for,
+             (SELECT COUNT(*) FROM syndicate_members WHERE syndicate_id = $1) AS total_members`,
+          [voterMembership.syndicate_id, candidateId],
+        );
+        const votesFor     = parseInt(voteResult.votes_for);
+        const totalMembers = parseInt(voteResult.total_members);
+        let promoted = false;
+        if (votesFor * 2 > totalMembers) {
+          // Сменить лидера
+          await pool.query(
+            `UPDATE syndicates SET leader_id = $1 WHERE id = $2`,
+            [candidateId, voterMembership.syndicate_id],
+          );
+          await pool.query(
+            `UPDATE syndicate_members SET role = 'member' WHERE syndicate_id = $1 AND role = 'leader'`,
+            [voterMembership.syndicate_id],
+          );
+          await pool.query(
+            `UPDATE syndicate_members SET role = 'leader' WHERE syndicate_id = $1 AND user_id = $2`,
+            [voterMembership.syndicate_id, candidateId],
+          );
+          await pool.query(
+            `DELETE FROM syndicate_votes WHERE syndicate_id = $1`, [voterMembership.syndicate_id],
+          );
+          promoted = true;
+        }
+        return reply.send({ ok: true, votesFor, totalMembers, promoted });
+      }
+
+      // ── Кикнуть участника ─────────────────
+      case 'kick_member': {
+        const { targetUserId } = body as { targetUserId: string };
+        const { rows: [leaderMembership] } = await pool.query(
+          `SELECT sm.syndicate_id, sm.role FROM syndicate_members sm WHERE sm.user_id = $1`, [user.id],
+        );
+        if (!leaderMembership || leaderMembership.role !== 'leader') {
+          return reply.code(403).send({ error: 'Только лидер может кикать участников' });
+        }
+        if (targetUserId === user.id) {
+          return reply.code(400).send({ error: 'Нельзя кикнуть самого себя' });
+        }
+        const { rowCount } = await pool.query(
+          `DELETE FROM syndicate_members WHERE user_id = $1 AND syndicate_id = $2 AND role = 'member'`,
+          [targetUserId, leaderMembership.syndicate_id],
+        );
+        if (!rowCount) return reply.code(404).send({ error: 'Участник не найден' });
+        await pool.query(`UPDATE users SET mining_mode = 'solo' WHERE id = $1`, [targetUserId]);
+        return reply.send({ ok: true });
+      }
+
+      // ── Растворить синдикат ───────────────
+      case 'dissolve_syndicate': {
+        const { rows: [leaderMembership2] } = await pool.query(
+          `SELECT sm.syndicate_id, sm.role FROM syndicate_members sm WHERE sm.user_id = $1`, [user.id],
+        );
+        if (!leaderMembership2 || leaderMembership2.role !== 'leader') {
+          return reply.code(403).send({ error: 'Только лидер может растворить синдикат' });
+        }
+        const { rows: [synDiss] } = await pool.query(
+          `SELECT treasury_igc FROM syndicates WHERE id = $1`, [leaderMembership2.syndicate_id],
+        );
+        const client4 = await pool.connect();
+        try {
+          await client4.query('BEGIN');
+          // Сжигаем оставшуюся казну
+          if (parseFloat(synDiss?.treasury_igc ?? '0') > 0) {
+            await client4.query(
+              `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+              [synDiss.treasury_igc],
+            );
+          }
+          // Все участники → solo
+          const { rows: members } = await client4.query(
+            `SELECT user_id FROM syndicate_members WHERE syndicate_id = $1`,
+            [leaderMembership2.syndicate_id],
+          );
+          for (const m of members) {
+            await client4.query(`UPDATE users SET mining_mode = 'solo' WHERE id = $1`, [m.user_id]);
+          }
+          // ON DELETE CASCADE удалит members, bonuses, votes
+          await client4.query(`DELETE FROM syndicates WHERE id = $1`, [leaderMembership2.syndicate_id]);
+          await client4.query('COMMIT');
+          return reply.send({ ok: true });
+        } catch (e) {
+          await client4.query('ROLLBACK'); throw e;
+        } finally { client4.release(); }
       }
 
       // ── Покупка инфраструктуры ─────────────
@@ -372,11 +810,15 @@ export async function actionRoutes(app: FastifyInstance) {
           return reply.code(403).send({ error: 'Ангар доступен с Фазы 2' });
         }
 
+        // Динамическая IGC-цена: применяем ratio только к IGC-апгрейдам
+        const igcRatioInfra = cost.igc > 0 ? await getIgcRatio() : 1;
+        const finalIgcInfra = cost.igc > 0 ? Math.ceil(cost.igc * igcRatioInfra) : 0;
+
         if (cost.ton > 0 && parseFloat(user.ton_balance) < cost.ton) {
           return reply.code(400).send({ error: 'Недостаточно TON' });
         }
-        if (cost.igc > 0 && parseFloat(user.igc_balance) < cost.igc) {
-          return reply.code(400).send({ error: 'Недостаточно IGC' });
+        if (finalIgcInfra > 0 && parseFloat(user.igc_balance) < finalIgcInfra) {
+          return reply.code(400).send({ error: `Недостаточно IGC. Нужно ${finalIgcInfra} IGC (×${igcRatioInfra.toFixed(2)} рынок)` });
         }
 
         await pool.query(`BEGIN`);
@@ -394,10 +836,14 @@ export async function actionRoutes(app: FastifyInstance) {
               [cost.ton * 0.9, cost.ton * 0.1],
             );
           }
-          if (cost.igc > 0) {
+          if (finalIgcInfra > 0) {
             await pool.query(
               `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
-              [cost.igc, user.id],
+              [finalIgcInfra, user.id],
+            );
+            await pool.query(
+              `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+              [finalIgcInfra],
             );
           }
 
@@ -439,15 +885,12 @@ export async function actionRoutes(app: FastifyInstance) {
           return reply.code(400).send({ error: 'Недостаточно IGC' });
         }
 
-        // Динамическая цена: price = FLOOR / ratio (дороже при дефиците)
+        // Динамическая цена: та же формула и тот же ratio, что показывает фронтенд
         const { rows: [ps] } = await pool.query(
-          `SELECT total_igc_minted, total_igc_burned, reserve_pool_ton FROM pool_stats WHERE id = 1`,
+          `SELECT total_igc_minted, total_igc_burned, reserve_pool_ton, igc_ratio_smoothed FROM pool_stats WHERE id = 1`,
         );
-        const igcRatioRow = await pool.query(
-          `SELECT daily_ratio FROM igc_monitor_log ORDER BY logged_at DESC LIMIT 1`,
-        );
-        const ratio     = parseFloat(igcRatioRow.rows[0]?.daily_ratio ?? '1');
-        const IGC_FLOOR = 0.0001; // 1 IGC = 0.0001 TON базово
+        const ratio     = parseFloat(ps?.igc_ratio_smoothed ?? '1');
+        const IGC_FLOOR = 0.0001;
         const pricePerIgc = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR / Math.max(0.5, ratio)));
         const tonPayout  = amountIgc * pricePerIgc;
         const poolTon    = parseFloat(ps?.reserve_pool_ton ?? '0');
@@ -465,7 +908,7 @@ export async function actionRoutes(app: FastifyInstance) {
           await pool.query(
             `UPDATE pool_stats SET
                reserve_pool_ton = reserve_pool_ton - $1,
-               total_igc_burned = total_igc_burned + $2
+               total_igc_minted  = total_igc_minted  - $2
              WHERE id = 1`,
             [tonPayout, amountIgc],
           );
@@ -484,16 +927,13 @@ export async function actionRoutes(app: FastifyInstance) {
         }
 
         const { rows: [ps2] } = await pool.query(
-          `SELECT total_igc_minted, reserve_pool_ton FROM pool_stats WHERE id = 1`,
+          `SELECT total_igc_minted, reserve_pool_ton, igc_ratio_smoothed FROM pool_stats WHERE id = 1`,
         );
-        const igcRatioRow2 = await pool.query(
-          `SELECT daily_ratio FROM igc_monitor_log ORDER BY logged_at DESC LIMIT 1`,
-        );
-        const ratio2      = parseFloat(igcRatioRow2.rows[0]?.daily_ratio ?? '1');
+        const ratio2      = parseFloat(ps2?.igc_ratio_smoothed ?? '1');
         const IGC_FLOOR2  = 0.0001;
         const pricePerIgc2 = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR2 / Math.max(0.5, ratio2)));
 
-        const IGC_MAX_SUPPLY = 1_000_000_000;
+        const IGC_MAX_SUPPLY = 10_000_000_000;
         const igcMinted = parseFloat(ps2?.total_igc_minted ?? '0');
         const igcAvailable = IGC_MAX_SUPPLY - igcMinted;
         const igcAmount = Math.min(amountTon / pricePerIgc2, igcAvailable);
@@ -522,6 +962,110 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, igcReceived: igcAmount, tonSpent: actualTonCost, pricePerIgc: pricePerIgc2 });
       }
 
+      // ── Апгрейды серверной (глобальные, за TON) ────────
+      case 'upgrade_server_room':
+      case 'upgrade_ups':
+      case 'upgrade_provider': {
+        const colMap: Record<string, { col: string; levels: typeof SERVER_ROOM_LEVELS }> = {
+          upgrade_server_room: { col: 'server_room_level', levels: SERVER_ROOM_LEVELS as any },
+          upgrade_ups:         { col: 'ups_level',         levels: UPS_LEVELS as any },
+          upgrade_provider:    { col: 'provider_level',    levels: PROVIDER_LEVELS as any },
+        };
+        const { col, levels } = colMap[type];
+
+        const { rows: [farm] } = await pool.query(
+          `SELECT id, ${col} FROM farms WHERE user_id = $1`, [user.id],
+        );
+        if (!farm) return reply.code(404).send({ error: 'Ферма не найдена' });
+
+        const currentLevel: number = farm[col] ?? 1;
+        const nextDef = levels.find((l: any) => l.level === currentLevel + 1);
+        if (!nextDef) return reply.code(400).send({ error: 'Максимальный уровень уже достигнут' });
+
+        const costTon = nextDef.costTon;
+        if (parseFloat(user.ton_balance) < costTon) {
+          return reply.code(400).send({ error: `Недостаточно TON. Нужно ${costTon} TON` });
+        }
+
+        await pool.query('BEGIN');
+        try {
+          await pool.query(
+            `UPDATE farms SET ${col} = $1 WHERE id = $2`, [currentLevel + 1, farm.id],
+          );
+          await pool.query(
+            `UPDATE users SET ton_balance = ton_balance - $1 WHERE id = $2`,
+            [costTon, user.id],
+          );
+          if (costTon > 0) {
+            await pool.query(
+              `UPDATE pool_stats SET reserve_pool_ton = reserve_pool_ton + $1 WHERE id = 1`,
+              [costTon],
+            );
+          }
+          await pool.query('COMMIT');
+        } catch (e) { await pool.query('ROLLBACK'); throw e; }
+
+        return reply.send({ ok: true, newLevel: currentLevel + 1 });
+      }
+
+      // ── Поузловые апгрейды GPU (за IGC) ────────────────
+      case 'upgrade_paste':
+      case 'upgrade_fan':
+      case 'upgrade_liquid_cooling': {
+        const gpuId = body.gpu_id;
+        if (!gpuId) return reply.code(400).send({ error: 'gpu_id обязателен' });
+
+        const gpuColMap: Record<string, { col: string; levels: typeof PASTE_LEVELS }> = {
+          upgrade_paste:           { col: 'paste_level',    levels: PASTE_LEVELS          as any },
+          upgrade_fan:             { col: 'fan_level',      levels: FAN_LEVELS            as any },
+          upgrade_liquid_cooling:  { col: 'cooling_level',  levels: LIQUID_COOLING_LEVELS as any },
+        };
+        const { col: gpuCol, levels: gpuLevels } = gpuColMap[type];
+
+        const { rows: [gpu] } = await pool.query(
+          `SELECT g.id, g.${gpuCol}, f.id AS farm_id, u.igc_balance
+           FROM gpus g
+           JOIN farms f ON f.id = g.farm_id
+           JOIN users u ON u.id = f.user_id
+           WHERE g.id = $1 AND f.user_id = $2`,
+          [gpuId, user.id],
+        );
+        if (!gpu) return reply.code(404).send({ error: 'GPU не найдена или не принадлежит вам' });
+
+        const currentGpuLevel: number = gpu[gpuCol] ?? 1;
+        const nextGpuDef = gpuLevels.find((l: any) => l.level === currentGpuLevel + 1);
+        if (!nextGpuDef) return reply.code(400).send({ error: 'Максимальный уровень уже достигнут' });
+
+        // Динамическая цена IGC × ratio рынка
+        const baseIgcCost = nextGpuDef.costIgc ?? 0;
+        const igcRatioUpgrade = baseIgcCost > 0 ? await getIgcRatio() : 1;
+        const finalIgcUpgrade = baseIgcCost > 0 ? Math.ceil(baseIgcCost * igcRatioUpgrade) : 0;
+
+        if (finalIgcUpgrade > 0 && parseFloat(gpu.igc_balance) < finalIgcUpgrade) {
+          return reply.code(400).send({ error: `Недостаточно IGC. Нужно ${finalIgcUpgrade} IGC (×${igcRatioUpgrade.toFixed(2)} рынок)` });
+        }
+
+        await pool.query('BEGIN');
+        try {
+          await pool.query(
+            `UPDATE gpus SET ${gpuCol} = $1 WHERE id = $2`, [currentGpuLevel + 1, gpuId],
+          );
+          if (finalIgcUpgrade > 0) {
+            await pool.query(
+              `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
+              [finalIgcUpgrade, user.id],
+            );
+            await pool.query(
+              `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+              [finalIgcUpgrade],
+            );
+          }
+          await pool.query('COMMIT');
+        } catch (e) { await pool.query('ROLLBACK'); throw e; }
+
+        return reply.send({ ok: true, newLevel: currentGpuLevel + 1, igcRatio: igcRatioUpgrade });
+      }
+
       // ── Покупка инфраструктуры (прямой вызов) ─
       default: {
         // Фронтенд может слать тип апгрейда напрямую: 'farm_level_2', 'cooling_1' и т.д.
@@ -536,11 +1080,16 @@ export async function actionRoutes(app: FastifyInstance) {
           if (upgradeType === 'farm_level_4' && currentPhase < 2) {
             return reply.code(403).send({ error: 'Ангар доступен с Фазы 2' });
           }
+
+          // Динамическая IGC-цена
+          const igcRatioDefault = cost.igc > 0 ? await getIgcRatio() : 1;
+          const finalIgcDefault = cost.igc > 0 ? Math.ceil(cost.igc * igcRatioDefault) : 0;
+
           if (cost.ton > 0 && parseFloat(user.ton_balance) < cost.ton) {
             return reply.code(400).send({ error: 'Недостаточно TON' });
           }
-          if (cost.igc > 0 && parseFloat(user.igc_balance) < cost.igc) {
-            return reply.code(400).send({ error: 'Недостаточно IGC' });
+          if (finalIgcDefault > 0 && parseFloat(user.igc_balance) < finalIgcDefault) {
+            return reply.code(400).send({ error: `Недостаточно IGC. Нужно ${finalIgcDefault} IGC (×${igcRatioDefault.toFixed(2)} рынок)` });
           }
 
           await pool.query(`BEGIN`);
@@ -558,10 +1107,14 @@ export async function actionRoutes(app: FastifyInstance) {
                 [cost.ton * 0.9, cost.ton * 0.1],
               );
             }
-            if (cost.igc > 0) {
+            if (finalIgcDefault > 0) {
               await pool.query(
                 `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
-                [cost.igc, user.id],
+                [finalIgcDefault, user.id],
+              );
+              await pool.query(
+                `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+                [finalIgcDefault],
               );
             }
             if (upgradeType.startsWith('farm_level_')) {
@@ -595,4 +1148,18 @@ export async function actionRoutes(app: FastifyInstance) {
       }
     }
   });
+}
+
+// Вычисляет уровень синдиката из накопленного XP
+function calcSyndicateLevel(xp: number): number {
+  let level = 1;
+  let remaining = xp;
+  for (let i = 0; i < SYNDICATE_LEVEL_XP_COSTS.length; i++) {
+    if (remaining >= SYNDICATE_LEVEL_XP_COSTS[i]) {
+      remaining -= SYNDICATE_LEVEL_XP_COSTS[i];
+      level++;
+    } else break;
+    if (level >= 50) break;
+  }
+  return Math.min(level, 50);
 }

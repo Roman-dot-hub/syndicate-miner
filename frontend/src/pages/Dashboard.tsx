@@ -1,7 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 import { SEASON_EMOJI, GPU_SPECS } from '../types';
+
+function useAnimatedNumber(target: number, duration = 1200): number {
+  const [displayed, setDisplayed] = useState(target);
+  const rafRef   = useRef<number>();
+  const fromRef  = useRef(target);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    fromRef.current  = displayed;
+    startRef.current = null;
+    const animate = (ts: number) => {
+      if (startRef.current === null) startRef.current = ts;
+      const t = Math.min((ts - startRef.current) / duration, 1);
+      const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      setDisplayed(fromRef.current + (target - fromRef.current) * eased);
+      if (t < 1) rafRef.current = requestAnimationFrame(animate);
+    };
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+
+  return displayed;
+}
 
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
@@ -83,6 +108,32 @@ export function Dashboard({ data, onUpdate }: Props) {
   const dripPct  = (season.dripRate * 100).toFixed(2);
   const poolPct  = (season.poolTon / Math.max(season.poolTon + season.totalPaid, 1) * 100).toFixed(1);
 
+  // ── День / Сезон ──────────────────────────────────────
+  const seasonMod = 1 + 0.25 * Math.sin(2 * Math.PI * season.day / 28);
+  const modPct    = Math.round((seasonMod - 1) * 100);
+  const modStr    = modPct > 0 ? `+${modPct}% к ставке` : modPct < 0 ? `${modPct}% к ставке` : 'базовая ставка';
+  const modColor  = modPct > 0 ? '#2ECC71' : modPct < 0 ? '#E74C3C' : 'rgba(255,255,255,0.4)';
+
+  const SEASON_ENDS: Record<string, number> = { spring: 7, summer: 14, autumn: 21, winter: 28 };
+  const SEASON_NEXT: Record<string, string> = { spring: '☀️ Лето', summer: '🍂 Осень', autumn: '❄️ Зима', winter: '🌸 Весна' };
+  const daysLeftInSeason = SEASON_ENDS[season.name] - season.day;
+  const daySub = daysLeftInSeason === 0
+    ? `${modStr} · смена сезона!`
+    : `${modStr} · до ${SEASON_NEXT[season.name]} ${daysLeftInSeason}д.`;
+
+  // ── Фаза / Халвинг ────────────────────────────────────
+  const PHASE_BASE: Record<number, number>       = { 1: 4, 2: 2, 3: 1, 4: 0.5 };
+  const PHASE_THRESHOLD: Record<number, number | null> = { 1: 1_000, 2: 10_000, 3: 100_000, 4: null };
+  const phaseBase      = PHASE_BASE[season.phase] ?? 4;
+  const phaseThreshold = PHASE_THRESHOLD[season.phase];
+  const phaseSub = phaseThreshold != null
+    ? `база ${phaseBase}%/д · ${season.totalPaid.toFixed(0)}/${phaseThreshold} TON`
+    : `база ${phaseBase}%/д · финальная фаза`;
+
+  // Анимированные значения эмиссии IGC
+  const animMinted = useAnimatedNumber(data.igcSupply?.totalMinted ?? 0, 1200);
+  const animBurned = useAnimatedNumber(data.igcSupply?.totalBurned ?? 0, 1200);
+
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Баланс */}
@@ -124,6 +175,37 @@ export function Dashboard({ data, onUpdate }: Props) {
         </button>
       </div>
 
+      {/* История заработка */}
+      {data.earnings && (
+        <div style={card}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', marginBottom: 10 }}>
+            📊 История заработка
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+            {[
+              { label: 'Вчера', ton: data.earnings.yesterdayTon, igc: data.earnings.yesterdayIgc },
+              { label: '7 дней', ton: data.earnings.weekTon,      igc: data.earnings.weekIgc },
+            ].map(({ label, ton, igc }) => (
+              <div key={label} style={{
+                padding: '10px 12px',
+                background: 'rgba(255,255,255,0.03)',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.06)',
+              }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 6 }}>{label}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#0098EA' }}>
+                  {ton > 0 ? ton.toFixed(4) : '—'}
+                  <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 3, color: 'rgba(255,255,255,0.4)' }}>TON</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#9B59B6', marginTop: 2 }}>
+                  {igc > 0 ? `+${Math.round(igc)} IGC` : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Статы */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <StatCard label="Хешрейт" value={fmtH(totalHashrate)} icon="⚡" />
@@ -132,8 +214,15 @@ export function Dashboard({ data, onUpdate }: Props) {
           label={`${SEASON_EMOJI[season.name]} Сезон`}
           value={`День ${season.day}/28`}
           icon=""
+          sub={daySub}
+          subColor={modColor}
         />
-        <StatCard label="Фаза пула" value={`Фаза ${season.phase}`} icon="🔄" />
+        <StatCard
+          label="Фаза пула"
+          value={`Фаза ${season.phase}`}
+          icon="🔄"
+          sub={phaseSub}
+        />
         <StatCard label="В сети" value={`${data.network?.totalUsers ?? '—'} чел.`} icon="👥" />
         <StatCard label="Майнеров" value={`${data.network?.activeMiners ?? '—'} GPU`} icon="🖥️" />
       </div>
@@ -159,28 +248,41 @@ export function Dashboard({ data, onUpdate }: Props) {
 
       {/* IGC эмиссия */}
       {data.igcSupply && (() => {
-        const s = data.igcSupply!;
-        const IGC_MAX = 1_000_000_000;
-        const circulating = s.totalMinted - s.totalBurned;
-        const rows = [
-          { label: '🟣 Добыто всего', value: fmtBig(s.totalMinted),   pct: s.totalMinted / IGC_MAX,  color: '#9B59B6' },
-          { label: '🔥 Сожжено',      value: fmtBig(s.totalBurned),   pct: s.totalBurned  / IGC_MAX,  color: '#E74C3C' },
-          { label: '🔄 В обращении',  value: fmtBig(circulating),      pct: circulating    / IGC_MAX,  color: '#F39C12' },
-          { label: '⬜ Не добыто',    value: fmtBig(s.remaining),      pct: s.remaining    / IGC_MAX,  color: 'rgba(255,255,255,0.2)' },
+        const IGC_MAX     = 10_000_000_000;
+        const circulating = animMinted - animBurned;
+        // Нормализуем полоски относительно minted (иначе всё 0% от 10B)
+        const barBase = Math.max(animMinted, 1);
+        const fmtPct  = (n: number) => {
+          const p = (n / IGC_MAX) * 100;
+          if (p >= 1)    return `${p.toFixed(1)}%`;
+          if (p >= 0.01) return `${p.toFixed(3)}%`;
+          return `<0.01%`;
+        };
+        const remaining = IGC_MAX - animMinted;
+        const rows: { label: string; value: number; barPct: number; color: string }[] = [
+          { label: '🟣 Добыто',           value: animMinted,  barPct: 1,                          color: '#9B59B6' },
+          { label: '🔥 Сожжено',          value: animBurned,  barPct: animBurned / barBase,        color: '#E74C3C' },
+          { label: '🔄 В обращении',      value: circulating, barPct: circulating / barBase,       color: '#F39C12' },
+          { label: '⬜ Осталось добыть',  value: remaining,   barPct: remaining / IGC_MAX,         color: 'rgba(255,255,255,0.15)' },
         ];
         return (
           <div style={card}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', marginBottom: 10 }}>
-              💎 Эмиссия IGC — 1 000 000 000 max
+              💎 Эмиссия IGC — 10 000 000 000 max
             </div>
             {rows.map(r => (
               <div key={r.label} style={{ marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
                   <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{r.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: r.color }}>{r.value}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: r.color }}>{fmtBig(r.value)}</span>
+                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', minWidth: 46, textAlign: 'right' }}>
+                      {fmtPct(r.value)}
+                    </span>
+                  </span>
                 </div>
                 <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: `${Math.min(100, r.pct * 100)}%`, background: r.color, borderRadius: 2, opacity: 0.75 }} />
+                  <div style={{ height: '100%', width: `${Math.min(100, r.barPct * 100)}%`, background: r.color, borderRadius: 2, opacity: 0.75, transition: 'width 0.6s ease' }} />
                 </div>
               </div>
             ))}
@@ -199,12 +301,23 @@ const card: React.CSSProperties = {
   border: '1px solid rgba(255,255,255,0.08)',
 };
 
-function StatCard({ label, value, icon }: { label: string; value: string; icon: string }) {
+function StatCard({ label, value, icon, sub, subColor }: {
+  label: string; value: string; icon: string; sub?: string; subColor?: string;
+}) {
   return (
     <div style={{ ...card, textAlign: 'center' }}>
       <div style={{ fontSize: 18, marginBottom: 4 }}>{icon}</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{value}</div>
       <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{label}</div>
+      {sub && (
+        <div style={{
+          fontSize: 9, color: subColor ?? 'rgba(255,255,255,0.3)',
+          marginTop: 4, lineHeight: 1.3,
+          borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 4,
+        }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }

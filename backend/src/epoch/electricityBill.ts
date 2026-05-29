@@ -4,19 +4,26 @@
 // Если IGC не хватает — ферма останавливается.
 // ─────────────────────────────────────────────
 
-import { GPU_SPECS, IGC_PER_WATT_PER_EPOCH, OVERCLOCK_WATT_PENALTY } from './constants';
+import {
+  GPU_SPECS, IGC_PER_WATT_PER_EPOCH,
+  OVERCLOCK_COST_MULT, UNDERVOLT_WATT_MULT,
+} from './constants';
 
 // Плата за эксплуатацию GPU — сколько IGC берётся с фермы за эпоху.
-// Включает: электричество (по ваттам) + обслуживание (фиксированное по тиру).
+// OC: все затраты (электро + мейнтейнс) ×1.20 — усиливает существующую динамику.
+// UV: только электричество ×0.90 (мейнтейнс не меняется).
+// OC и UV взаимно исключают друг друга.
 export function gpuIgcCostPerEpoch(
-  gpu:              { modelTier: number; overclocked: boolean },
+  gpu:              { modelTier: number; overclocked: boolean; undervolted?: boolean },
   seasonMultiplier: number,
 ): number {
   const spec    = GPU_SPECS[gpu.modelTier];
-  const watts   = spec.watt * (gpu.overclocked ? OVERCLOCK_WATT_PENALTY : 1);
-  const elec    = watts * IGC_PER_WATT_PER_EPOCH * seasonMultiplier;
+  const wattMult = gpu.undervolted ? UNDERVOLT_WATT_MULT : 1.0;
+  const elec    = spec.watt * wattMult * IGC_PER_WATT_PER_EPOCH * seasonMultiplier;
   const maint   = spec.igcMaintenancePerEpoch ?? 0;
-  return parseFloat((elec + maint).toFixed(6));
+  const base    = elec + maint;
+  const ocMult  = gpu.overclocked ? OVERCLOCK_COST_MULT : 1.0;
+  return parseFloat((base * ocMult).toFixed(6));
 }
 import { GPU, Farm } from './types';
 
@@ -46,7 +53,8 @@ export function totalFarmWatt(gpus: GPU[]): number {
   return gpus.reduce((sum, gpu) => {
     if (gpu.status !== 'active') return sum;
     const spec = GPU_SPECS[gpu.modelTier];
-    return sum + spec.watt * (gpu.overclocked ? OVERCLOCK_WATT_PENALTY : 1);
+    const wattMult = gpu.undervolted ? UNDERVOLT_WATT_MULT : 1.0;
+    return sum + spec.watt * wattMult * (gpu.overclocked ? OVERCLOCK_COST_MULT : 1.0);
   }, 0);
 }
 
@@ -70,7 +78,8 @@ export function processElectricityBill(
   // Для совместимости с полем totalWatt в ElectricityResult
   const totalWatt = activeGpus.reduce((s, g) => {
     if (g.status !== 'active') return s;
-    return s + GPU_SPECS[g.modelTier].watt * (g.overclocked ? OVERCLOCK_WATT_PENALTY : 1);
+    const wattMult = g.undervolted ? UNDERVOLT_WATT_MULT : 1.0;
+    return s + GPU_SPECS[g.modelTier].watt * wattMult * (g.overclocked ? OVERCLOCK_COST_MULT : 1.0);
   }, 0);
 
   if (canAfford) {
@@ -103,8 +112,10 @@ export function processElectricityBill(
   }
 
   const finalDue   = parseFloat(totalFarmIgcCost(remainingGpus, seasonMultiplier).toFixed(6));
-  const finalWatt  = remainingGpus.reduce((s, g) =>
-    s + GPU_SPECS[g.modelTier].watt * (g.overclocked ? OVERCLOCK_WATT_PENALTY : 1), 0);
+  const finalWatt  = remainingGpus.reduce((s, g) => {
+    const wattMult = g.undervolted ? UNDERVOLT_WATT_MULT : 1.0;
+    return s + GPU_SPECS[g.modelTier].watt * wattMult * (g.overclocked ? OVERCLOCK_COST_MULT : 1.0);
+  }, 0);
 
   return {
     farmId:        farm.id,

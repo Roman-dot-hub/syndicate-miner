@@ -15,19 +15,29 @@ const maskedUrl = REDIS_URL.replace(/:([^@]+)@/, ':***@');
 console.log(`[Redis] Connecting to: ${maskedUrl}`);
 
 export const redis = new Redis(REDIS_URL, {
-  maxRetriesPerRequest: 3,
+  // 1 = команды быстро падают если нет соединения (catch в sync/epochRunner их ловит)
+  maxRetriesPerRequest: 1,
+  // Всегда пробуем переподключиться — с нарастающей задержкой до 10с
   retryStrategy: (times) => {
-    if (times > 5) {
-      console.error('[Redis] Не удалось подключиться после 5 попыток.');
-      return null; // прекратить попытки
+    const delay = Math.min(times * 300, 10_000);
+    if (times % 10 === 0) {
+      console.warn(`[Redis] Попытка переподключения #${times}, следующая через ${delay}ms`);
     }
-    return Math.min(times * 200, 2000); // экспоненциальная задержка
+    return delay;
   },
-  lazyConnect: false,
+  enableOfflineQueue: true,  // команды встают в очередь пока нет соединения
+  lazyConnect:        false,
 });
 
-redis.on('connect',  () => console.log('[Redis] ✓ Подключено'));
-redis.on('error',    (err) => console.error('[Redis] Ошибка:', err.message));
-redis.on('reconnecting', () => console.warn('[Redis] Переподключение...'));
+redis.on('connect',     () => console.log('[Redis] ✓ Подключено'));
+redis.on('ready',       () => console.log('[Redis] ✓ Готов к работе'));
+redis.on('error',       (err) => {
+  // Логируем только уникальные сообщения, не спамим
+  if (!err.message?.includes('ECONNREFUSED') && !err.message?.includes('Connection is closed')) {
+    console.error('[Redis] Ошибка:', err.message);
+  }
+});
+redis.on('reconnecting', (ms: number) => console.warn(`[Redis] Переподключение через ${ms}ms...`));
+redis.on('close',        () => console.warn('[Redis] Соединение закрыто, ждём переподключения...'));
 
 export default redis;

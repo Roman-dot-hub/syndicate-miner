@@ -3,13 +3,14 @@ import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 
 const API_URL       = import.meta.env.VITE_API_URL ?? '';
-const SYNC_INTERVAL = 2000;
+const SYNC_INTERVAL = 6000;  // 6s — достаточно свежо, не перегружает сервер
 const MAX_RETRIES   = 4;
 const RETRY_DELAY   = 4000; // ms between retries
 
 async function fetchSync(initDataStr: string): Promise<SyncData> {
   const res = await fetch(`${API_URL}/api/sync`, {
     headers: { 'X-TG-Init-Data': initDataStr },
+    cache: 'no-store',
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -27,19 +28,24 @@ export function useSync() {
   const [retrying, setRetrying] = useState(false);
   const initData                = useRef(WebApp.initData);
   const retryCount              = useRef(0);
+  const syncing                 = useRef(false); // защита от параллельных запросов
+  const hasData                 = useRef(false); // есть ли хоть один успешный ответ
 
   const sync = useCallback(async () => {
     if (!initData.current) { setLoading(false); return; }
+    if (syncing.current) return; // уже идёт запрос — пропускаем
+    syncing.current = true;
 
     try {
       const snapshot = await fetchSync(initData.current);
+      hasData.current = true;
       setData(snapshot);
       setError(null);
       retryCount.current = 0;
       setRetrying(false);
     } catch (e) {
-      // Если данные уже есть — не показываем ошибку (временный сбой)
-      if (data) return;
+      // Если данные уже есть — тихий сбой, не мешаем UI
+      if (hasData.current) return; // finally всё равно сбросит syncing
 
       if (retryCount.current < MAX_RETRIES) {
         retryCount.current += 1;
@@ -51,6 +57,7 @@ export function useSync() {
       }
     } finally {
       setLoading(false);
+      syncing.current = false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -60,7 +67,16 @@ export function useSync() {
     fetch(`${API_URL}/health`).catch(() => {});
     sync();
     const id = setInterval(sync, SYNC_INTERVAL);
-    return () => clearInterval(id);
+
+    // Принудительный sync когда приложение возвращается из фона
+    // (мобильный Telegram приостанавливает JS, setInterval не тикает)
+    const onVisible = () => { if (document.visibilityState === 'visible') sync(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [sync]);
 
   return { data, loading, error, retrying, sync };

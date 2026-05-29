@@ -50,47 +50,6 @@ const FARM_LEVELS = [
   },
 ];
 
-const COOLING_LEVELS = [
-  {
-    type: 'cooling_1',
-    level: 1,
-    emoji: '🌀',
-    name: 'Кулер Lv1',
-    cost: '100 IGC',
-    costIgc: 100, costTon: 0,
-    kTemp: 1.3,
-    wearLabel: '−28% износа vs без кулера',
-    wearColor: '#F39C12',
-    perks: ['Без кулера GPU ломаются вдвое чаще', 'Снижает перегрев — хорошее начало', 'Рекомендуется купить сразу'],
-    availablePhase: 1,
-  },
-  {
-    type: 'cooling_2',
-    level: 2,
-    emoji: '❄️',
-    name: 'Кулер Lv2',
-    cost: '3 TON',
-    costIgc: 0, costTon: 3,
-    kTemp: 1.0,
-    wearLabel: 'Нормальный износ — базовая норма',
-    wearColor: '#2ECC71',
-    perks: ['Полностью убирает штраф за перегрев', 'GPU живут столько, сколько задумано', 'Достаточно для RX 580 — RTX 3070'],
-    availablePhase: 1,
-  },
-  {
-    type: 'cooling_3',
-    level: 3,
-    emoji: '🧊',
-    name: 'Кулер Lv3',
-    cost: '15 TON',
-    costIgc: 0, costTon: 15,
-    kTemp: 0.85,
-    wearLabel: '−15% износа даже ниже нормы',
-    wearColor: '#0098EA',
-    perks: ['GPU стареют медленнее нормы', 'Реже ломаются дорогие карты (RTX 4090, ASIC)', 'Окупается на топ-тирах'],
-    availablePhase: 1,
-  },
-];
 
 const WORKBENCH_LEVELS = [
   {
@@ -138,7 +97,6 @@ export function Shop({ data, onUpdate }: Props) {
   const tonBalance   = parseFloat(rawUser.tonBalance   ?? rawUser.ton_balance   ?? '0');
   const igcBalance   = parseFloat(rawUser.igcBalance   ?? rawUser.igc_balance   ?? '0');
   const farmLevel    = rawFarm.level        ?? 1;
-  const coolingLevel = rawFarm.coolingLevel ?? rawFarm.cooling_level  ?? 0;
   const wbLevel      = rawFarm.workbenchLevel ?? rawFarm.workbench_level ?? 0;
 
   const toggle = (key: string) => setExpanded(e => e === key ? null : key);
@@ -151,7 +109,7 @@ export function Shop({ data, onUpdate }: Props) {
       setBusyGpu(tier);
       try {
         await action('buy_gpu', { model_tier: tier });
-        onUpdate();
+        await onUpdate();
         WebApp.HapticFeedback.notificationOccurred('success');
       } catch (e) { WebApp.showAlert(String(e)); }
       finally { setBusyGpu(null); }
@@ -166,7 +124,7 @@ export function Shop({ data, onUpdate }: Props) {
         if (!ok) return;
         try {
           await action(type);
-          onUpdate();
+          await onUpdate();
           WebApp.HapticFeedback.notificationOccurred('success');
           setExpanded(null);
         } catch (e) { WebApp.showAlert(String(e)); }
@@ -315,83 +273,6 @@ export function Shop({ data, onUpdate }: Props) {
         );
       })}
 
-      {/* ── Кулеры ───────────────────────────── */}
-      <SectionHeader
-        title="❄️ Охлаждение"
-        subtitle={coolingLevel === 0 ? 'Нет кулера · Износ ×1.8 (перегрев!)' : `Кулер Lv${coolingLevel} установлен`}
-      />
-
-      {/* Без кулера — предупреждение */}
-      {coolingLevel === 0 && (
-        <div style={{
-          background: 'rgba(231,76,60,0.1)', border: '1px solid rgba(231,76,60,0.25)',
-          borderRadius: 12, padding: '10px 12px', fontSize: 11, color: '#E74C3C',
-        }}>
-          🔥 Без охлаждения износ GPU ×1.8 — карты деградируют очень быстро и часто ломаются!
-        </div>
-      )}
-
-      {COOLING_LEVELS.map(c => {
-        const owned     = coolingLevel >= c.level;
-        const canAfford = c.costTon > 0 ? tonBalance >= c.costTon : igcBalance >= c.costIgc;
-        const key       = c.type;
-        const open      = expanded === key;
-
-        return (
-          <div key={c.type} style={card(owned)}>
-            <div onClick={() => toggle(key)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <span style={{ fontSize: 26, flexShrink: 0 }}>{c.emoji}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: owned ? 'rgba(255,255,255,0.4)' : '#fff' }}>
-                  {c.name}
-                </div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                  {c.wearLabel}
-                </div>
-              </div>
-              {owned
-                ? <span style={currentBadge}>Есть</span>
-                : <button
-                    onClick={e => { e.stopPropagation(); buyInfra(c.type, c.name, c.cost, c.costIgc, c.costTon); }}
-                    disabled={!canAfford}
-                    style={buyBtnBlue(!canAfford)}
-                  >{c.cost}</button>
-              }
-            </div>
-
-            {open && (
-              <div style={expandedBox}>
-                <Row label="Скорость износа" value={c.wearLabel} color={c.wearColor} />
-                <div style={{ display: 'flex', gap: 6, marginTop: 8, marginBottom: 4 }}>
-                  {([
-                    { label: 'Нет кулера', v: '×1.8', bad: true },
-                    { label: 'Lv1', v: '×1.3', warn: true },
-                    { label: 'Lv2', v: '×1.0' },
-                    { label: 'Lv3', v: '×0.85', good: true },
-                  ] as any[]).map(item => (
-                    <div key={item.label} style={{
-                      flex: 1, textAlign: 'center', padding: '5px 2px', borderRadius: 7,
-                      background: item.bad ? 'rgba(231,76,60,0.15)' : item.warn ? 'rgba(243,156,18,0.12)' : item.good ? 'rgba(0,152,234,0.12)' : 'rgba(46,204,113,0.12)',
-                      border: `1px solid ${item.bad ? 'rgba(231,76,60,0.3)' : item.warn ? 'rgba(243,156,18,0.25)' : item.good ? 'rgba(0,152,234,0.25)' : 'rgba(46,204,113,0.25)'}`,
-                      outline: c.kTemp === (item.label === 'Нет кулера' ? 1.8 : item.label === 'Lv1' ? 1.3 : item.label === 'Lv2' ? 1.0 : 0.85) ? '2px solid #fff' : 'none',
-                    }}>
-                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginBottom: 1 }}>{item.label}</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: item.bad ? '#E74C3C' : item.warn ? '#F39C12' : item.good ? '#0098EA' : '#2ECC71' }}>{item.v}</div>
-                    </div>
-                  ))}
-                </div>
-                {c.perks.map(p => (
-                  <div key={p} style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', paddingLeft: 4, marginTop: 4 }}>✓ {p}</div>
-                ))}
-                <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
-                  * Разгон (OC) дополнительно ×2.5 к износу поверх кулера
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
-
       {/* ── Верстак ──────────────────────────── */}
       <SectionHeader
         title="🔧 Верстак"
@@ -525,9 +406,3 @@ function buyBtnPurple(disabled: boolean): React.CSSProperties {
   };
 }
 
-function buyBtnBlue(disabled: boolean): React.CSSProperties {
-  return {
-    ...buyBtn(disabled),
-    background: disabled ? 'rgba(255,255,255,0.08)' : '#0098EA',
-  };
-}

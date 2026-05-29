@@ -7,6 +7,8 @@
 import {
   GPU_SPECS,
   OVERCLOCK_WEAR_PENALTY,
+  UNDERVOLT_WEAR_MULT,
+  UNDERVOLT_HASHRATE_MULT,
   COOLING_KTEMP,
   BREAKAGE_PROBABILITY_FACTOR,
 } from './constants';
@@ -33,11 +35,12 @@ export function calculateWear(gpu: GPU, farmCoolingLevel: number): WearResult {
   // K_temp — штраф за охлаждение помещения
   const kTemp = COOLING_KTEMP[farmCoolingLevel] ?? COOLING_KTEMP[0];
 
-  // K_load — штраф за разгон
-  const kLoad = gpu.overclocked ? OVERCLOCK_WEAR_PENALTY : 1.0;
+  // K_load — штраф за разгон / бонус андервольта
+  const kLoad    = gpu.overclocked  ? OVERCLOCK_WEAR_PENALTY : 1.0;
+  const kUndervolt = gpu.undervolted ? UNDERVOLT_WEAR_MULT    : 1.0;
 
   // Фактический износ за эпоху (%)
-  const wearApplied = spec.baseWearPerEpoch * kTemp * kLoad;
+  const wearApplied = spec.baseWearPerEpoch * kTemp * kLoad * kUndervolt;
 
   // Новое здоровье
   const newHealth = Math.max(0, gpu.health - wearApplied);
@@ -70,14 +73,15 @@ export function effectiveHashrate(gpu: GPU): number {
   const spec      = GPU_SPECS[gpu.modelTier];
   const baseH     = spec.hashrate;
 
-  // Разгон: +20% хешрейта (но wear уже учтён в calculateWear)
-  const overclock = gpu.overclocked ? (1 + 0.20) : 1.0;
+  // Разгон: +20% хешрейта; Андервольт: −15% хешрейта (взаимно исключающие)
+  const overclock = gpu.overclocked ? 1.20 : 1.0;
+  const undervolt = gpu.undervolted ? UNDERVOLT_HASHRATE_MULT : 1.0;
 
   // Деградация по здоровью: -2% за каждые 5% потери
   const healthPenalty = Math.floor((100 - gpu.health) / 5) * 0.02;
   const healthFactor  = Math.max(0, 1 - healthPenalty);
 
-  return baseH * overclock * healthFactor;
+  return baseH * overclock * undervolt * healthFactor;
 }
 
 /**

@@ -50,11 +50,11 @@ export function validateInitData(
     throw new Error('Невалидная подпись initData');
   }
 
-  // Проверяем свежесть (не старше 24 часов)
+  // Проверяем свежесть (не старше 7 дней)
   const authDate = parseInt(params.get('auth_date') ?? '0', 10);
   const ageMs    = Date.now() - authDate * 1000;
-  if (ageMs > 86_400_000) {
-    throw new Error('initData устарела (> 24 часов)');
+  if (ageMs > 604_800_000) {
+    throw new Error('initData устарела (> 7 дней)');
   }
 
   const userJson = params.get('user');

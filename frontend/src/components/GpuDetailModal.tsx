@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { GPU, TapBoost } from '../types';
-import { GPU_SPECS } from '../types';
+import { GPU_SPECS, calcGpuTemp, calcEffectiveUptime, tempInfo, PASTE_LEVELS, FAN_LEVELS, LIQUID_COOLING_LEVELS } from '../types';
 
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
@@ -10,53 +10,141 @@ function fmtH(h: number): string {
 }
 import { useAction } from '../hooks/useAction';
 
-interface Props {
-  gpu:         GPU;
-  farmIgc:     number;
-  farmCooling: number;
-  tapBoost?:   TapBoost;
-  onClose:     () => void;
-  onUpdate:    () => void;
-  onGoToShop:  () => void;
+// Зеркало backend wearEngine.ts — формула должна совпадать
+const BASE_REFURBISH_COST = 3;
+const TIER_REFURBISH_MULT: Record<number, number> = {
+  0: 0, 1: 1.0, 2: 1.8, 3: 3.5, 4: 7.0, 5: 20.0, 6: 50.0,
+};
+function calcRepairCost(tier: number, health: number): number {
+  if (tier === 0) return 0;
+  const missing = 100 - health;
+  const mult = TIER_REFURBISH_MULT[tier] ?? 1;
+  return Math.ceil(missing * BASE_REFURBISH_COST * mult);
+}
+function requiredWorkbench(tier: number): number {
+  if (tier <= 2) return 1;
+  if (tier <= 4) return 2;
+  return 3;
 }
 
-export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, onUpdate, onGoToShop }: Props) {
+interface Props {
+  gpu:            GPU;
+  farmIgc:        number;
+  farmWorkbench:  number;
+  farmServerRoom: number;
+  farmUps:        number;
+  farmProvider:   number;
+  igcRatio:       number;
+  tapBoost?:      TapBoost;
+  onClose:        () => void;
+  onUpdate:       () => void;
+}
+
+export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, farmUps, farmProvider, igcRatio, tapBoost, onClose, onUpdate }: Props) {
   const { action } = useAction();
   const [busy, setBusy] = useState(false);
+
+  // Оптимистичный стейт — применяется немедленно при нажатии, до ответа сервера
+  type Opt = {
+    overclocked?:  boolean;
+    undervolted?:  boolean;
+    health?:       number;
+    status?:       string;
+    pasteLevel?:   number;
+    fanLevel?:     number;
+    coolingLevel?: number;
+  };
+  const [opt, setOpt] = useState<Opt>({});
+
+  // Когда сервер подтверждает изменения (gpu props обновились) — сбрасываем оптимистичный стейт
+  useEffect(() => {
+    setOpt({});
+  }, [gpu.overclocked, gpu.undervolted, gpu.health, gpu.status,
+      gpu.pasteLevel, gpu.fanLevel, gpu.coolingLevel]);
+
+  // Отображаемые данные = серверные + оптимистичные перезаписи
+  const g = {
+    ...gpu,
+    overclocked:  opt.overclocked  ?? gpu.overclocked,
+    undervolted:  opt.undervolted  ?? gpu.undervolted,
+    health:       opt.health       ?? gpu.health,
+    status:       opt.status       ?? gpu.status,
+    pasteLevel:   opt.pasteLevel   ?? gpu.pasteLevel   ?? 1,
+    fanLevel:     opt.fanLevel     ?? gpu.fanLevel     ?? 1,
+    coolingLevel: opt.coolingLevel ?? gpu.coolingLevel ?? 1,
+  };
 
   const tier = gpu.modelTier ?? (gpu as any).model_tier ?? 0;
   const spec = GPU_SPECS[tier] ?? GPU_SPECS[0];
 
-  const isBroken  = gpu.status === 'broken';
-  const isOffline = gpu.status === 'offline';
-  const isStored  = gpu.status === 'stored';
+  // Температура и uptime (display — Sprint 2)
+  const gpuTemp       = calcGpuTemp(tier, g.coolingLevel ?? 1, g.overclocked, g.undervolted, g.pasteLevel ?? 1, farmServerRoom);
+  const tempMeta      = tempInfo(gpuTemp);
+  const effectiveUptime = calcEffectiveUptime(tier, farmUps, farmProvider, g.fanLevel ?? 1);
+
+  const isBroken  = g.status === 'broken';
+  const isOffline = g.status === 'offline';
+  const isStored  = g.status === 'stored';
   const isActive  = !isBroken && !isOffline && !isStored;
   const isNano    = tier === 0;
 
-  const healthColor = gpu.health > 60 ? '#2ECC71' : gpu.health > 30 ? '#F39C12' : '#E74C3C';
+  const healthColor = g.health > 60 ? '#2ECC71' : g.health > 30 ? '#F39C12' : '#E74C3C';
 
   const statusLabel = isBroken ? '💥 СЛОМАН' : isOffline ? '🔌 OFFLINE' : isStored ? '📦 СКЛАД' : '✅ АКТИВЕН';
   const statusColor = isBroken ? '#E74C3C'   : isOffline ? '#aaa'       : isStored ? '#F39C12' : '#2ECC71';
 
-  const overcMult     = gpu.overclocked ? 1.20 : 1.0;
-  const undervoltMult = gpu.undervolted  ? 0.85 : 1.0;
+  const overcMult     = g.overclocked ? 1.20 : 1.0;
+  const undervoltMult = g.undervolted  ? 0.85 : 1.0;
   const effectiveHash = fmtH(spec.hashrate * overcMult * undervoltMult);
-  const extraWattCost = gpu.overclocked ? spec.wattBackend * 0.40 * 0.001 * 288 : 0;
-  const rawDayCost    = spec.igcCostPerDay + extraWattCost;
-  const effectiveCost = (rawDayCost * (gpu.undervolted ? 0.75 : 1.0)).toFixed(1);
+  const rawDayCost = g.overclocked
+    ? spec.igcCostPerDay * 1.20
+    : g.undervolted
+      ? spec.igcCostPerDay - spec.wattBackend * 0.001 * 288 * 0.10
+      : spec.igcCostPerDay;
+  const effectiveCost = rawDayCost.toFixed(1);
   const daysLeft      = rawDayCost > 0 ? (farmIgc / rawDayCost).toFixed(1) : '∞';
+
+  const repairCost    = calcRepairCost(tier, g.health);
+  const needWorkbench = requiredWorkbench(tier);
+  const canRepair     = tier === 0 ? false : farmWorkbench >= needWorkbench;
+  const repairBlocked = !canRepair && g.health < 100;
+
+  // Динамические IGC-цены с учётом рыночного индекса
+  const adjIgc = (base: number) => Math.ceil(base * igcRatio);
+  const ratioLabel = (base: number): string => {
+    if (Math.abs(igcRatio - 1) < 0.02) return '';
+    const adj = adjIgc(base);
+    const sign = igcRatio > 1 ? '+' : '−';
+    const diff = Math.abs(adj - base);
+    return ` (${sign}${diff} рынок)`;
+  };
 
   const do_ = async (type: string) => {
     if (busy) return;
     setBusy(true);
+
+    // Оптимистичное обновление — мгновенная реакция UI
+    if (type === 'toggle_overclock')      setOpt(o => ({ ...o, overclocked: !(o.overclocked ?? gpu.overclocked) }));
+    if (type === 'toggle_undervolting')   setOpt(o => ({ ...o, undervolted: !(o.undervolted ?? gpu.undervolted) }));
+    if (type === 'restart_gpu')           setOpt(o => ({ ...o, status: 'active' }));
+    if (type === 'move_to_storage')       setOpt(o => ({ ...o, status: 'stored' }));
+    if (type === 'move_from_storage')     setOpt(o => ({ ...o, status: 'active' }));
+    if (type === 'refurbish')             setOpt(o => ({ ...o, health: 100, status: 'active' }));
+    if (type === 'upgrade_paste')         setOpt(o => ({ ...o, pasteLevel:   (o.pasteLevel   ?? gpu.pasteLevel   ?? 1) + 1 }));
+    if (type === 'upgrade_fan')           setOpt(o => ({ ...o, fanLevel:     (o.fanLevel     ?? gpu.fanLevel     ?? 1) + 1 }));
+    if (type === 'upgrade_liquid_cooling') setOpt(o => ({ ...o, coolingLevel: (o.coolingLevel ?? gpu.coolingLevel ?? 1) + 1 }));
+
     try {
       await action(type, { gpu_id: gpu.id });
-      onUpdate();
       WebApp.HapticFeedback.notificationOccurred('success');
+      // Синк уходит в фон — не блокируем кнопки
+      // opt сбросится сам через useEffect когда придут свежие данные
+      onUpdate();
     } catch (e) {
+      setOpt({});       // откат при ошибке
       WebApp.showAlert(String(e));
     } finally {
-      setBusy(false);
+      setBusy(false);   // кнопки становятся активны сразу после действия
     }
   };
 
@@ -103,6 +191,11 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 2 }}>
               Tier {tier} · {spec.watt}W{gpu.isRefurbished ? ' · ♻️' : ''}
               {tapBoost?.active && isActive ? ` · ⚡ +10% буст` : ''}
+              {!isStored && (
+                <span style={{ color: tempMeta.color, marginLeft: 4 }}>
+                  · 🌡️ {gpuTemp}°C
+                </span>
+              )}
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -121,12 +214,12 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Состояние</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: healthColor }}>
-                  {isBroken ? '💥 СЛОМАН' : `${Math.round(gpu.health)}%`}
+                  {isBroken ? '💥 СЛОМАН' : `${Math.round(g.health)}%`}
                 </span>
               </div>
               <div style={{ height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
-                  height: '100%', width: `${gpu.health}%`, borderRadius: 3,
+                  height: '100%', width: `${g.health}%`, borderRadius: 3,
                   background: `linear-gradient(90deg, ${healthColor}99, ${healthColor})`,
                   transition: 'width 0.4s',
                 }} />
@@ -140,11 +233,13 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
             border: '1px solid rgba(255,255,255,0.06)',
           }}>
             {[
-              { label: 'Хешрейт', value: effectiveHash, color: '#F39C12' },
-              { label: 'Доход/день', value: `+${spec.igcPerDay.toFixed(1)} IGC`, color: '#9B59B6' },
-              { label: 'Расход/день', value: `${effectiveCost} IGC`, color: 'rgba(255,100,100,0.85)' },
-              { label: 'Баланс фермы', value: `${Math.floor(farmIgc)} IGC (~${daysLeft}д.)`, color: farmIgc < rawDayCost * 2 ? '#F39C12' : 'rgba(255,255,255,0.6)' },
-              { label: 'Охлаждение', value: `Lv ${farmCooling}`, color: 'rgba(255,255,255,0.55)' },
+              { label: 'Хешрейт',     value: effectiveHash,                                                                    color: '#F39C12' },
+              { label: 'Доход/день',  value: `+${spec.igcPerDay.toFixed(1)} IGC`,                                              color: '#9B59B6' },
+              { label: 'Расход/день', value: `${effectiveCost} IGC`,                                                           color: 'rgba(255,100,100,0.85)' },
+              { label: 'Баланс фермы',value: `${Math.floor(farmIgc)} IGC (~${daysLeft}д.)`,                                    color: farmIgc < rawDayCost * 2 ? '#F39C12' : 'rgba(255,255,255,0.6)' },
+              { label: 'Охлаждение',  value: `Жидк. Lv${g.coolingLevel ?? 1}`,                                               color: 'rgba(255,255,255,0.55)' },
+              { label: 'Температура', value: isStored ? '—' : `${gpuTemp}°C · ${tempMeta.label}`,                              color: isStored ? 'rgba(255,255,255,0.3)' : tempMeta.color },
+              { label: 'Стабильность',value: `${effectiveUptime}%`,                                                            color: effectiveUptime >= 88 ? '#2ECC71' : effectiveUptime >= 84 ? '#F39C12' : '#E74C3C' },
             ].map((row, i, arr) => (
               <div key={row.label}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 12px' }}>
@@ -181,9 +276,9 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
                   emoji="⚡"
                   label="Разгон"
                   hint="+20% мощь, −HP"
-                  active={gpu.overclocked}
-                  disabled={isBroken || isOffline || gpu.undervolted || gpu.health < 30}
-                  disabledReason={gpu.undervolted ? 'Отключи Undervolt' : gpu.health < 30 ? 'HP < 30%' : undefined}
+                  active={g.overclocked}
+                  disabled={isBroken || isOffline || g.undervolted || g.health < 30}
+                  disabledReason={g.undervolted ? 'Отключи Undervolt' : g.health < 30 ? 'HP < 30%' : undefined}
                   busy={busy}
                   onPress={() => do_('toggle_overclock')}
                 />
@@ -191,29 +286,81 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
                 <ToggleBtn
                   emoji="🔋"
                   label="Undervolt"
-                  hint="−15% мощь, −25% свет"
-                  active={gpu.undervolted}
-                  disabled={isBroken || isOffline || gpu.overclocked}
-                  disabledReason={gpu.overclocked ? 'Отключи Разгон' : undefined}
+                  hint="−15% мощь, −30% износ"
+                  active={g.undervolted}
+                  disabled={isBroken || isOffline || g.overclocked}
+                  disabledReason={g.overclocked ? 'Отключи Разгон' : undefined}
                   busy={busy}
                   onPress={() => do_('toggle_undervolting')}
                 />
-                {/* Cooler */}
-                <ToggleBtn
-                  emoji="🌬️"
-                  label="Кулер"
-                  hint={farmCooling > 0 ? `Lv ${farmCooling}` : 'Нет'}
-                  active={farmCooling > 0}
-                  disabled={false}
-                  busy={false}
-                  onPress={() => {
-                    if (farmCooling === 0) {
-                      onGoToShop();
-                    } else {
-                      WebApp.showAlert(`Охлаждение Lv${farmCooling} установлено.\nУлучши в Магазине → Инфраструктура.`);
-                    }
-                  }}
-                />
+              </div>
+            </div>
+          )}
+
+          {/* Per-GPU upgrades: paste + fan */}
+          {!isStored && !isNano && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 7, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                Апгрейды GPU
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* Жидкостное охлаждение */}
+                {(() => {
+                  const nextCool = LIQUID_COOLING_LEVELS[g.coolingLevel ?? 1];
+                  const baseC = nextCool?.costIgc ?? 0;
+                  return (
+                    <GpuUpgradeRow
+                      emoji="💧"
+                      label="Жидкостное охлаждение"
+                      currentLevel={g.coolingLevel ?? 1}
+                      maxLevel={LIQUID_COOLING_LEVELS.length}
+                      currentEffect={`−${LIQUID_COOLING_LEVELS[(g.coolingLevel ?? 1) - 1]?.tempReduction ?? 0}°C`}
+                      nextEffect={nextCool ? `→ −${nextCool.tempReduction}°C` : null}
+                      cost={nextCool ? `${adjIgc(baseC)} IGC${ratioLabel(baseC)}` : null}
+                      canAfford={adjIgc(baseC) <= farmIgc}
+                      busy={busy}
+                      onPress={() => do_('upgrade_liquid_cooling')}
+                    />
+                  );
+                })()}
+                {/* Термопаста */}
+                {(() => {
+                  const nextPaste = PASTE_LEVELS[g.pasteLevel ?? 1];
+                  const baseP = nextPaste?.costIgc ?? 0;
+                  return (
+                    <GpuUpgradeRow
+                      emoji="🧴"
+                      label="Термопаста"
+                      currentLevel={g.pasteLevel ?? 1}
+                      maxLevel={PASTE_LEVELS.length}
+                      currentEffect={`−${PASTE_LEVELS[(g.pasteLevel ?? 1) - 1]?.tempReduction ?? 0}°C`}
+                      nextEffect={nextPaste ? `→ −${nextPaste.tempReduction}°C` : null}
+                      cost={nextPaste ? `${adjIgc(baseP)} IGC${ratioLabel(baseP)}` : null}
+                      canAfford={adjIgc(baseP) <= farmIgc}
+                      busy={busy}
+                      onPress={() => do_('upgrade_paste')}
+                    />
+                  );
+                })()}
+                {/* Вентилятор */}
+                {(() => {
+                  const nextFan = FAN_LEVELS[g.fanLevel ?? 1];
+                  const baseF = nextFan?.costIgc ?? 0;
+                  return (
+                    <GpuUpgradeRow
+                      emoji="🌀"
+                      label="Вентилятор"
+                      currentLevel={g.fanLevel ?? 1}
+                      maxLevel={FAN_LEVELS.length}
+                      currentEffect={`${FAN_LEVELS[(g.fanLevel ?? 1) - 1]?.uptimeBonus ?? 0}% uptime`}
+                      nextEffect={nextFan ? `→ +${nextFan.uptimeBonus}%` : null}
+                      cost={nextFan ? `${adjIgc(baseF)} IGC${ratioLabel(baseF)}` : null}
+                      canAfford={adjIgc(baseF) <= farmIgc}
+                      busy={busy}
+                      onPress={() => do_('upgrade_fan')}
+                    />
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -245,22 +392,71 @@ export function GpuDetailModal({ gpu, farmIgc, farmCooling, tapBoost, onClose, o
                 />
               )}
 
-              {/* Repair — always visible for non-stored */}
-              {!isStored && (
+              {/* Restart offline GPU */}
+              {isOffline && (
                 <ActionBtn
-                  emoji="🔧"
-                  label="Ремонт"
-                  sub={isBroken ? 'Карта сломана — нужен ремонт' : `Здоровье ${Math.round(gpu.health)}% · восстановить до 100%`}
-                  color={isBroken ? '#E74C3C' : '#F39C12'}
+                  emoji="🔌"
+                  label="Перезапустить"
+                  sub="Карта отключена из-за нехватки IGC · пополни баланс и запусти снова"
+                  color="#0098EA"
                   busy={busy}
                   onPress={() => {
                     WebApp.showConfirm(
-                      `Отремонтировать ${spec.name}?\nСтоимость зависит от уровня верстака и износа.`,
-                      (ok) => { if (ok) do_('refurbish'); }
+                      `🔌 Перезапустить ${spec.name}?\n\nКарта была отключена из-за нехватки IGC.\nУбедись что на балансе достаточно IGC для оплаты электричества.`,
+                      (ok) => { if (ok) do_('restart_gpu'); }
                     );
                   }}
                 />
               )}
+
+              {/* Repair — always visible for non-stored */}
+              {!isStored && tier !== 0 && (() => {
+                const adjRepair = adjIgc(repairCost);
+                const repairLabel = ratioLabel(repairCost);
+                return (
+                <ActionBtn
+                  emoji="🔧"
+                  label={repairBlocked
+                    ? `Ремонт (нужен Верстак Lv${needWorkbench})`
+                    : g.health >= 100
+                      ? 'Ремонт — не нужен'
+                      : `Ремонт — ${adjRepair} IGC${repairLabel}`}
+                  sub={repairBlocked
+                    ? `Верстак Lv${needWorkbench} откроет ремонт этой карты`
+                    : g.health >= 100
+                      ? 'Карта в отличном состоянии'
+                      : isBroken
+                        ? `Карта сломана · восстановить до 100% · стоит ${adjRepair} IGC`
+                        : `${Math.round(g.health)}% → 100% · стоит ${adjRepair} IGC · на балансе ${Math.floor(farmIgc)} IGC`}
+                  color={repairBlocked || g.health >= 100
+                    ? 'rgba(255,255,255,0.3)'
+                    : isBroken ? '#E74C3C' : farmIgc < adjRepair ? '#F39C12' : '#F39C12'}
+                  busy={busy}
+                  onPress={() => {
+                    if (repairBlocked) {
+                      WebApp.showAlert(`🔧 Для ремонта ${spec.name} нужен Верстак Lv${needWorkbench}.\n\nКупи его на экране Фермы → Ферма & Верстак.`);
+                      return;
+                    }
+                    if (g.health >= 100) {
+                      WebApp.showAlert('Карта в отличном состоянии — ремонт не нужен.');
+                      return;
+                    }
+                    if (farmIgc < adjRepair) {
+                      WebApp.showAlert(`Недостаточно IGC.\nНужно: ${adjRepair} IGC\nНа балансе: ${Math.floor(farmIgc)} IGC`);
+                      return;
+                    }
+                    WebApp.showConfirm(
+                      `🔧 Ремонт ${spec.name}\n\n` +
+                      `Здоровье: ${Math.round(g.health)}% → 100%\n` +
+                      `Стоимость: ${adjRepair} IGC${repairLabel}\n` +
+                      `На балансе: ${Math.floor(farmIgc)} IGC\n\n` +
+                      `Подтвердить ремонт?`,
+                      (ok) => { if (ok) do_('refurbish'); }
+                    );
+                  }}
+                />
+                );
+              })()}
 
               {/* To storage */}
               {!isStored && (
@@ -332,6 +528,55 @@ function ToggleBtn({ emoji, label, hint, active, disabled, disabledReason, busy,
         {hint}
       </span>
     </button>
+  );
+}
+
+function GpuUpgradeRow({ emoji, label, currentLevel, maxLevel, currentEffect, nextEffect, cost, canAfford, busy, onPress }: {
+  emoji: string; label: string;
+  currentLevel: number; maxLevel: number;
+  currentEffect: string; nextEffect: string | null; cost: string | null;
+  canAfford: boolean; busy: boolean; onPress: () => void;
+}) {
+  const isMax = currentLevel >= maxLevel;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '9px 12px', borderRadius: 11,
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.07)',
+    }}>
+      <span style={{ fontSize: 18, flexShrink: 0 }}>{emoji}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{label}</span>
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>
+            Lv{currentLevel}/{maxLevel}
+          </span>
+        </div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
+          {currentEffect}{nextEffect && <span style={{ color: '#9B59B6' }}> {nextEffect}</span>}
+        </div>
+      </div>
+      {isMax ? (
+        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>МАКС</span>
+      ) : (
+        <button
+          onClick={onPress}
+          disabled={busy || !canAfford}
+          style={{
+            padding: '5px 10px', borderRadius: 8, border: 'none', cursor: canAfford ? 'pointer' : 'not-allowed',
+            background: canAfford ? 'linear-gradient(135deg, #9B59B6, #6C3483)' : 'rgba(255,255,255,0.08)',
+            color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
+            fontSize: 10, fontWeight: 700, flexShrink: 0,
+            opacity: busy ? 0.5 : 1,
+            boxShadow: canAfford ? '0 2px 8px rgba(155,89,182,0.35)' : 'none',
+            transition: 'all 0.15s',
+          }}
+        >
+          {cost}
+        </button>
+      )}
+    </div>
   );
 }
 

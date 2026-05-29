@@ -36,7 +36,7 @@ Telegram Mini App (TMA) — симулятор виртуального майн
 - При старте всегда вызывай `WebApp.ready()` и `WebApp.expand()`
 - Haptic Feedback при каждом значимом действии: `WebApp.HapticFeedback.impactOccurred('medium')`
 - **Клиент не считает никакой экономики.** Баланс, хешрейт, износ — всё приходит с `/api/sync`
-- Синхронизация с backend: `useEffect` + `setInterval(sync, 2000)` — каждые 2 секунды
+- Синхронизация с backend: `useEffect` + `setInterval(sync, 6000)` — каждые 6 секунд
 - Для вывода TON использовать `TON Connect 2.0` (`@tonconnect/ui-react`)
 - Стили: CSS Variables с `var(--tg-theme-*)` для автоадаптации под тему Telegram
 
@@ -48,17 +48,18 @@ frontend/src/
 │   ├── Farm.tsx          # Ферма: слоты, карточки GPU, склад, статистика, разгон
 │   ├── Shop.tsx          # Магазин: покупка оборудования (USB Nano скрыт)
 │   ├── Dashboard.tsx     # Статистика: баланс, хешрейт, сеть
-│   ├── Market.tsx        # Барахолка: P2P order book, листинг, Refurbish
+│   ├── Market.tsx        # IGC Маркет: продажа IGC→TON и покупка TON→IGC по динамической цене
+│   ├── Syndicate.tsx     # ⚔️ Синдикаты: вступление, казна, бонусы, участники, голосования
 │   ├── Leaderboard.tsx   # 🏆 Топ-100 игроков по суммарному хешрейту
 │   └── Company.tsx       # Управляющая компания: дерево рефералов, доходы
 ├── components/
 │   ├── GpuCard.tsx       # Компактная кликабельная карточка GPU (без кнопок)
-│   ├── GpuDetailModal.tsx # Слайд-ап модал: статистика, тогглы OC/UV, действия
-│   ├── TapToCool.tsx     # Кликер для буста хешрейта
+│   ├── GpuDetailModal.tsx # Слайд-ап модал: статистика, тогглы OC/UV, действия (optimistic UI)
+│   ├── AdBoost.tsx       # Просмотр рекламы для буста хешрейта (Adsgram)
 │   ├── BalanceBar.tsx    # TON + IGC отображение
 │   └── FearGreedIndex.tsx # Индикатор рынка
 └── hooks/
-    ├── useSync.ts        # Синхронизация с backend каждые 2 сек
+    ├── useSync.ts        # Синхронизация с backend каждые 6 сек (concurrent-safe)
     ├── useAction.ts      # POST /api/action обёртка
     └── useTonConnect.ts  # TON Connect + вывод
 ```
@@ -106,10 +107,12 @@ backend/src/
 ├── auth/
 │   └── telegramAuth.ts   # Валидация initData подписи (HMAC-SHA256)
 ├── routes/
-│   ├── sync.ts           # GET /api/sync — текущее состояние фермы
-│   ├── action.ts         # POST /api/action — покупка, разгон, ремонт
+│   ├── sync.ts           # GET /api/sync — текущее состояние фермы (включая syndicate)
+│   ├── action.ts         # POST /api/action — покупка, разгон, ремонт, синдикаты
+│   ├── syndicates.ts     # GET /api/syndicates — публичный список синдикатов с местами
 │   ├── market.ts         # GET/POST /api/market — маркетплейс
-│   └── withdraw.ts       # POST /api/withdraw — запрос вывода TON
+│   ├── withdraw.ts       # POST /api/withdraw — запрос вывода TON
+│   └── adsgramReward.ts  # GET /api/adsgram-reward — server-side callback от Adsgram
 └── db/
     ├── schema.sql        # Эталонная схема (не редактировать вручную)
     └── migrations/       # Пронумерованные миграции
@@ -140,30 +143,31 @@ cron.schedule('*/5 * * * *', () => epochRunner.run());
 
 **Халвинг.** После каждой выплаты обновляй `pool_stats.total_paid_out`. Проверяй пороги в `halvingChecker.ts`.
 
-> ⚠️ **Утверждено (Фаза 0).** Пороги привязаны к суммарным выплатам из пула (Вариант А), а не ко времени. Не менять без пересчёта экономики.
+> ⚠️ **Утверждено.** Пороги привязаны к суммарным выплатам на кошельки игроков (`total_paid_out`), а не ко времени. Не менять без пересчёта экономики.
 
 ```
-Фаза 1: ставка 4% / день  → активна при total_paid_out < 2 000 TON
-Фаза 2: ставка 2% / день  → активна при total_paid_out < 8 000 TON
-Фаза 3: ставка 1% / день  → активна при total_paid_out < 30 000 TON
+Фаза 1: ставка 4% / день  → активна при total_paid_out < 1 000 TON
+Фаза 2: ставка 2% / день  → активна при total_paid_out < 10 000 TON
+Фаза 3: ставка 1% / день  → активна при total_paid_out < 100 000 TON
 Фаза 4: ставка 0.5% / день → финальная, бессрочная
 ```
 
-**Логика переключения (halvingChecker.ts):**
+**Логика переключения (`backend/src/epoch/constants.ts`):**
 ```typescript
-const HALVING_THRESHOLDS = [
-  { phase: 1, rate: 0.04, maxPaid: 2_000  },
-  { phase: 2, rate: 0.02, maxPaid: 8_000  },
-  { phase: 3, rate: 0.01, maxPaid: 30_000 },
-  { phase: 4, rate: 0.005, maxPaid: Infinity },
+export const HALVING_PHASES = [
+  { phase: 1 as const, dripRate: 0.04,  maxPaidOut: 1_000 },
+  { phase: 2 as const, dripRate: 0.02,  maxPaidOut: 10_000 },
+  { phase: 3 as const, dripRate: 0.01,  maxPaidOut: 100_000 },
+  { phase: 4 as const, dripRate: 0.005, maxPaidOut: Infinity },
 ];
-
-function getActivePhase(totalPaidOut: number) {
-  return HALVING_THRESHOLDS.find(t => totalPaidOut < t.maxPaid)!;
-}
 ```
 
-**Анти-кит лимиты (Подход 3 — Комбо). Активны ТОЛЬКО в Фазе 1 (total_paid_out < 2 000 TON):**
+**Frontend `PHASE_THRESHOLD` (Dashboard.tsx) должен совпадать:**
+```typescript
+const PHASE_THRESHOLD: Record<number, number | null> = { 1: 1_000, 2: 10_000, 3: 100_000, 4: null };
+```
+
+**Анти-кит лимиты (Подход 3 — Комбо). Активны ТОЛЬКО в Фазе 1 (total_paid_out < 1 000 TON):**
 ```
 - Макс. покупок в сутки: 30 TON на аккаунт
 - ASIC: не более 2 штук на аккаунт, только через whitelist
@@ -200,7 +204,7 @@ const Cost_refurbish = (100 - health) * BASE_COST * TIER_MULTIPLIER[gpu.tier];
 - Лимит вывода: не более 1% пула в сутки (проверяй в `withdraw.ts` И в смарт-контракте)
 - Hold для новых аккаунтов: первый вывод только через 48ч после регистрации
 - Маркетплейс: цена лота в коридоре ±20% от `getMarketPrice(gpu_model, health)`, иначе 400
-- Rate limit на `/api/action` типа `tap_cool`: максимум 10 запросов в секунду на пользователя (Redis counter)
+- Rate limit на `/api/action`: максимум 10 запросов в секунду на пользователя (Redis counter)
 - Покупка tier 6 (Квантовый X1) в Фазе 1: возвращать `403 Forbidden` — проверять `pool_stats.current_phase >= 2`
 
 ---
@@ -240,14 +244,18 @@ npx blueprint run     # деплой (настрой .env с MNEMONIC)
 ### Ключевые таблицы
 
 ```sql
-users         -- id, tg_user_id, ton_balance, igc_balance, inviter_id, created_at
-gpus          -- id, user_id, model, health, hashrate, watt, slot_id, overclocked
-farms         -- id, user_id, level (0-4), cooling_level, workbench_level
-pool_stats    -- id, reserve_pool, drip_rate, current_phase, total_paid_out
-transactions  -- id, user_id, type, amount_ton, amount_igc, epoch_id, created_at
-referrals     -- id, inviter_id, invitee_id, level (1 or 2)
-marketplace   -- id, seller_id, gpu_id, price_ton, health_at_listing, status
-epoch_log     -- id, epoch_at, global_hashrate, reward_distributed, pool_after
+users              -- id, tg_user_id, ton_balance, igc_balance, inviter_id, mining_mode('solo'), created_at
+gpus               -- id, user_id, model, health, hashrate, watt, slot_id, overclocked, undervolted
+farms              -- id, user_id, level (0-4), cooling_level, workbench_level
+pool_stats         -- id, reserve_pool, drip_rate, current_phase, total_paid_out
+transactions       -- id, user_id, type, amount_ton, amount_igc, epoch_id, created_at
+referrals          -- id, inviter_id, invitee_id, level (1 or 2)
+marketplace        -- id, seller_id, gpu_id, price_ton, health_at_listing, status
+epoch_log          -- id, epoch_at, global_hashrate, reward_distributed, pool_after
+syndicates         -- id, name, leader_id, level, xp, treasury_igc, created_at
+syndicate_members  -- syndicate_id, user_id, role, joined_at [UNIQUE(user_id)]
+syndicate_bonuses  -- id, syndicate_id, type, expires_at, created_at
+syndicate_votes    -- syndicate_id, candidate_id, voter_id, created_at [PK(syndicate_id, voter_id)]
 ```
 
 ### Миграции
@@ -261,8 +269,29 @@ epoch_log     -- id, epoch_at, global_hashrate, reward_distributed, pool_after
 | `003_withdrawal_queue.sql` | withdrawal_queue таблица для очереди выплат |
 | `004_gpu_enhancements.sql` | `undervolted BOOLEAN DEFAULT FALSE` в таблице gpus |
 | `005_gpu_stored_status.sql` | Добавляет `'stored'` в CHECK-constraint `gpus.status` |
+| `006_igc_supply_tracking.sql` | `total_igc_minted NUMERIC DEFAULT 0`, `total_igc_burned NUMERIC DEFAULT 0` в pool_stats |
+| `007_backfill_igc_supply.sql` | Добавляет `igc_ratio_smoothed NUMERIC DEFAULT 1.0` в pool_stats; бэкфиллит `total_igc_minted` из суммы `igc_balance` всех пользователей |
+| `008_syndicates.sql` | Таблицы `syndicates`, `syndicate_members`, `syndicate_bonuses`, `syndicate_votes`; дефолт `mining_mode = 'solo'` для новых игроков |
 
 > ⚠️ В `001_initial.sql` `gpus.status` изначально `CHECK (status IN ('active','broken','offline'))`. Миграция 005 расширяет до `('active','broken','offline','stored')`. При откате 005 нужно убрать все записи со статусом `'stored'` прежде чем менять constraint.
+
+**pool_stats — актуальные поля (после 007):**
+```sql
+reserve_pool_ton     NUMERIC   -- TON резерв пула
+drip_rate            NUMERIC   -- текущая ставка дрипа
+current_phase        INT       -- 1-4
+total_paid_out       NUMERIC   -- суммарно выплачено на кошельки игроков (основа для халвинга)
+admin_earned_ton     NUMERIC   -- комиссия платформы
+total_igc_minted     NUMERIC   -- всего IGC добыто (майнинг + buy_igc); лимит 10 000 000 000
+total_igc_burned     NUMERIC   -- всего IGC сожжено (электро + ремонт + infra — НЕ sell_igc!)
+igc_ratio_smoothed   NUMERIC   -- EMA сглаженное ratio (α=0.1, обновляется каждую эпоху)
+```
+
+**Правило IGC burn/return (зафиксировано):**
+- `sell_igc` (продажа IGC → TON): `total_igc_minted -= amount` — IGC возвращается в нечеканеный пул
+- In-game расходы (электричество, ремонт, инфра, казна синдиката): `total_igc_burned += amount` — IGC сжигается навсегда
+
+**IGC лимит изменён на 10 000 000 000** (было 1 000 000 000). Обновлено в: `backend/src/routes/action.ts` (`IGC_MAX_SUPPLY`), `backend/src/routes/sync.ts` (`remaining: 10_000_000_000 - ...`), `frontend/src/pages/Dashboard.tsx`, `frontend/src/pages/Market.tsx`.
 
 ---
 
@@ -350,10 +379,12 @@ REDIS_URL=              # Redis connection string
 ADMIN_WALLET=           # TON-адрес кошелька разработчика (получает 10%)
 BACKEND_WALLET_MNEMONIC= # 24 слова кошелька backend'а (подписывает выплаты)
 TON_ENDPOINT=           # https://toncenter.com/api/v2/ (mainnet) или testnet
+ADSGRAM_SECRET=         # Секрет для проверки reward-callback от Adsgram (опционально)
 
 # frontend/.env
 VITE_API_URL=           # URL backend API
 VITE_TON_MANIFEST_URL=  # URL tonconnect-manifest.json
+VITE_ADSGRAM_BLOCK_ID=  # Block ID из кабинета Adsgram (сейчас: 33253 — тестовый блок)
 ```
 
 ---
@@ -405,6 +436,68 @@ npm run lint                  # ESLint + Prettier (во всех пакетах)
 **Прямой вывод без hold** → добавляй проверку `created_at + 48h` для новых аккаунтов.
 
 **Цена Refurbish без tier_multiplier** → ASIC можно восстановить по цене RX 580. Всегда умножай на `TIER_MULTIPLIER`.
+
+---
+
+## Ключевые поведения (зафиксированные решения)
+
+### Аутентификация
+- `initData` считается валидной до **7 дней** (auth_date + 604 800 000 мс). Файл: `backend/src/auth/telegramAuth.ts`.
+- В dev-режиме: bypass через `X-Dev-User-Id` заголовок (без проверки подписи).
+
+### Ad Boost (Adsgram)
+- Компонент: `frontend/src/components/AdBoost.tsx`
+- Интеграция: **нативный Adsgram SDK** (`window.Adsgram`) через `<script src="https://sad.adsgram.ai/js/sad.min.js">` в `index.html`. **НЕ** `@adsgram/react` — он вызывал критические React-краши.
+- Буст хешрейта: **1 просмотр = +5 минут** (+300 секунд), максимум **10 просмотров на цикл = 50 минут** буста. Потом обязательный **cooldown 4 часа**. Новый цикл после cooldown.
+- Эффект: **+10% к хешрейту** (применяется в `epochRunner.ts` из Redis).
+- Буст выдаётся **server-side**: Adsgram вызывает `/api/adsgram-reward?user_id=[userId]` после досмотра. Клиент вызывает `onUpdate()` для обновления UI.
+- `boostEndTime` накапливается в Redis (`tap:boost:end:{userId}`), локально в `localStorage('adBoost_endTime')` — переживает переход вкладок.
+- Состояния UI: inactive (показать кнопку) → boost active (таймер синим) → cooldown (таймер красным, кнопка скрыта).
+- `WebApp.expand()` вызывается до и после показа рекламы — восстанавливает состояние TMA после оверлея.
+- Вся работа с Adsgram обёрнута в try/catch — ошибки SDK не роняют приложение.
+
+**Redis ключи Ad Boost:**
+- `tap:boost:end:{userId}` — timestamp окончания буста (Unix seconds)
+- `ad:count:{userId}` — счётчик просмотров в текущем цикле (TTL авто)
+- `ad:cooldown:{userId}` — флаг cooldown (TTL = AD_COOLDOWN_SEC = 14400)
+
+**Константы (`backend/src/epoch/constants.ts`):**
+```typescript
+export const AD_BOOST_SEC           = 300;     // +5 минут за просмотр
+export const AD_VIEWS_PER_CYCLE     = 10;      // просмотров до паузы
+export const AD_COOLDOWN_SEC        = 14400;   // 4 часа cooldown
+export const REDIS_AD_COUNT_PREFIX    = 'ad:count:';
+export const REDIS_AD_COOLDOWN_PREFIX = 'ad:cooldown:';
+```
+
+**Reward endpoint (`backend/src/routes/adsgramReward.ts`):**
+- `GET /api/adsgram-reward?user_id=[userId]&token=SECRET`
+- Adsgram вызывает server-to-server когда пользователь досмотрел рекламу
+- Проверяет `ADSGRAM_SECRET` env var (если задан)
+- Добавляет +300 сек к бусту, инкрементирует счётчик, при 10 просмотрах ставит 4h cooldown
+- URL в кабинете Adsgram: `https://syndicate-backend-production-c797.up.railway.app/api/adsgram-reward?user_id=[userId]`
+
+**Глушение ошибок SDK (`frontend/src/App.tsx`):**
+```typescript
+window.addEventListener('unhandledrejection', e => {
+  if (msg.includes('dgram') || msg.includes('adsgram') || msg.includes('ad')) {
+    e.preventDefault(); // не крашим React ErrorBoundary
+  }
+});
+```
+
+### IGC Emission визуализация (Dashboard + Market)
+- Бары нормализованы к `totalMinted` (не к 10B cap) — "Добыто" всегда = 100%, остальные пропорционально.
+- "Всего" строка = 10B (константа IGC_MAX), цвет rgba(255,255,255,0.15).
+- Процентные подписи: ≥1% → 1 знак, ≥0.01% → 3 знака, иначе "<0.01%".
+
+### Синдикаты
+- Создание: 2000 IGC, вычитается из баланса, добавляется в казну.
+- XP: 1 IGC взноса в казну = 1 XP; +50 XP лидеру при выигрыше solo-блока.
+- Уровни 1–50, XP нужны: лвл 1–10 по 1000/лвл, 11–20 по 2000, 21–30 по 4000, 31–40 по 7000, 41–50 по 11000.
+- Milestones (пассивные бонусы на всех членов): лвл 10/20/30/40/50.
+- Pool-майнинг требует членства в синдикате (проверка в `action.ts:set_mode`).
+- API список синдикатов: `GET /api/syndicates` — только с местами (member_count < max_members).
 
 ---
 
@@ -676,8 +769,8 @@ Backend отправляет уведомления **напрямую** в Tele
 ### Статус
 
 - ✅ React 18 + Vite + TypeScript — `frontend/src/`
-- ✅ 5 вкладок: Dashboard, Farm, Shop, Market, Company
-- ✅ `useSync.ts` — синхронизация каждые 2 сек через `/api/sync`
+- ✅ 7 вкладок: Dashboard, Farm, Shop, Клан (Syndicate), Market, Leaderboard, Company
+- ✅ `useSync.ts` — синхронизация каждые 6 сек через `/api/sync` (защита от конкурентных запросов через `syncing = useRef(false)`)
 - ✅ TON Connect 2.0 интегрирован (`@tonconnect/ui-react`) — кнопка вывода на Dashboard
 - ✅ `@twa-dev/sdk` — `WebApp.ready()` + `WebApp.expand()` при маунте
 - ✅ Деплой на **Vercel**: `https://frontend-nine-lyart-335p3mweew.vercel.app`
@@ -746,11 +839,12 @@ NODE_OPTIONS=--dns-result-order=ipv4first
 | Framework | Vite |
 | `VITE_API_URL` | `https://syndicate-backend-production-c797.up.railway.app` |
 | `VITE_TON_MANIFEST_URL` | `https://frontend-nine-lyart-335p3mweew.vercel.app/tonconnect-manifest.json` |
+| `VITE_ADSGRAM_BLOCK_ID` | `33253` (тестовый блок Adsgram) |
 
 ### База данных
 
 - **Supabase** проект: `xzyhrfvrywkctgcsxuvm`
-- Все 5 миграций применены: `001_initial.sql`, `002_monitoring.sql`, `003_withdrawal_queue.sql`, `004_gpu_enhancements.sql`, `005_gpu_stored_status.sql`
+- Все 6 миграций применены: `001_initial.sql`, `002_monitoring.sql`, `003_withdrawal_queue.sql`, `004_gpu_enhancements.sql`, `005_gpu_stored_status.sql`, `006_igc_supply_tracking.sql`
 - **КРИТИЧНО**: Direct URL (`db.xzyhrfvrywkctgcsxuvm.supabase.co`) — только IPv6, всегда использовать **pooler**: `aws-1-eu-central-1.pooler.supabase.com:6543`
 
 ### Telegram Bot
@@ -784,6 +878,70 @@ URL после деплоя не меняется: alias `frontend-nine-lyart-33
 
 ---
 
+## Новые механики — Roadmap (из TFT FARM spec)
+
+### Что берём и в каком порядке
+
+**✅ Спринт 1 (в работе):**
+- **Температура** — видимый показатель в GpuDetailModal. `T = T_ambient + T_load + T_oc - T_cooling`. Только UI, бэкенд не меняется. Цвет: ≤60°C зелёный, 61–75°C жёлтый, 76–85°C оранжевый, >85°C красный.
+- **Uptime** — константа в `GPU_SPECS` (базовый % стабильности по тиру). Только отображение. Экономика не меняется.
+
+**🟡 Спринт 2 (после стабилизации Спринта 1):**
+- Uptime в формуле `epochRunner.ts` (`Доход = R_epoch × H × Uptime / H_global`)
+- Новые инфраструктурные апгрейды: **Серверная** (снижает T_ambient), **UPS** (+Uptime глобально), **Розетка** (скидка на IGC/электричество)
+- Мастерская расширяется до Lv5 (−80% ремонт)
+
+**🟡 Спринт 3 (только если Спринт 2 стабилен):**
+- Поузловые апгрейды майнера за IGC: chip (+% хешрейт), paste (−T°), fan (+Uptime)
+- Таймеры апгрейдов (с возможностью пропустить за IGC)
+
+**🔴 Не берём:**
+- Крио-стейкинг TON (смарт-контракты, сложность несоразмерна)
+- TFT / STON.fi (юридические риски)
+- Gacha за TON (азартные игры в большинстве юрисдикций)
+- Глобальный сброс (Фаза 4) — убивает retention
+- Замена GPU на ZV-серию (SM уже имеет хорошую прогрессию)
+
+### Формула температуры (Спринт 1 — только display)
+
+```typescript
+// frontend: только визуал, бэкенд не меняется
+const T_AMBIENT = 35; // до добавления Серверной в Спринте 2
+
+// T_load по тирам GPU (добавляется в GPU_SPECS)
+// T0 USB Nano: +15°C, T1 RX580: +30°C, T2 GTX1660S: +35°C,
+// T3 RTX3070: +42°C, T4 RTX4090: +55°C, T5 ASIC S19: +65°C, T6 Quant X1: +75°C
+
+// Cooling reduction (из существующих cooling_level):
+// Lv0: 0°C, Lv1: -8°C, Lv2: -20°C, Lv3: -30°C
+
+// Режимы работы:
+// OC (+overclock): +15°C
+// UV (undervolt):  -5°C
+
+function calcTemp(tier, coolingLevel, overclocked, undervolted) {
+  const T_COOLING = [0, 8, 20, 30][coolingLevel] ?? 0;
+  return T_AMBIENT + GPU_SPECS[tier].tempLoad
+    + (overclocked ? 15 : 0)
+    - (undervolted ? 5 : 0)
+    - T_COOLING;
+}
+```
+
+### Uptime по тирам (Спринт 1 — только display)
+
+| Тир | Модель | Base Uptime |
+|---|---|---|
+| 0 | USB Nano | 95% |
+| 1 | RX 580 | 90% |
+| 2 | GTX 1660 S | 88% |
+| 3 | RTX 3070 | 86% |
+| 4 | RTX 4090 | 84% |
+| 5 | ASIC S19 | 82% |
+| 6 | Квантовый X1 | 80% |
+
+---
+
 ## Что осталось сделать
 
 1. **Деплой контрактов** (Фаза 2): пополнить кошелёк `kQCXYPVOvG6SySkl1SVjAIrn1_QhvjSpYPU5_pdmr9fpuUuH` тестовым TON через `@testgiver_ton_bot` → запустить `npx blueprint run deployPool --testnet`
@@ -791,6 +949,14 @@ URL после деплоя не меняется: alias `frontend-nine-lyart-33
 3. **Починить Railway private networking**: `redis.railway.internal` возвращает HTTP. Пока используется публичный прокси `kodama.proxy.rlwy.net:53274`.
 4. **Stress-test экономики**: `npm run stress-test -- --players=100` перед открытым бета-запуском
 5. **Удалить debug console.log** в `backend/src/routes/sync.ts` после окончания отладки.
+6. **P2P-маркетплейс GPU**: вкладка Market сейчас — IGC-обменник. Если нужна P2P-торговля GPU, это отдельная задача (листинг, escrow, Refurbish).
+7. **Adsgram блок** — сейчас подключён тестовый блок `33253`. Нужно подать заявку на новый production-блок (предыдущий `int-33237` был отклонён). После одобрения обновить `VITE_ADSGRAM_BLOCK_ID` на Vercel.
+
+**Применённые миграции (все в Supabase):**
+- `001`–`005` — базовая схема + enhancements
+- `006_igc_supply_tracking.sql` — применена вручную через `node -e` с `ssl: { rejectUnauthorized: false }` (прямое подключение без `?sslmode=require`)
+- `007_backfill_igc_supply.sql` — добавляет `igc_ratio_smoothed`, бэкфиллит `total_igc_minted` из текущих балансов пользователей
+- `008_syndicates.sql` — применена через Supabase MCP 2026-05-25; таблицы syndicates, syndicate_members, syndicate_bonuses, syndicate_votes; дефолт solo для новых игроков
 
 ---
 
@@ -849,6 +1015,17 @@ parseFloat(String(user.tonBalance ?? 0)).toFixed(4)
 | `toggle_undervolting` | Переключает undervolt; при включении сбрасывает overclock | `gpu_id` |
 | `move_to_storage` | Переводит GPU в статус `'stored'`, освобождает слот | `gpu_id` |
 | `move_from_storage` | Возвращает GPU в `'active'`, проверяет свободный слот | `gpu_id` |
+| `sell_igc` | Сжигает IGC пользователя, зачисляет TON из резерва пула. Цена = `0.0001 / max(0.5, ratio)`. Минимум 100 IGC | `amount_igc` |
+| `buy_igc` | Списывает TON, чеканит IGC из нераспределённого 1B запаса, добавляет TON в пул. Та же формула цены. Минимум 0.001 TON | `amount_ton` |
+| `create_syndicate` | Создаёт синдикат (2000 IGC), добавляет создателя лидером, переводит в Pool-режим | `name` |
+| `join_syndicate` | Вступает в синдикат по ID (нужно место), переводит в Pool-режим | `syndicateId` |
+| `leave_syndicate` | Покидает синдикат (не лидер), переводит в Solo | — |
+| `contribute_igc` | Вносит IGC в казну, начисляет 1 XP за 1 IGC, пересчитывает уровень | `amount` |
+| `buy_syndicate_bonus` | Покупает временный бонус из казны (только лидер) | `bonusType` |
+| `vote_leader` | Голосует за нового лидера; смена при >50% голосов | `candidateId` |
+| `kick_member` | Кикает участника (только лидер) | `targetUserId` |
+| `dissolve_syndicate` | Растворяет синдикат (только лидер): казна сжигается, все → Solo | — |
+| `watch_ad_boost` | (резерв) Прямой клиентский вызов; в продакшне буст выдаётся через `/api/adsgram-reward` | — |
 
 `move_from_storage` возвращает `400` если нет свободных слотов (`NOT IN ('broken','stored')`).
 
@@ -902,6 +1079,97 @@ const handleBoostTap = (boostSeconds: number) => {
 
 Теперь 60 тапов = 60 секунд буста.
 
+### 2× расхождение цены IGC (Market.tsx)
+
+`sync.ts` возвращал ratio из `igc_ratio_smoothed` (≈1.0), а `action.ts` читал из `igc_monitor_log.daily_ratio` (≈0.5). Sell показывал 0.01 TON, а зачислял 0.02 TON. Buy давал вдвое меньше IGC чем ожидалось.
+
+**Решение:** Оба файла теперь читают `igc_ratio_smoothed` из `pool_stats` — единый источник истины. Отдельный запрос к `igc_monitor_log` в sync.ts удалён.
+
+### totalIgcProduced всегда 0 в epochRunner.ts
+
+`totalIgcProduced` объявлялся в 0 снаружи цикла, но внутри цикла после `igcPerEpoch.set(user.id, igcEarned)` не прибавлялся. `epoch_log` записывал `epoch_supply = 0`.
+
+**Решение:** добавлена строка `totalIgcProduced += igcEarned` внутри цикла после set.
+
+### IGC burn не отражался в total_igc_burned (множество мест)
+
+Только `sell_igc` в `action.ts` обновлял `total_igc_burned`. Всё остальное — нет.
+
+**Все потоки, теперь отражённые:**
+| Поток | Файл | Как исправлено |
+|---|---|---|
+| Электричество (эпоха) | `epochRunner.ts` | `totalIgcBurned += totalIgcConsumed` в UPDATE pool_stats |
+| Инфраструктура (action) | `action.ts` | `UPDATE pool_stats SET total_igc_burned = total_igc_burned + cost.igc` для покупок с IGC-ценой |
+| Ремонт GPU | `db/queries.ts → restoreGpu()` | `UPDATE pool_stats SET total_igc_burned = total_igc_burned + costIgc` внутри транзакции |
+| Продажа IGC | `action.ts` | уже работало |
+
+### Двойной запуск эпохи (cron.ts + dailyCron.ts)
+
+Оба файла регистрировали `*/5 * * * *`. В `epoch_log` появлялись дублирующиеся записи с одинаковым timestamp.
+
+**Решение:** `dailyCron.ts` — расписание `syncPoolBalance` изменено с `*/5` на `*/7 * * * *`.
+
+### Redis блокировал pool_stats update (igcMonitor.ts)
+
+`Promise.all([redis.set(), redis.set(), pool.query()])` — если Redis недоступен, весь Promise.all падал и `pool_stats.igc_ratio_smoothed` не обновлялся.
+
+**Решение:** `pool.query()` вызывается первым (всегда), Redis-записи в отдельном `try/catch`:
+```typescript
+await pool.query(`UPDATE pool_stats SET igc_ratio_smoothed = $1 WHERE id = 1`, [ratio]);
+try {
+  await redis.set(R_RATIO, ratio.toFixed(6));
+} catch { /* Redis недоступен */ }
+```
+
+### useSync — конкурентные запросы и stale closure
+
+`setInterval` запускал `sync()` каждые 2с, но если запрос занимал >2с — запросы накапливались параллельно (race condition). Первый ответ мог перезаписать более свежий второй.
+
+**Решение:**
+```typescript
+const syncing = useRef(false);  // guard от параллельных вызовов
+const hasData = useRef(false);  // stale closure fix (заменяет if(data) return)
+
+const sync = useCallback(async () => {
+  if (syncing.current) return;
+  syncing.current = true;
+  try {
+    const snapshot = await fetchSync(...);
+    hasData.current = true;
+    setData(snapshot);
+  } catch (e) {
+    if (hasData.current) return; // после первого успеха — тихий фейл
+    setError(...);
+  } finally {
+    syncing.current = false;
+  }
+}, []);
+```
+
+Интервал увеличен с 2000 до 6000 мс — достаточно для игры, меньше нагрузки.
+
+### @adsgram/react крашит React ErrorBoundary
+
+`@adsgram/react` хук бросал непойманные исключения при ошибках показа рекламы (нет инвентаря, сессия истекла и т.д.). Эти исключения попадали в React ErrorBoundary и крашили всё приложение.
+
+**Решение:** Полностью удалён `@adsgram/react`. Используется нативный `window.Adsgram` SDK (подключен как `<script>` в `index.html`). Вся работа обёрнута в try/catch:
+```typescript
+const adController = await window.Adsgram!.init({ blockId: ADSGRAM_BLOCK_ID });
+try {
+  result = await adController.show();
+} finally {
+  try { adController.destroy(); } catch {}
+}
+```
+Дополнительно в `App.tsx` — глушение `unhandledrejection` для ошибок ad-SDK.
+
+### EMA smoothing для IGC ratio
+
+Формула: `ratio = 0.1 × rawRatio + 0.9 × prevSmoothed` (α=0.1, half-life ≈33 мин при эпохе 5 мин).
+- Предыдущее значение читается из `pool_stats.igc_ratio_smoothed` (не Redis)
+- Записывается в `pool_stats.igc_ratio_smoothed` (primary) и Redis (cache/fallback)
+- Реализовано в `backend/src/monitoring/igcMonitor.ts`
+
 ---
 
 ## Деплой вручную (обязательно после каждого изменения)
@@ -949,19 +1217,33 @@ igcPerDay      = hashrate_GH * 0.05 * 288
 igcCostPerDay  = wattBackend * 0.001 * 288 + maintPerEpoch * 288
 ```
 
-При **разгоне (+20% хешрейта)**: дополнительная стоимость электричества `+wattBackend * 0.40 * 0.001 * 288 IGC/день`.
+**OC (разгон, +20% хешрейта):** все IGC-затраты ×1.20 (`OVERCLOCK_COST_MULT`). Расчёт в `calcFarmStats` / `gpuIgcCostPerEpoch`:
+```typescript
+igcCostDay += spec.igcCostPerDay * 1.20;
+```
 
-При **undervolt (−15% хешрейта)**: расход электричества `×0.75` (−25%). OC и UV взаимно исключают друг друга — включение одного сбрасывает другой.
+**UV (андервольт, −15% хешрейта):** только электричество −10%, износ −30%:
+```typescript
+igcCostDay += spec.igcCostPerDay - spec.wattBackend * 0.001 * 288 * 0.10;
+```
 
-| Тир | Модель | priceTon | igcPerDay | igcCostPerDay | wattBackend |
-|---|---|---|---|---|---|
-| 0 | USB Nano | 0 | 1.44 | 0 | 0 |
-| 1 | RX 580 | 1 | 43.2 | 14.4 | 50 |
-| 2 | GTX 1660 S | 2.5 | 86.4 | 43.2 | 100 |
-| 3 | RTX 3070 | 8 | 216.0 | 216.0 | 200 |
-| 4 | RTX 4090 | 25 | 648.0 | 676.8 | 350 |
-| 5 | ASIC S19 | 70 | 1584.0 | 1785.6 | 1200 |
-| 6 | Квантовый X1 | 200 | 3600.0 | 3600.0 | 500 |
+OC и UV взаимно исключают друг друга — включение одного сбрасывает другой.
+
+**Ремонт (IGC-синк):** базовый износ настроен на ~30 дней до 50% здоровья (T2–T5), T6 — ~43 дня. При 50% health ремонт стоит: T3 — 525 IGC, T4 — 1050 IGC, T5 — 3000 IGC, T6 — 7500 IGC. T3 и T6 уходят в IGC-минус с учётом ремонта (двигают спрос на рынке). С разгоном (OC ×2.5 к износу) — 50% достигается за ~12 дней.
+
+| Тир | Модель | hashrate (GH/s) | priceTon | igcPerDay | igcCostPerDay | wattBackend | baseWearPerEpoch | Дней до 50% |
+|---|---|---|---|---|---|---|---|---|
+| 0 | USB Nano | 0.1 | 0 | 1.44 | 0 | 0 | 0 | ∞ |
+| 1 | RX 580 | 3 | 1.5 | 43.2 | 14.4 | 50 | 0.0052 | ~33 |
+| 2 | GTX 1660 S | 6 | 2.5 | 86.4 | 43.2 | 100 | 0.0058 | ~30 |
+| 3 | RTX 3070 | 15 | 8 | 216.0 | 216.0 | 200 | 0.0058 | ~30 |
+| 4 | RTX 4090 | 45 | 25 | 648.0 | 676.8 | 350 | 0.0056 | ~31 |
+| 5 | ASIC S19 | 110 | 55 | 1584.0 | 1785.6 | 1200 | 0.0058 | ~30 |
+| 6 | Квантовый X1 | 250 | 140 | 3600.0 | 3600.0 | 500 | 0.0040 | ~43 |
+
+"Дней до 50%" — при охлаждении Lv2, без разгона. С OC (×2.5 к износу) — в ~2.5 раза быстрее (~12 дней для T2–T5).
+
+Хешрейт отображается через `fmtH(h)`: `h >= 1000` → TH/s, `h >= 1` → GH/s, иначе → MH/s. Значения выше — в GH/s (как в backend). Используется везде: GpuCard, GpuDetailModal, Farm stats, Leaderboard.
 
 Тир 4+ — расход IGC на свет превышает добычу. Предупреждение показывается в Shop.
 
@@ -969,10 +1251,128 @@ igcCostPerDay  = wattBackend * 0.001 * 288 + maintPerEpoch * 288
 
 ## UI компоненты — особенности реализации
 
+### История заработка (Redis earn:d)
+
+**Архитектура:** заработок кэшируется в Redis в `epochRunner.ts` после каждой раздачи наград, `sync.ts` читает из Redis — без SQL-запросов.
+
+**Redis-ключи:** `earn:d:{userId}:{YYYY-MM-DD}` → hash `{ ton, igc }`, TTL 9 дней. Запись через `HINCRBYFLOAT` (атомарное накопление за несколько эпох в сутки). Чтение — pipeline из 8 hgetall (сегодня + 7 дней = один round-trip ~1мс).
+
+Если Redis недоступен — `earnings` возвращает нули, фронтенд показывает `—`. Ошибка не бросается.
+
+**Фронтенд:** карточка «📊 История заработка» в `Dashboard.tsx` — два блока (Вчера / 7 дней) с TON и IGC. Нулевые значения отображаются как `—`.
+
+### Система синдикатов (Фаза 5)
+
+**Концепция:** Каждый новый игрок стартует в Solo-режиме. Pool-майнинг (стабильный доход) требует синдиката. Синдикат — это группа игроков с общей казной, XP и уровнями.
+
+#### Механика
+
+- Создание синдиката: **2 000 IGC** (сжигается). Создатель становится лидером.
+- Максимум участников: 10 (база), растёт с уровнями синдиката (до 16 на Lv50)
+- Один игрок — один синдикат
+- Вступление переводит в Pool-режим, выход/кик → Solo
+
+#### XP и уровни
+
+**Источники XP:**
+- 1 IGC взноса в казну = 1 XP
+- +50 XP синдикату при победе участника в Solo-блоке
+
+**Стоимость уровней (SYNDICATE_LEVEL_XP_COSTS):**
+
+| Уровни | XP за уровень | Накопленный XP до Lv N |
+|---|---|---|
+| 1→10 | 1 000 XP/ур | 10 000 XP до Lv10 |
+| 11→20 | 2 000 XP/ур | 30 000 XP до Lv20 |
+| 21→30 | 4 000 XP/ур | 70 000 XP до Lv30 |
+| 31→40 | 7 000 XP/ур | 140 000 XP до Lv40 |
+| 41→50 | 11 000 XP/ур | 250 000 XP до Lv50 |
+
+#### Пассивные бонусы (SYNDICATE_LEVEL_MILESTONES)
+
+Применяются ко всем участникам автоматически в `epochRunner.ts`:
+
+| Уровень | +% хешрейта | −% износа | Макс участников |
+|---|---|---|---|
+| <10 | — | — | 10 |
+| 10 | +3% | — | 10 |
+| 20 | +8% | −10% | 10 |
+| 30 | +15% | −10% | 12 |
+| 40 | +24% | −20% | 14 |
+| 50 | +35% | −30% | 16 |
+
+#### Покупаемые бонусы из казны (SYNDICATE_BONUS_DEFS)
+
+Покупает только лидер, действуют на весь синдикат:
+
+| type | Эффект | IGC | Требуется Lv | Длительность |
+|---|---|---|---|---|
+| `boost_x1` | +10% хешрейт | 200 | 1 | 2 часа |
+| `boost_x2` | +20% хешрейт | 500 | 10 | 4 часа |
+| `shield_break` | карты не ломаются | 800 | 20 | 24 часа |
+| `season_shield` | иммунитет к зиме | 600 | 30 | 7 дней |
+| `double_reward` | ×2 соло-награда | 1 500 | 40 | 1 час |
+| `domination` | +50% хешрейт | 3 000 | 50 | 1 час |
+
+#### Голосование за лидера
+
+- Любой участник может выдвинуть кандидата (`vote_leader`)
+- При превышении 50% голосов — автоматическая смена лидера
+- После смены — все голоса сбрасываются
+
+#### База данных
+
+```sql
+syndicates        -- id, name, leader_id, level, xp, treasury_igc, created_at
+syndicate_members -- syndicate_id, user_id, role('leader'|'member'), joined_at
+                  -- UNIQUE INDEX на user_id (один синдикат на игрока)
+syndicate_bonuses -- id, syndicate_id, type, expires_at, created_at
+syndicate_votes   -- syndicate_id, candidate_id, voter_id, created_at
+                  -- PRIMARY KEY (syndicate_id, voter_id) = один голос на участника
+```
+
+#### Применение в epochRunner
+
+В каждой эпохе:
+1. Загружаются все `syndicate_members` + `syndicate_bonuses` (WHERE expires_at > NOW())
+2. Для каждого пользователя → определяется `hashrateBonus` (пассивный milestone + временные boost_x1/x2/domination)
+3. `totalUserH *= (1 + hashrateBonus)` — после реферального бонуса
+4. Износ: `reducedWear = wearApplied × (1 - wearReduction)` — для участников синдиката
+5. `shield_break` актив → `finalBroken = false` (GPU не ломается)
+6. При Solo-победе участника: `xp += SYNDICATE_XP_PER_BLOCK_WIN (50)`, пересчёт уровня
+
+#### SyncData — поле `syndicate`
+
+```typescript
+interface SyndicateData {
+  id: string; name: string; level: number; xp: number;
+  xpToNext: number; xpProgress: number; treasuryIgc: number;
+  memberCount: number; maxMembers: number; role: 'leader'|'member';
+  hashrateBonus: number; wearReduction: number;
+  activeBonuses: { type: string; expiresAt: string }[];
+  members: { userId: string; username: string|null; role: string }[];
+}
+// null если игрок не в синдикате
+```
+
 ### Dashboard.tsx
 
 - Показывает **👥 В сети** (totalUsers) и **🖥️ Майнеров** (activeMiners) — данные приходят из `/api/sync` в поле `network`
-- Поле `network` добавлено в `SyncData` (`types.ts`) и в ответ `sync.ts` (SQL-запрос одним `SELECT COUNT(*)`)
+- Показывает блок **💎 Эмиссия IGC — 10 000 000 000 max** если `data.igcSupply` есть:
+  - 🟣 Добыто всего, 🔥 Сожжено, 🔄 В обращении, ⬜ Не добыто — каждая строка с прогресс-баром
+  - Значения **анимируются** через `useAnimatedNumber(target, 1200)` — плавный переход при каждом sync-обновлении
+  - `fmtBig(n)`: форматирование числа с суффиксом M/K
+- Хешрейт фермы рассчитывается из `GPU_SPECS[g.modelTier].hashrate` (в GH/s) + OC ×1.20 + UV ×0.85, форматируется через `fmtH()`
+- **Карточка "День/Сезон"** (StatCard с sub):
+  - `modStr`: `+X% к ставке` / `-X% к ставке` / `базовая ставка` (из синусоидального сезонного множителя)
+  - `daySub`: `${modStr} · до ${SEASON_NEXT[name]} ${daysLeft}д.` или `смена сезона!` если 0 дней
+  - Цвет sub: зелёный (модификатор > 0), красный (< 0), серый (= 0)
+  - `SEASON_ENDS = { spring:7, summer:14, autumn:21, winter:28 }`
+  - `SEASON_NEXT = { spring:'☀️ Лето', summer:'🍂 Осень', autumn:'❄️ Зима', winter:'🌸 Весна' }`
+- **Карточка "Фаза"** (StatCard с sub):
+  - `phaseSub`: `база ${rate}%/д · ${totalPaid.toFixed(0)}/${threshold} TON` (прогресс к халвингу)
+  - Для финальной фазы 4: `база 0.5%/д · финальная фаза`
+  - `PHASE_BASE = { 1:4, 2:2, 3:1, 4:0.5 }`, `PHASE_THRESHOLD = { 1:1_000, 2:10_000, 3:100_000, 4:null }`
 
 ### GpuCard.tsx
 
@@ -984,27 +1384,53 @@ igcCostPerDay  = wattBackend * 0.001 * 288 + maintPerEpoch * 288
 - `spec = GPU_SPECS[tier] ?? GPU_SPECS[0]` — всегда fallback на tier 0
 - Prop `onClick` — открывает GpuDetailModal в Farm.tsx
 
-### TapToCool.tsx
+### AdBoost.tsx (заменил TapToCool.tsx)
 
-- Счётчик тапов хранится в **`localStorage`** под ключом `tapCool_count` — сохраняется между перезапусками приложения
-- Механика: **1 тап = +1 секунда буста**, максимум 3600 тапов (= 1 час буста), после чего обязательный cooldown **6 часов**
-- Буст даёт **+10% хешрейта** на весь период (применяется в `epochRunner.ts`)
-- Redis хранит timestamp окончания (`tap:boost:end:{userId}`), а не TTL — это исключает race condition при быстрых тапах
-- Anti-autoclicker: jitter-детекция на бэкенде (5 последних интервалов, если max-min < 15ms — тап игнорируется); rate limit 10 тапов/сек через Redis
-- Буст-состояние поднято в `Farm.tsx` (локальный `boostEndTime` state + countdown timer) — не зависит от Redis при отображении на GPU-карточках
-- `onUpdate()` вызывается каждые 10 тапов (не каждый тап) для экономии запросов
+- **Файл:** `frontend/src/components/AdBoost.tsx`
+- **Механика:** просмотр рекламы через Adsgram вместо тапов. 1 просмотр = +5 минут буста. 10 просмотров = цикл закончен → 4 часа cooldown → новый цикл.
+- Буст даёт **+10% хешрейта** (применяется в `epochRunner.ts` через Redis-ключ `tap:boost:end:{userId}`)
+- Буст-состояние поднято в `Farm.tsx`: локальный `boostEndTime` state, localStorage ключ `adBoost_endTime`
+- **Интеграция Adsgram:** нативный `window.Adsgram` SDK (script в `index.html`). НЕ npm-пакет `@adsgram/react` — он крашит React
+- При досмотре: Adsgram вызывает server-side reward URL, клиент вызывает `onUpdate()` для обновления TapBoost из `/api/sync`
+- UI: прогресс-бар 10 сегментов, таймер буста (синий) или cooldown (красный), кнопка скрыта в cooldown
 
-### Shop.tsx — раздел "Верстак"
+### Shop.tsx — инфраструктура (интерактивные карточки)
 
-Верстак открывает возможность ремонта GPU:
+Все карточки инфраструктуры кликабельны — разворачиваются аккордеоном (один expanded за раз). Показывают подробные параметры, перки и сравнительную таблицу (для кулеров — 4 колонки: Нет / Lv1 / Lv2 / Lv3).
 
-| Уровень | Метка | Стоимость | Чинит тиры |
+**Помещения (farm_level_N):**
+
+| action | Помещение | Слоты | Стоимость | Фаза |
+|---|---|---|---|---|
+| `farm_level_2` | 📦 Кладовка | 10 | 300 IGC | 1 |
+| `farm_level_3` | 🚗 Гараж | 20 | 12 TON | 1 |
+| `farm_level_4` | 🏭 Ангар | 50 | 50 TON | 2+ |
+
+**Охлаждение (cooling_N) — COOLING_KTEMP:**
+
+| action | Кулер | Множитель износа (K_temp) | Лейбл | Стоимость |
+|---|---|---|---|---|
+| без кулера | — | ×1.8 | Перегрев | — |
+| `cooling_1` | 🌀 Lv1 | ×1.3 | −28% износа vs без кулера | 100 IGC |
+| `cooling_2` | ❄️ Lv2 | ×1.0 | Нормальный износ (базовая норма) | 3 TON |
+| `cooling_3` | 🧊 Lv3 | ×0.85 | −15% даже ниже нормы | 15 TON |
+
+**Верстак (workbench_N):**
+
+| action | Верстак | Стоимость | Чинит тиры |
 |---|---|---|---|
-| 1 | 🔧 Верстак Lv1 | 500 IGC | T1–T2 |
-| 2 | 🔧 Верстак Lv2 | 5 TON | T3–T4 |
-| 3 | 🔧 Верстак Lv3 | 25 TON | T5–T6 |
+| `workbench_1` | 🔧 Lv1 | 500 IGC | T1–T2 |
+| `workbench_2` | ⚙️ Lv2 | 5 TON | T3–T4 |
+| `workbench_3` | 🏗️ Lv3 | 25 TON | T5–T6 |
 
-Action-тип передаётся как `workbench_1`, `workbench_2`, `workbench_3` → обрабатывается в `default:` блоке `action.ts` через `INFRA_COSTS`.
+Action-типы обрабатываются в `default:` блоке `action.ts` через `INFRA_COSTS`. Купленные уровни показываются с зелёным бейджем "Есть" и приглушены (opacity 0.6).
+
+Текущие уровни читаются из `data.farm` с camelCase/snake_case fallback:
+```typescript
+const farmLevel   = (data.farm as any).level          ?? 1;
+const coolingLevel= (data.farm as any).coolingLevel   ?? (data.farm as any).cooling_level   ?? 0;
+const wbLevel     = (data.farm as any).workbenchLevel ?? (data.farm as any).workbench_level ?? 0;
+```
 
 ### Leaderboard.tsx
 
@@ -1030,13 +1456,22 @@ Action-тип передаётся как `workbench_1`, `workbench_2`, `workben
 - **Производительность** — тогглы: ⚡ Разгон / 🔋 Undervolt / 🌬️ Кулер
 - **Действия**: 💡 Электричество (алерт с деталями), 🔧 Ремонт, 📦 На склад / 🏭 В слот
 - Анимация `slideUp` при открытии, закрытие по тапу на backdrop или кнопку ✕
+- **Optimistic UI**: действия (`toggle_overclock`, `toggle_undervolting`, `move_to_storage`, `move_from_storage`, `refurbish`) применяются локально мгновенно через `opt` state. `setBusy(false)` сразу после действия, `onUpdate()` вызывается в фоне без await. `useEffect` авто-очищает `opt` когда сервер возвращает новые props GPU.
+- **Ремонт** — стоимость показывается до подтверждения. Формула совпадает с backend `wearEngine.ts`:
+  ```typescript
+  const BASE_REFURBISH_COST = 3;
+  const TIER_REFURBISH_MULT = { 0:0, 1:1.0, 2:1.8, 3:3.5, 4:7.0, 5:20.0, 6:50.0 };
+  function calcRepairCost(tier, health) { return Math.ceil((100-health)*3*TIER_REFURBISH_MULT[tier]); }
+  ```
+  Требуемый Верстак по тиру: `tier≤2→Lv1`, `tier≤4→Lv2`, `tier≥5→Lv3`. Если верстака нет — кнопка показывает "нужен Верстак LvN". USB Nano (tier 0) исключён из ремонта полностью.
+  Prop `farmWorkbench` передаётся из Farm.tsx: `farmWorkbench={(farm as any).workbenchLevel ?? (farm as any).workbench_level ?? 0}`
 
 **Склад (stored GPUs)**:
 - Кнопка `📦 Склад (N)` появляется в шапке блока GPU когда есть хотя бы одна карта на складе
 - Разворачивает секцию с хранящимися GPU внизу страницы
 - GPU со статусом `stored` не занимают слоты фермы (исключены из COUNT в `buy_gpu`)
 
-**Карточка статистики фермы** (над TapToCool, если есть активные GPU):
+**Карточка статистики фермы** (над AdBoost, если есть активные GPU):
 - Суммарный хешрейт (с учётом OC/UV)
 - IGC доход/день, IGC расход/день, IGC баланс/день (сумма − расход)
 - ≈ TON/день = `(farmHashrate / globalHashrate) * poolTon * dripRate`
@@ -1057,9 +1492,10 @@ UPDATE gpus SET overclocked = $1,
 WHERE id = $2
 ```
 
-Undervolt-эффект (только для отображения на фронтенде):
-- Хешрейт: ×0.85 (−15%)
-- IGC-расход: ×0.75 (−25%)
+Undervolt-эффект (frontend + backend):
+- Хешрейт: ×0.85 (−15%) — `UNDERVOLT_HASHRATE_MULT`
+- IGC-расход электричества: −10% (`wattBackend × 0.001 × 288 × 0.10`) — `UNDERVOLT_WATT_MULT = 0.90`
+- Износ: ×0.70 (−30%) — `UNDERVOLT_WEAR_MULT`; основная польза UV — продление жизни GPU
 
 ### Уведомления Telegram — IGC / остановка майнеров
 
@@ -1072,11 +1508,31 @@ Undervolt-эффект (только для отображения на фрон
 
 Отправка — fire-and-forget через `sendTgMessage()`, обёрнута в `try/catch`. Не роняет эпоху.
 
+### Market.tsx — IGC Маркет
+
+Вкладка Market заменена с P2P-барахолки (не была реализована) на обменник IGC↔TON:
+
+- **Индекс рынка**: отображает `igcSupply.ratio` с цветовой кодировкой и прогресс-баром
+  - ratio ≥ 2.0 → красный "Критический профицит", цена низкая
+  - ratio ≥ 1.2 → оранжевый "Лёгкий профицит"
+  - ratio ≤ 0.5 → зелёный "Критический дефицит", цена высокая
+  - ratio ≤ 0.8 → синий "Лёгкий дефицит"
+  - иначе → зелёный "Здоровый рынок"
+  - `ratio` и `pricePerIgc` **анимируются** через `useAnimatedNumber(target, 1800)` — плавный переход при sync-обновлении
+- **Продать IGC → TON**: `amount_igc` → action `sell_igc`. Минимум 100 IGC. Burns IGC, pays from pool.
+- **Купить IGC за TON**: `amount_ton` → action `buy_igc`. Минимум 0.001 TON. Mints IGC, adds TON to pool.
+- **Формула цены**: `pricePerIgc = max(0.00005, min(0.0005, 0.0001 / max(0.5, ratio)))`
+- Единый источник ratio: **оба** `sync.ts` и `action.ts` читают `igc_ratio_smoothed` из `pool_stats` — не из `igc_monitor_log`. Это критично: разные источники давали 2× расхождение цены (sell показывал 0.01 TON, получал 0.02 TON)
+- Показывает балансы пользователя (TON + IGC chips), preview суммы при вводе, кнопку MAX
+- Раздел "Как работает цена" с примерами (Дефицит 0.5 / Норма 1.0 / Профицит 2.0)
+- Раздел "Эмиссия IGC" с StatRow прогресс-барами (Добыто / Сожжено / В обращении / Не добыто), `max="10B"`
+
 ### USB Nano (tier 0) — только при регистрации
 
 - **Не показывается** в магазине (`Shop.tsx` фильтрует `.filter(([t]) => Number(t) !== 0)`)
 - **Нельзя купить** через API (`action.ts` возвращает 400 для `buy_gpu` с tier 0)
 - **Нельзя продать** (`market.ts` проверяет `gpu.model_tier === 0` → 400)
+- **Нельзя разгонять или андервольтить**: frontend скрывает секцию тогглов и показывает notice; backend возвращает 400 для `toggle_overclock` и `toggle_undervolting` если `model_tier = 0`
 - **Выдаётся бесплатно** при первом входе в `sync.ts` → `registerNewPlayer()` → INSERT в gpus с tier 0
 
 ### Dashboard.tsx
@@ -1089,14 +1545,38 @@ Undervolt-эффект (только для отображения на фрон
 ```typescript
 interface GPU {
   id, modelTier, health, status: 'active'|'broken'|'offline'|'stored',
-  overclocked, undervolted,   // ← undervolted добавлен в 004_gpu_enhancements.sql
+  overclocked, undervolted,   // ← undervolted: backend types.ts + db/client.ts rowToGpu
   coolingLevel, isRefurbished
+}
+
+interface Farm {
+  id, level, coolingLevel,
+  workbenchLevel: number,     // ← добавлено (из farms.workbench_level)
+  maxSlots, igcBalance
+}
+
+interface IgcSupply {
+  totalMinted: number;  // суммарно добыто (майнинг + buy_igc); лимит 10B
+  totalBurned:  number; // суммарно сожжено (электро + ремонт + infra + sell_igc)
+  remaining:    number; // 10_000_000_000 - totalMinted
+  ratio:        number; // EMA из pool_stats.igc_ratio_smoothed (α=0.1, обновляется каждую эпоху)
+  pricePerIgc:  number; // max(0.00005, min(0.0005, 0.0001 / max(0.5, ratio)))
+}
+
+interface PlayerEarnings {
+  yesterdayTon: number;  // TON заработано вчера (UTC-день)
+  yesterdayIgc: number;  // IGC заработано вчера
+  weekTon:      number;  // TON за последние 7 дней (включая сегодня)
+  weekIgc:      number;  // IGC за последние 7 дней
 }
 
 interface SyncData {
   user, farm, gpus,
-  storedGpus: GPU[],          // ← новое поле: GPU со статусом 'stored'
+  storedGpus: GPU[],          // ← GPU со статусом 'stored'
   season, igc, tapBoost, events,
+  // tapBoost: { active, secondsLeft, adViewsInCycle, adViewsPerCycle, adCooldownSeconds }
+  igcSupply?: IgcSupply,      // ← эмиссия IGC (из pool_stats полей 006)
+  earnings?: PlayerEarnings,  // ← история заработка из Redis (earn:d:{userId}:{date})
   network: {
     totalUsers, activeMiners,
     globalHashrate: number,   // ← из Redis или epoch_log (fallback)

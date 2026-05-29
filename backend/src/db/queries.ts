@@ -240,6 +240,10 @@ export const refurbish = {
          WHERE id = $1 AND user_id = $2`,
         [gpuId, userId],
       );
+      await client.query(
+        `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+        [costIgc],
+      );
 
       await client.query('COMMIT');
     } catch (err) {

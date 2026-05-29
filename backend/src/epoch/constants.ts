@@ -9,9 +9,9 @@ export const EPOCHS_PER_DAY     = 288;            // 24 * 60 / 5
 
 // ── ХАЛВИНГ (Вариант А — по суммарным выплатам) ────────
 export const HALVING_PHASES = [
-  { phase: 1 as const, dripRate: 0.04,  maxPaidOut: 2_000 },
-  { phase: 2 as const, dripRate: 0.02,  maxPaidOut: 8_000 },
-  { phase: 3 as const, dripRate: 0.01,  maxPaidOut: 30_000 },
+  { phase: 1 as const, dripRate: 0.04,  maxPaidOut: 1_000 },
+  { phase: 2 as const, dripRate: 0.02,  maxPaidOut: 10_000 },
+  { phase: 3 as const, dripRate: 0.01,  maxPaidOut: 100_000 },
   { phase: 4 as const, dripRate: 0.005, maxPaidOut: Infinity },
 ];
 
@@ -41,18 +41,23 @@ export const GPU_SPECS: Record<number, {
 }> = {
   // tier  H(GH/s)  W      wear/ep    maint/ep  asic   phase
   0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // USB Nano
-  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0052, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // Ноутбук — нет обслуж.
-  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0028, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // Офисный ПК — минимум
-  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0017, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // Игровой ПК — безубыток
-  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0007, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // Майнинг-риг — -29 IGC/д
-  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0010, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 1 }, // ASIC — -202 IGC/д
-  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0002, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // X1 — -2620 IGC/д
+  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0052, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // RX 580 — ~33д до 50%
+  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // GTX 1660S — ~30д до 50%
+  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // RTX 3070 — ~30д до 50%
+  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0056, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // RTX 4090 — ~31д до 50%
+  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 1 }, // ASIC S19 — ~30д до 50%
+  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0040, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // X1 — ~43д до 50%
 };
 
 // ── РАЗГОН ───────────────────────────────────────────────
 export const OVERCLOCK_HASHRATE_BONUS = 0.20; // +20% хешрейта
 export const OVERCLOCK_WEAR_PENALTY   = 2.5;  // ×2.5 к износу
-export const OVERCLOCK_WATT_PENALTY   = 1.40; // +40% потребления
+export const OVERCLOCK_COST_MULT      = 1.20; // ×1.20 ко ВСЕМ IGC-затратам (электро + мейнтейнс)
+
+// ── АНДЕРВОЛЬТ ────────────────────────────────────────────
+export const UNDERVOLT_HASHRATE_MULT  = 0.85; // −15% хешрейта
+export const UNDERVOLT_WATT_MULT      = 0.90; // −10% расход электричества
+export const UNDERVOLT_WEAR_MULT      = 0.70; // −30% износ
 
 // ── ОХЛАЖДЕНИЕ (K_temp) ──────────────────────────────────
 // coolingLevel 0 = нет кулера, 3 = промышленная вытяжка
@@ -87,10 +92,114 @@ export const REDIS_GLOBAL_H      = 'epoch:global_hashrate';
 export const REDIS_TAP_PREFIX    = 'tap:boost:';
 export const REDIS_SPEND_PREFIX  = 'spend:daily:';
 
-// ── TAP-TO-COOL ──────────────────────────────────────────
-export const TAP_BOOST_PER_TAP_SEC  = 1;       // +1 сек за тап
-export const TAP_BOOST_MAX_SEC      = 3600;    // макс буст 1 час
-export const TAP_SESSION_LIMIT      = 3600;    // тапов до обязательной паузы
-export const TAP_COOLDOWN_SEC       = 21600;   // длительность паузы (6 часов)
-export const TAP_JITTER_MIN_MS      = 15;      // мин. разброс интервалов (бот < этого)
-export const TAP_JITTER_SAMPLE      = 5;       // кол-во тапов для проверки интервалов
+// ── TAP-TO-COOL (оставлено для обратной совместимости Redis-ключей) ──────
+export const TAP_BOOST_PER_TAP_SEC  = 1;
+export const TAP_BOOST_MAX_SEC      = 3600;
+export const TAP_SESSION_LIMIT      = 3600;
+export const TAP_COOLDOWN_SEC       = 21600;
+export const TAP_JITTER_MIN_MS      = 15;
+export const TAP_JITTER_SAMPLE      = 5;
+
+// ── AD BOOST ─────────────────────────────────────────────
+export const AD_BOOST_SEC           = 300;     // +5 минут буста за просмотр
+export const AD_VIEWS_PER_CYCLE     = 10;      // просмотров до обязательной паузы
+export const AD_COOLDOWN_SEC        = 14400;   // пауза после цикла: 4 часа
+export const REDIS_AD_COUNT_PREFIX    = 'ad:count:';    // счётчик просмотров в цикле
+export const REDIS_AD_COOLDOWN_PREFIX = 'ad:cooldown:'; // флаг паузы
+
+// ── UPTIME (базовый % по тиру GPU) ──────────────────────
+export const GPU_BASE_UPTIME: Record<number, number> = {
+  0: 95, 1: 90, 2: 88, 3: 86, 4: 84, 5: 82, 6: 80,
+};
+
+// ── АПГРЕЙДЫ СЕРВЕРНОЙ (глобальные, за TON) ──────────────
+// server_room_level: снижает T_ambient для всей фермы
+export const SERVER_ROOM_LEVELS: Array<{ level: number; tempReduction: number; costTon: number }> = [
+  { level: 1, tempReduction: 0,  costTon: 0   },
+  { level: 2, tempReduction: 5,  costTon: 0.5 },
+  { level: 3, tempReduction: 12, costTon: 1.5 },
+  { level: 4, tempReduction: 22, costTon: 4.0 },
+];
+
+// ups_level: глобальный бонус к uptime всех GPU фермы (%)
+export const UPS_LEVELS: Array<{ level: number; uptimeBonus: number; costTon: number }> = [
+  { level: 1, uptimeBonus: 0,  costTon: 0   },
+  { level: 2, uptimeBonus: 5,  costTon: 0.4 },
+  { level: 3, uptimeBonus: 12, costTon: 1.0 },
+  { level: 4, uptimeBonus: 20, costTon: 3.0 },
+];
+
+// provider_level: глобальный uptime + скидка на электричество IGC (%)
+export const PROVIDER_LEVELS: Array<{ level: number; uptimeBonus: number; igcDiscountPct: number; costTon: number }> = [
+  { level: 1, uptimeBonus: 0, igcDiscountPct: 0,  costTon: 0   },
+  { level: 2, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
+  { level: 3, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
+  { level: 4, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
+  { level: 5, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
+];
+
+// ── ПОУЗЛОВЫЕ АПГРЕЙДЫ GPU (за IGC) ─────────────────────
+// paste_level: снижает нагрев конкретного GPU (°C)
+export const PASTE_LEVELS: Array<{ level: number; tempReduction: number; costIgc: number }> = [
+  { level: 1, tempReduction: 0,  costIgc: 0    },
+  { level: 2, tempReduction: 5,  costIgc: 200  },
+  { level: 3, tempReduction: 10, costIgc: 600  },
+  { level: 4, tempReduction: 15, costIgc: 1500 },
+];
+
+// fan_level: бонус к uptime конкретного GPU (%)
+export const FAN_LEVELS: Array<{ level: number; uptimeBonus: number; costIgc: number }> = [
+  { level: 1, uptimeBonus: 0,  costIgc: 0    },
+  { level: 2, uptimeBonus: 4,  costIgc: 250  },
+  { level: 3, uptimeBonus: 8,  costIgc: 750  },
+  { level: 4, uptimeBonus: 12, costIgc: 1900 },
+  { level: 5, uptimeBonus: 16, costIgc: 4800 },
+];
+
+// cooling_level (жидкостное охлаждение): снижает температуру конкретного GPU (°C)
+export const LIQUID_COOLING_LEVELS: Array<{ level: number; tempReduction: number; costIgc: number }> = [
+  { level: 1, tempReduction: 0,  costIgc: 0    }, // воздушное (стандарт)
+  { level: 2, tempReduction: 10, costIgc: 500  }, // жидкостное базовое
+  { level: 3, tempReduction: 20, costIgc: 1500 }, // жидкостное продвинутое
+];
+
+// ── СИНДИКАТЫ ───────────────────────────────────────────
+export const SYNDICATE_CREATION_COST_IGC = 2_000;
+export const SYNDICATE_XP_PER_BLOCK_WIN  = 50;
+export const SYNDICATE_BASE_MAX_MEMBERS  = 10;
+
+// Стоимость перехода на каждый уровень (XP); индекс = level-1 (переход 1→2 стоит [0])
+export const SYNDICATE_LEVEL_XP_COSTS: number[] = [
+  ...Array(10).fill(1_000),   // 1→10  : 1 000 XP/ур
+  ...Array(10).fill(2_000),   // 11→20 : 2 000 XP/ур
+  ...Array(10).fill(4_000),   // 21→30 : 4 000 XP/ур
+  ...Array(10).fill(7_000),   // 31→40 : 7 000 XP/ур
+  ...Array(10).fill(11_000),  // 41→50 : 11 000 XP/ур
+];
+
+// Пассивные бонусы на контрольных уровнях (применяются к наивысшему достигнутому)
+export const SYNDICATE_LEVEL_MILESTONES: Record<number, {
+  hashrateBonus: number;   // +N% хешрейт всем участникам
+  wearReduction: number;   // −N% износ (0.10 = −10%)
+  maxMembers:    number;
+}> = {
+  10: { hashrateBonus: 0.03, wearReduction: 0,    maxMembers: 10 },
+  20: { hashrateBonus: 0.08, wearReduction: 0.10, maxMembers: 10 },
+  30: { hashrateBonus: 0.15, wearReduction: 0.10, maxMembers: 12 },
+  40: { hashrateBonus: 0.24, wearReduction: 0.20, maxMembers: 14 },
+  50: { hashrateBonus: 0.35, wearReduction: 0.30, maxMembers: 16 },
+};
+
+// Покупаемые временные бонусы синдиката (из казны)
+export const SYNDICATE_BONUS_DEFS: Record<string, {
+  igcCost:       number;
+  requiredLevel: number;
+  durationSec:   number;
+}> = {
+  boost_x1:      { igcCost: 200,   requiredLevel: 1,  durationSec: 7_200   }, // +10% hash 2ч
+  boost_x2:      { igcCost: 500,   requiredLevel: 10, durationSec: 14_400  }, // +20% hash 4ч
+  shield_break:  { igcCost: 800,   requiredLevel: 20, durationSec: 86_400  }, // защита от поломок 24ч
+  season_shield: { igcCost: 600,   requiredLevel: 30, durationSec: 604_800 }, // иммунитет к зиме 7д
+  double_reward: { igcCost: 1_500, requiredLevel: 40, durationSec: 3_600   }, // ×2 награда соло 1ч
+  domination:    { igcCost: 3_000, requiredLevel: 50, durationSec: 3_600   }, // +50% hash всем 1ч
+};

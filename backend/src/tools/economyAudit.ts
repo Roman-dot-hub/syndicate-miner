@@ -15,7 +15,7 @@ import {
   IGC_PER_WATT_PER_EPOCH,
   OVERCLOCK_WEAR_PENALTY,
   OVERCLOCK_HASHRATE_BONUS,
-  OVERCLOCK_WATT_PENALTY,
+  OVERCLOCK_COST_MULT,
   COOLING_KTEMP,
   POOL_COMMISSION,
   REFERRAL_L1_HASHRATE_BONUS,
@@ -81,7 +81,7 @@ function effectiveH(gpu: SimGpu): number {
 // ── IGC стоимость одного GPU за эпоху (электричество + обслуживание) ──
 function gpuCostPerEpoch(gpu: SimGpu, seasonMult: number): number {
   const spec  = GPU_SPECS[gpu.tier];
-  const watts = spec.watt * (gpu.overclocked ? OVERCLOCK_WATT_PENALTY : 1);
+  const watts = spec.watt * (gpu.overclocked ? OVERCLOCK_COST_MULT : 1);
   const elec  = watts * IGC_PER_WATT_PER_EPOCH * seasonMult;
   const maint = (spec as any).igcMaintenancePerEpoch ?? 0;
   return elec + maint;
