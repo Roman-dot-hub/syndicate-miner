@@ -150,6 +150,31 @@ export default function App() {
           0%,100% { text-shadow: 0 0 6px rgba(0,212,255,0.4); }
           50%      { text-shadow: 0 0 12px rgba(0,212,255,0.9); }
         }
+        @keyframes page-in {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes gpu-active {
+          0%,100% { box-shadow: 0 0 0px rgba(0,212,255,0);    border-color: rgba(0,212,255,0.25); }
+          50%      { box-shadow: 0 0 12px rgba(0,212,255,0.2); border-color: rgba(0,212,255,0.5); }
+        }
+        @keyframes gpu-broken {
+          0%,100% { box-shadow: 0 0 0px rgba(255,51,85,0);    border-color: rgba(255,51,85,0.5); }
+          50%      { box-shadow: 0 0 14px rgba(255,51,85,0.35); border-color: rgba(255,51,85,0.9); }
+        }
+        @keyframes gpu-broken-icon {
+          0%,100% { transform: scale(1)   rotate(0deg); }
+          25%      { transform: scale(1.2) rotate(-8deg); }
+          75%      { transform: scale(1.2) rotate(8deg); }
+        }
+        @keyframes gpu-sweep {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+        @keyframes oc-pulse {
+          0%,100% { opacity: 1; }
+          50%      { opacity: 0.5; }
+        }
         * { box-sizing: border-box; }
         body { background: #060D1A !important; }
       `}</style>
@@ -162,14 +187,16 @@ export default function App() {
         {/* Balance header */}
         <BalanceBar user={data.user} />
 
-        {/* Page content */}
+        {/* Page content — анимация при смене вкладки */}
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
-          {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} />}
-          {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
-          {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
-          {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} />}
-          {tab === 'leaderboard' && <Leaderboard />}
-          {tab === 'company'     && <Company     data={data} />}
+          <div key={tab} style={{ animation: 'page-in 0.22s ease-out' }}>
+            {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} />}
+            {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
+            {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
+            {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} />}
+            {tab === 'leaderboard' && <Leaderboard />}
+            {tab === 'company'     && <Company     data={data} />}
+          </div>
         </div>
 
         {/* Bottom nav — cyberpunk */}

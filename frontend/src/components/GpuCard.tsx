@@ -8,8 +8,8 @@ function fmtH(h: number): string {
 }
 
 interface Props {
-  gpu:      GPU;
-  onClick:  () => void;
+  gpu:       GPU;
+  onClick:   () => void;
   tapBoost?: TapBoost;
 }
 
@@ -22,17 +22,30 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
   const isStored  = gpu.status === 'stored';
   const isActive  = !isBroken && !isOffline && !isStored;
 
-  const healthColor = gpu.health > 60 ? '#2ECC71' : gpu.health > 30 ? '#F39C12' : '#E74C3C';
+  const health = Math.round(gpu.health);
+  const healthColor = health > 60 ? '#00FF88'
+                    : health > 30 ? '#FF6B35'
+                    : '#FF3355';
+  const healthGlow  = health > 60 ? 'rgba(0,255,136,0.4)'
+                    : health > 30 ? 'rgba(255,107,53,0.4)'
+                    : 'rgba(255,51,85,0.4)';
 
-  const borderColor = isBroken  ? 'rgba(231,76,60,0.4)'
-                    : isStored  ? 'rgba(243,156,18,0.3)'
-                    : isOffline ? 'rgba(255,255,255,0.06)'
-                                : 'rgba(255,255,255,0.09)';
+  // ── Стили по статусу ──
+  const border = isBroken  ? '1px solid rgba(255,51,85,0.5)'
+               : isStored  ? '1px solid rgba(255,107,53,0.3)'
+               : isOffline ? '1px solid rgba(255,255,255,0.06)'
+                           : '1px solid rgba(0,212,255,0.25)';
 
-  const bg = isBroken  ? 'rgba(231,76,60,0.10)'
-           : isStored  ? 'rgba(243,156,18,0.07)'
-           : isOffline ? 'rgba(255,255,255,0.03)'
-                       : 'rgba(255,255,255,0.06)';
+  const bg     = isBroken  ? 'rgba(255,51,85,0.07)'
+               : isStored  ? 'rgba(255,107,53,0.06)'
+               : isOffline ? 'rgba(255,255,255,0.02)'
+                           : 'rgba(0,212,255,0.05)';
+
+  const glowAnim = isBroken  ? 'gpu-broken 1.4s ease-in-out infinite'
+                 : isActive  ? 'gpu-active 2.5s ease-in-out infinite'
+                             : 'none';
+
+  const boostActive = isActive && tapBoost?.active;
 
   return (
     <div
@@ -40,77 +53,138 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
       role="button"
       style={{
         background: bg,
-        border: `1px solid ${borderColor}`,
+        border,
         borderRadius: 14, padding: '11px 14px',
-        opacity: isOffline ? 0.55 : 1,
+        opacity: isOffline ? 0.5 : 1,
         cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 12,
-        transition: 'background 0.15s',
+        transition: 'opacity 0.15s',
         WebkitTapHighlightColor: 'transparent',
+        animation: glowAnim,
+        position: 'relative', overflow: 'hidden',
       }}
     >
+      {/* Sweep shimmer на active GPU */}
+      {isActive && (
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: 'linear-gradient(105deg, transparent 40%, rgba(0,212,255,0.04) 50%, transparent 60%)',
+          animation: 'gpu-sweep 3.5s linear infinite',
+        }} />
+      )}
+
       {/* Emoji + status dot */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <span style={{ fontSize: 26 }}>{spec.emoji}</span>
-        {isActive && (
+        <span style={{ fontSize: 28 }}>{spec.emoji}</span>
+        {isActive && !boostActive && (
           <span style={{
-            position: 'absolute', top: 0, right: -3,
+            position: 'absolute', top: 1, right: -3,
             width: 8, height: 8, borderRadius: '50%',
-            background: '#2ECC71', boxShadow: '0 0 5px #2ECC71',
-            animation: 'gpuPulse 1.8s ease-in-out infinite',
+            background: '#00FF88',
+            boxShadow: '0 0 6px #00FF88, 0 0 12px rgba(0,255,136,0.4)',
+            animation: 'pulse-dot 1.8s ease-in-out infinite',
+            display: 'block',
+          }} />
+        )}
+        {boostActive && (
+          <span style={{
+            position: 'absolute', top: 1, right: -3,
+            width: 8, height: 8, borderRadius: '50%',
+            background: '#00D4FF',
+            boxShadow: '0 0 8px #00D4FF, 0 0 16px rgba(0,212,255,0.6)',
+            animation: 'pulse-dot 0.8s ease-in-out infinite',
+            display: 'block',
           }} />
         )}
         {isBroken && (
-          <span style={{ position: 'absolute', top: -4, right: -6, fontSize: 14 }}>💥</span>
+          <span style={{
+            position: 'absolute', top: -4, right: -6, fontSize: 13,
+            animation: 'gpu-broken-icon 0.6s ease-in-out infinite',
+          }}>💥</span>
         )}
         {isStored && (
           <span style={{ position: 'absolute', top: -4, right: -6, fontSize: 12 }}>📦</span>
         )}
       </div>
 
-      {/* Name + tags */}
+      {/* Name + stats + health bar */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{spec.name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+          <span style={{
+            fontSize: 13, fontWeight: 700,
+            color: isBroken ? '#FF3355' : isOffline ? 'rgba(255,255,255,0.4)' : '#E0F0FF',
+          }}>
+            {spec.name}
+          </span>
           {gpu.overclocked && (
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#0098EA', background: 'rgba(0,152,234,0.18)', borderRadius: 4, padding: '1px 5px' }}>
-              ⚡OC
+            <span style={{
+              fontSize: 9, fontWeight: 700, color: '#00D4FF',
+              background: 'rgba(0,212,255,0.15)', borderRadius: 4, padding: '1px 5px',
+              boxShadow: '0 0 6px rgba(0,212,255,0.3)',
+              animation: 'oc-pulse 2s ease-in-out infinite',
+            }}>
+              ⚡ OC
             </span>
           )}
           {gpu.undervolted && (
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#2ECC71', background: 'rgba(46,204,113,0.18)', borderRadius: 4, padding: '1px 5px' }}>
-              🔋UV
+            <span style={{
+              fontSize: 9, fontWeight: 700, color: '#00FF88',
+              background: 'rgba(0,255,136,0.12)', borderRadius: 4, padding: '1px 5px',
+            }}>
+              🔋 UV
             </span>
           )}
         </div>
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 2 }}>
-          {isStored ? 'Склад · не майнит'
-            : isBroken ? 'Требует ремонта'
-            : `${fmtH(spec.hashrate)} · ${spec.watt}W`}
+
+        <div style={{ fontSize: 10, color: 'rgba(140,210,255,0.45)', marginBottom: 6 }}>
+          {isStored  ? '📦 НА СКЛАДЕ'
+           : isBroken ? '⚠️ ТРЕБУЕТ РЕМОНТА'
+           : isOffline ? 'ОФЛАЙН'
+           : `${fmtH(spec.hashrate)} · ${spec.watt}W`}
         </div>
-        {isActive && tapBoost?.active && (
-          <div style={{ fontSize: 9, color: '#0098EA', marginTop: 2, fontWeight: 600, animation: 'gpuBoost 1.5s ease-in-out infinite' }}>
-            ⚡ +10% буст · {tapBoost.secondsLeft}с
+
+        {/* Health bar */}
+        {!isStored && (
+          <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${health}%`,
+              background: healthColor,
+              borderRadius: 2,
+              boxShadow: `0 0 6px ${healthGlow}`,
+              transition: 'width 0.8s ease',
+            }} />
+          </div>
+        )}
+
+        {boostActive && (
+          <div style={{
+            fontSize: 9, letterSpacing: 1,
+            color: '#00D4FF', marginTop: 4, fontWeight: 700,
+            textShadow: '0 0 8px rgba(0,212,255,0.8)',
+            animation: 'oc-pulse 1s ease-in-out infinite',
+          }}>
+            ⚡ BOOST ACTIVE · {tapBoost!.secondsLeft}s
           </div>
         )}
       </div>
 
-      {/* Right: health badge + chevron */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <div style={{
-          fontSize: 11, fontWeight: 700, color: healthColor,
-          background: `${healthColor}20`, padding: '3px 8px', borderRadius: 6,
-          minWidth: 50, textAlign: 'center',
-        }}>
-          {isBroken ? '💥' : isStored ? '💤' : `${Math.round(gpu.health)}%`}
-        </div>
-        <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>›</span>
+      {/* Health % badge */}
+      <div style={{
+        fontSize: 11, fontWeight: 800,
+        color: healthColor,
+        background: `${healthGlow.replace('0.4', '0.12')}`,
+        border: `1px solid ${healthGlow.replace('0.4', '0.3')}`,
+        padding: '3px 8px', borderRadius: 6,
+        minWidth: 46, textAlign: 'center',
+        flexShrink: 0,
+        boxShadow: health < 30 ? `0 0 8px ${healthGlow}` : 'none',
+        animation: health < 30 && !isStored ? 'gpu-broken 1.4s ease-in-out infinite' : 'none',
+      }}>
+        {isStored ? '💤' : `${health}%`}
       </div>
 
-      <style>{`
-        @keyframes gpuPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.4)} }
-        @keyframes gpuBoost { 0%,100%{opacity:1} 50%{opacity:0.5} }
-      `}</style>
+      <span style={{ fontSize: 14, color: 'rgba(140,210,255,0.2)', flexShrink: 0 }}>›</span>
     </div>
   );
 }
