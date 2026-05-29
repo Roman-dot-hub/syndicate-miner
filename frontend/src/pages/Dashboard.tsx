@@ -127,8 +127,12 @@ export function Dashboard({ data, onUpdate }: Props) {
   const animMinted = useAnimatedNumber(data.igcSupply?.totalMinted ?? 0, 1200);
   const animBurned = useAnimatedNumber(data.igcSupply?.totalBurned ?? 0, 1200);
 
-  const isActive = activeGpus.length > 0;
-  const topGpu   = activeGpus.reduce((best, g) =>
+  const isActive  = activeGpus.length > 0;
+  const totalGpus = data.gpus.filter(g => g.status !== 'stored').length;
+  const avgHealth = activeGpus.length > 0
+    ? Math.round(activeGpus.reduce((s, g) => s + g.health, 0) / activeGpus.length)
+    : 0;
+  const topGpu = activeGpus.reduce((best, g) =>
     (GPU_SPECS[g.modelTier]?.hashrate ?? 0) > (GPU_SPECS[best?.modelTier ?? -1]?.hashrate ?? 0) ? g : best,
   activeGpus[0]);
 
@@ -208,15 +212,33 @@ export function Dashboard({ data, onUpdate }: Props) {
           </button>
         </div>
 
-        {/* GPU label */}
-        {topGpu && (
-          <div style={{ textAlign: 'center', marginBottom: 4 }}>
-            <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>
-              {GPU_SPECS[topGpu.modelTier]?.emoji} {GPU_SPECS[topGpu.modelTier]?.name?.toUpperCase()}
-              {activeGpus.length > 1 ? ` +${activeGpus.length - 1} MORE` : ''}
-            </span>
+        {/* GPU label + мини-статистика */}
+        <div style={{ marginBottom: 8, position: 'relative' }}>
+          {topGpu && (
+            <div style={{ textAlign: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>
+                {GPU_SPECS[topGpu.modelTier]?.emoji} {GPU_SPECS[topGpu.modelTier]?.name?.toUpperCase()}
+                {activeGpus.length > 1 ? ` +${activeGpus.length - 1}` : ''}
+              </span>
+            </div>
+          )}
+          {/* Строка быстрых статов */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 14 }}>
+            <MiniStat label="GPU" value={`${activeGpus.length}/${totalGpus}`} color={isActive ? GR : 'rgba(255,255,255,0.2)'} />
+            <div style={{ width: 1, background: 'rgba(0,212,255,0.15)' }} />
+            <MiniStat
+              label="HP ср."
+              value={isActive ? `${avgHealth}%` : '—'}
+              color={avgHealth > 60 ? GR : avgHealth > 30 ? OR : '#FF3355'}
+            />
+            <div style={{ width: 1, background: 'rgba(0,212,255,0.15)' }} />
+            <MiniStat
+              label="РЕЖИМ"
+              value={user.miningMode === 'pool' ? 'POOL' : 'SOLO'}
+              color={user.miningMode === 'pool' ? CY : OR}
+            />
           </div>
-        )}
+        </div>
 
         {/* Большой хешрейт */}
         <div style={{ textAlign: 'center', marginBottom: 6, position: 'relative' }}>
@@ -474,6 +496,16 @@ function StatCard({ label, icon, main, sub, subColor, extra, bar }: {
       <div style={{ fontSize: 10, color: subColor ?? DIM }}>{sub}</div>
       {extra && <div style={{ marginTop: 4 }}>{extra}</div>}
       {bar}
+    </div>
+  );
+}
+
+// Мини-стат в hero-карточке
+function MiniStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: 8, letterSpacing: 1.5, color: 'rgba(140,210,255,0.35)', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 800, color, textShadow: `0 0 8px ${color}66`, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
 }
