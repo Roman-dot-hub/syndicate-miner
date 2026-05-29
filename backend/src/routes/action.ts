@@ -59,6 +59,22 @@ async function getIgcRatio(): Promise<number> {
   }
 }
 
+// ── Трекинг потоков IGC для рыночного индекса ────────────
+// Все IGC-операции вне epochRunner обновляют дневные счётчики атомарно.
+// supply: IGC, входящий в обращение (buy_igc)
+// demand: IGC, уходящий из обращения (ремонт, апгрейды, синдикаты, sell_igc)
+// Вызывается best-effort (ошибка не ломает игровую транзакцию).
+async function trackIgcMarket(supply: number, demand: number): Promise<void> {
+  if (supply <= 0 && demand <= 0) return;
+  await pool.query(`
+    UPDATE pool_stats SET
+      igc_daily_supply = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $1 ELSE $1 END,
+      igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $2 ELSE $2 END,
+      igc_daily_date   = CURRENT_DATE
+    WHERE id = 1
+  `, [supply, demand]);
+}
+
 // Цены инфраструктуры (TON/IGC)
 const INFRA_COSTS: Record<string, { ton: number; igc: number; maxSlots: number }> = {
   farm_level_2: { ton: 0,   igc: 300,  maxSlots: 10 }, // Кладовка
@@ -265,6 +281,8 @@ export async function actionRoutes(app: FastifyInstance) {
         }
 
         await refurbish.restoreGpu(user.id, gpuId, finalCost);
+        // Трекинг рыночного индекса: ремонт = demand (IGC сожжён)
+        trackIgcMarket(0, finalCost).catch(() => {});
         return reply.send({ ok: true, igcSpent: finalCost, igcRatio: igcRatioRefurbish });
       }
 
@@ -515,8 +533,12 @@ export async function actionRoutes(app: FastifyInstance) {
             `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
             [SYNDICATE_CREATION_COST_IGC, user.id],
           );
-          await client.query(
-            `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+          await client.query(`
+            UPDATE pool_stats SET
+              total_igc_burned = total_igc_burned + $1,
+              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
+              igc_daily_date   = CURRENT_DATE
+            WHERE id = 1`,
             [SYNDICATE_CREATION_COST_IGC],
           );
           const { rows: [syn] } = await client.query(
@@ -670,8 +692,12 @@ export async function actionRoutes(app: FastifyInstance) {
             `UPDATE syndicates SET treasury_igc = treasury_igc - $1 WHERE id = $2`,
             [def.igcCost, syn.id],
           );
-          await client3.query(
-            `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+          await client3.query(`
+            UPDATE pool_stats SET
+              total_igc_burned = total_igc_burned + $1,
+              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
+              igc_daily_date   = CURRENT_DATE
+            WHERE id = 1`,
             [def.igcCost],
           );
           const expiresAt = new Date(Date.now() + def.durationSec * 1000);
@@ -776,10 +802,15 @@ export async function actionRoutes(app: FastifyInstance) {
         try {
           await client4.query('BEGIN');
           // Сжигаем оставшуюся казну
-          if (parseFloat(synDiss?.treasury_igc ?? '0') > 0) {
-            await client4.query(
-              `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
-              [synDiss.treasury_igc],
+          const treasuryIgc = parseFloat(synDiss?.treasury_igc ?? '0');
+          if (treasuryIgc > 0) {
+            await client4.query(`
+              UPDATE pool_stats SET
+                total_igc_burned = total_igc_burned + $1,
+                igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
+                igc_daily_date   = CURRENT_DATE
+              WHERE id = 1`,
+              [treasuryIgc],
             );
           }
           // Все участники → solo
@@ -841,8 +872,12 @@ export async function actionRoutes(app: FastifyInstance) {
               `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
               [finalIgcInfra, user.id],
             );
-            await pool.query(
-              `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+            await pool.query(`
+              UPDATE pool_stats SET
+                total_igc_burned = total_igc_burned + $1,
+                igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
+                igc_daily_date   = CURRENT_DATE
+              WHERE id = 1`,
               [finalIgcInfra],
             );
           }
@@ -905,11 +940,14 @@ export async function actionRoutes(app: FastifyInstance) {
             `UPDATE users SET igc_balance = igc_balance - $1, ton_balance = ton_balance + $2 WHERE id = $3`,
             [amountIgc, tonPayout, user.id],
           );
-          await pool.query(
-            `UPDATE pool_stats SET
-               reserve_pool_ton = reserve_pool_ton - $1,
-               total_igc_minted  = total_igc_minted  - $2
-             WHERE id = 1`,
+          // sell_igc убирает IGC из обращения → demand в рыночном индексе
+          await pool.query(`
+            UPDATE pool_stats SET
+              reserve_pool_ton = reserve_pool_ton - $1,
+              total_igc_minted = total_igc_minted  - $2,
+              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $2 ELSE $2 END,
+              igc_daily_date   = CURRENT_DATE
+            WHERE id = 1`,
             [tonPayout, amountIgc],
           );
           await pool.query('COMMIT');
@@ -949,11 +987,14 @@ export async function actionRoutes(app: FastifyInstance) {
             `UPDATE users SET ton_balance = ton_balance - $1, igc_balance = igc_balance + $2 WHERE id = $3`,
             [actualTonCost, igcAmount, user.id],
           );
-          await pool.query(
-            `UPDATE pool_stats SET
-               reserve_pool_ton = reserve_pool_ton + $1,
-               total_igc_minted = total_igc_minted + $2
-             WHERE id = 1`,
+          // buy_igc вводит IGC в обращение → supply в рыночном индексе
+          await pool.query(`
+            UPDATE pool_stats SET
+              reserve_pool_ton = reserve_pool_ton + $1,
+              total_igc_minted = total_igc_minted + $2,
+              igc_daily_supply = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $2 ELSE $2 END,
+              igc_daily_date   = CURRENT_DATE
+            WHERE id = 1`,
             [actualTonCost, igcAmount],
           );
           await pool.query('COMMIT');
@@ -1055,8 +1096,12 @@ export async function actionRoutes(app: FastifyInstance) {
               `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
               [finalIgcUpgrade, user.id],
             );
-            await pool.query(
-              `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+            await pool.query(`
+              UPDATE pool_stats SET
+                total_igc_burned = total_igc_burned + $1,
+                igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
+                igc_daily_date   = CURRENT_DATE
+              WHERE id = 1`,
               [finalIgcUpgrade],
             );
           }
@@ -1112,8 +1157,12 @@ export async function actionRoutes(app: FastifyInstance) {
                 `UPDATE users SET igc_balance = igc_balance - $1 WHERE id = $2`,
                 [finalIgcDefault, user.id],
               );
-              await pool.query(
-                `UPDATE pool_stats SET total_igc_burned = total_igc_burned + $1 WHERE id = 1`,
+              await pool.query(`
+                UPDATE pool_stats SET
+                  total_igc_burned = total_igc_burned + $1,
+                  igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $1 ELSE $1 END,
+                  igc_daily_date   = CURRENT_DATE
+                WHERE id = 1`,
                 [finalIgcDefault],
               );
             }

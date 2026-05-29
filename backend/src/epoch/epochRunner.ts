@@ -349,6 +349,12 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
     let totalDistributed = distribution.totalDistributed;
 
+    // Реферальные IGC-бонусы — это дополнительная эмиссия из пула 10B.
+    // Добавляем к totalIgcProduced, чтобы total_igc_minted и market index
+    // отражали ВСЕ IGC, вошедшие в обращение (включая реферальные).
+    const totalReferralIgc = distribution.referralPayouts
+      .reduce((sum, r) => sum + r.igcBonus, 0);
+
     // Solo-победитель забирает весь epoch reward (без комиссии)
     if (lottery.soloWinnerId) {
       soloWinnerId     = lottery.soloWinnerId;
@@ -437,7 +443,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
       reservePoolTon: poolStats.reservePoolTon - totalDistributed,
       totalPaidOut:   poolStats.totalPaidOut   + totalDistributed,
       adminEarnedTon: poolStats.adminEarnedTon + distribution.commissionTaken,
-      totalIgcMinted: (poolStats.totalIgcMinted ?? 0) + totalIgcProduced,
+      totalIgcMinted: (poolStats.totalIgcMinted ?? 0) + totalIgcProduced + totalReferralIgc,
       totalIgcBurned: (poolStats.totalIgcBurned ?? 0) + totalIgcConsumed,
     };
 
@@ -460,7 +466,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
     // ── 9. IGC мониторинг ──────────────────────────────
     const igcStats = await monitorIgcBalance(
-      totalIgcProduced,
+      totalIgcProduced + totalReferralIgc,   // mining + referral bonuses = полная эмиссия
       totalIgcConsumed,
       updatedStats.adminEarnedTon,
     ).catch(err => {

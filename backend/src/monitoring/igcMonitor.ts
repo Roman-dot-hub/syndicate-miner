@@ -100,15 +100,25 @@ export async function monitorIgcBalance(
   const dailySupply = parseFloat(ps.igc_daily_supply);
   const dailyDemand = parseFloat(ps.igc_daily_demand);
 
-  // ── Считаем raw отношение ────────────────
-  const rawRatio = dailyDemand > 0.01
-    ? dailySupply / dailyDemand
-    : dailySupply > 0 ? 99 : 1;
-
-  // ── EMA-сглаживание (α=0.1) ──────────────
-  const EMA_ALPHA    = 0.1;
+  // ── Сглаженный ratio предыдущего шага ───────────────────
   const prevSmoothed = parseFloat(ps.igc_ratio_smoothed ?? '1');
-  const ratio        = EMA_ALPHA * rawRatio + (1 - EMA_ALPHA) * prevSmoothed;
+
+  // ── Raw ratio из дневных накопителей ─────────────────────
+  // Включает: майнинг + рефералы + buy_igc (supply)
+  //           электричество + ремонт + апгрейды + синдикаты + sell_igc (demand)
+  // Защита от раннего утра: если накоплено < 1 IGC — слишком мало данных,
+  // не меняем ratio (rawRatio = prevSmoothed → EMA не двигается).
+  // Clamp [0.3, 4.0] до EMA — отсекает выбросы из одиночных крупных транзакций.
+  const hasEnoughData = (dailySupply + dailyDemand) >= 1.0;
+  const rawRatio = hasEnoughData
+    ? Math.max(0.3, Math.min(4.0, dailySupply / Math.max(dailyDemand, 0.01)))
+    : prevSmoothed; // недостаточно данных — держим текущее значение
+
+  // ── EMA-сглаживание (α=0.04, ~4ч полупериод = 50 эпох) ──────────────────
+  // α=0.04 vs старого 0.1: одиночный выброс двигает индекс на 4% вместо 10%.
+  // Реальные изменения в экономике отражаются за 4–8 часов, не за минуты.
+  const EMA_ALPHA = 0.04;
+  const ratio     = EMA_ALPHA * rawRatio + (1 - EMA_ALPHA) * prevSmoothed;
 
   // Сохраняем сглаженный ratio в БД
   await pool.query(
