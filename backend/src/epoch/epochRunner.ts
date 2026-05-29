@@ -486,12 +486,13 @@ export async function runEpoch(): Promise<EpochResult | null> {
         await trx.updateFarmIgc(upd.farmId, upd.igcBalance);
       }
 
-      // Начисляем TON pool-майнерам
+      // Начисляем TON pool-майнерам + пишем в историю заработка
       for (const payout of distribution.minerPayouts) {
         await trx.creditUser(payout.userId, {
           ton: payout.tonEarned,
           igc: payout.igcEarned,
         });
+        await trx.upsertDailyEarnings(payout.userId, epochAt, payout.tonEarned, payout.igcEarned);
       }
 
       // Реферальные IGC-бонусы
@@ -499,9 +500,10 @@ export async function runEpoch(): Promise<EpochResult | null> {
         await trx.creditUser(ref.referrerId, { ton: 0, igc: ref.igcBonus });
       }
 
-      // Solo-победитель получает TON
+      // Solo-победитель получает TON + пишем в историю
       if (soloWinnerId) {
         await trx.creditUser(soloWinnerId, { ton: epochReward, igc: 0 });
+        await trx.upsertDailyEarnings(soloWinnerId, epochAt, epochReward, 0);
       }
 
       // Начисляем IGC solo-майнерам (pool-майнеры уже получили IGC выше)
@@ -511,6 +513,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
         const igcEarned = igcPerEpoch.get(snapshot.userId) ?? 0;
         if (igcEarned > 0) {
           await trx.creditUser(snapshot.userId, { ton: 0, igc: igcEarned });
+          await trx.upsertDailyEarnings(snapshot.userId, epochAt, 0, igcEarned);
         }
       }
 

@@ -19,6 +19,7 @@ export type DbClient = {
   updateGpu(gpuId: string, fields: { health?: number; status?: string }, client?: PoolClient): Promise<void>;
   updateFarmIgc(farmId: string, igcBalance: number, client?: PoolClient): Promise<void>;
   updatePoolStats(stats: PoolStats, client?: PoolClient): Promise<void>;
+  upsertDailyEarnings(userId: string, date: Date, ton: number, igc: number, client?: PoolClient): Promise<void>;
   insertEpochLog(data: {
     epochAt: Date; globalHashrate: number; rewardDistributed: number;
     poolAfter: number; phase: number; activeMinerCount: number;
@@ -242,6 +243,26 @@ export const db: DbClient = {
     ]);
   },
 
+  // Накопительный дневной заработок (источник правды для истории заработка)
+  async upsertDailyEarnings(
+    userId: string,
+    date: Date,
+    ton: number,
+    igc: number,
+    client?: PoolClient,
+  ): Promise<void> {
+    if (ton <= 0 && igc <= 0) return;
+    const q = client ?? pool;
+    await q.query(`
+      INSERT INTO user_daily_earnings (user_id, date, ton_earned, igc_earned)
+      VALUES ($1, $2::date, $3, $4)
+      ON CONFLICT (user_id, date)
+      DO UPDATE SET
+        ton_earned = user_daily_earnings.ton_earned + EXCLUDED.ton_earned,
+        igc_earned = user_daily_earnings.igc_earned + EXCLUDED.igc_earned
+    `, [userId, date, ton, igc]);
+  },
+
   // Запись лога эпохи
   async insertEpochLog(data: {
     epochAt:           Date;
@@ -293,7 +314,9 @@ export const db: DbClient = {
                           db.updateGpu(id, f, client),
         updateFarmIgc:  (farmId: string, bal: number) =>
                           db.updateFarmIgc(farmId, bal, client),
-        updatePoolStats:(s: PoolStats) => db.updatePoolStats(s, client),
+        updatePoolStats:       (s: PoolStats) => db.updatePoolStats(s, client),
+        upsertDailyEarnings:   (uid: string, dt: Date, ton: number, igc: number) =>
+                                 db.upsertDailyEarnings(uid, dt, ton, igc, client),
         insertEpochLog: (d: Parameters<typeof db.insertEpochLog>[0]) =>
                           db.insertEpochLog(d, client),
       };

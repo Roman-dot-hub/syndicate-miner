@@ -14,7 +14,10 @@ import { sync }             from '../db/queries';
 import { getLiveIgcStatus } from '../monitoring/igcMonitor';
 import { sendTgMessage }    from '../notifications/sendTgNotification';
 import { redis }                                                  from '../redis/client';
-import { REDIS_TAP_PREFIX, REDIS_GLOBAL_H, TAP_SESSION_LIMIT } from '../epoch/constants';
+import { REDIS_TAP_PREFIX, REDIS_GLOBAL_H, TAP_SESSION_LIMIT,
+         REDIS_AD_COUNT_PREFIX, REDIS_AD_COOLDOWN_PREFIX, AD_VIEWS_PER_CYCLE,
+         SYNDICATE_LEVEL_MILESTONES, SYNDICATE_BASE_MAX_MEMBERS,
+         SYNDICATE_LEVEL_XP_COSTS }                             from '../epoch/constants';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -62,7 +65,7 @@ export async function syncRoutes(app: FastifyInstance) {
       const { rows: [row] } = await pool.query(
         `SELECT cycle_day, season, drip_rate, current_phase,
                 reserve_pool_ton, total_paid_out,
-                total_igc_minted, total_igc_burned
+                total_igc_minted, total_igc_burned, igc_ratio_smoothed
          FROM pool_stats WHERE id = 1`,
       );
       poolRow = row;
@@ -75,34 +78,27 @@ export async function syncRoutes(app: FastifyInstance) {
       ? poolRow.drip_rate * (1 + 0.25 * Math.sin(2 * Math.PI * poolRow.cycle_day / 28))
       : 0;
 
-    // ── Tap-to-Cool буст ─────────────────────
-    let tapBoost = { active: false, secondsLeft: 0, cooldownSeconds: 0, tapsUsed: 0, tapsRemaining: TAP_SESSION_LIMIT };
+    // ── Ad Boost ────────
+    let tapBoost = { active: false, secondsLeft: 0, adViewsInCycle: 0, adViewsPerCycle: AD_VIEWS_PER_CYCLE, adCooldownSeconds: 0 };
     try {
       const nowSec = Math.floor(Date.now() / 1000);
-      const [storedEndRaw, cooldownTtl, tapCountRaw] = await Promise.all([
+      const [storedEndRaw, adCountRaw, cooldownTtl] = await Promise.all([
         redis.get(`${REDIS_TAP_PREFIX}end:${user.id}`),
-        redis.ttl(`${REDIS_TAP_PREFIX}cooldown:${user.id}`),
-        redis.get(`${REDIS_TAP_PREFIX}count:${user.id}`),
+        redis.get(`${REDIS_AD_COUNT_PREFIX}${user.id}`),
+        redis.ttl(`${REDIS_AD_COOLDOWN_PREFIX}${user.id}`),
       ]);
       const secondsLeft = Math.max(0, parseInt(storedEndRaw ?? '0', 10) - nowSec);
-      const tapsUsed    = parseInt(tapCountRaw ?? '0', 10);
       tapBoost = {
-        active:          secondsLeft > 0,
+        active:            secondsLeft > 0,
         secondsLeft,
-        cooldownSeconds: Math.max(0, cooldownTtl),
-        tapsUsed,
-        tapsRemaining:   Math.max(0, TAP_SESSION_LIMIT - tapsUsed),
+        adViewsInCycle:    parseInt(adCountRaw ?? '0', 10),
+        adViewsPerCycle:   AD_VIEWS_PER_CYCLE,
+        adCooldownSeconds: Math.max(0, cooldownTtl),
       };
     } catch { /* Redis недоступен */ }
 
-    // ── Текущий IGC ratio из igc_monitor_log ─────────────
-    let igcRatio = 1;
-    try {
-      const { rows: [lastLog] } = await pool.query(
-        `SELECT daily_ratio FROM igc_monitor_log ORDER BY logged_at DESC LIMIT 1`,
-      );
-      igcRatio = parseFloat(lastLog?.daily_ratio ?? '1');
-    } catch { /* нет логов ещё */ }
+    // ── Сглаженный IGC ratio из pool_stats (EMA, обновляется каждую эпоху) ──
+    const igcRatio = parseFloat(poolRow?.igc_ratio_smoothed ?? '1');
 
     // ── Глобальный хешрейт: Redis → fallback БД ──────────
     let globalHashrate = 0;
@@ -126,10 +122,122 @@ export async function syncRoutes(app: FastifyInstance) {
          (SELECT COUNT(*) FROM gpus WHERE status = 'active') AS active_miners`,
     );
 
+    // ── История заработка: читаем из БД (надёжно, не зависит от Redis) ──
+    // epochRunner пишет в user_daily_earnings в той же транзакции что и creditUser
+    let earningsData = { yesterdayTon: 0, yesterdayIgc: 0, weekTon: 0, weekIgc: 0 };
+    try {
+      const { rows: earnRows } = await pool.query<{
+        date: string; ton_earned: string; igc_earned: string;
+      }>(
+        `SELECT date::text, ton_earned, igc_earned
+         FROM user_daily_earnings
+         WHERE user_id = $1
+           AND date >= CURRENT_DATE - INTERVAL '7 days'
+         ORDER BY date DESC`,
+        [user.id],
+      );
+      const todayUtc     = new Date().toISOString().slice(0, 10);
+      const yesterdayUtc = (() => {
+        const d = new Date(); d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0, 10);
+      })();
+      for (const row of earnRows) {
+        const ton = parseFloat(row.ton_earned);
+        const igc = parseFloat(row.igc_earned);
+        if (row.date === yesterdayUtc) {
+          earningsData.yesterdayTon = ton;
+          earningsData.yesterdayIgc = igc;
+        }
+        // weekTon = последние 7 дней включая сегодня
+        earningsData.weekTon += ton;
+        earningsData.weekIgc += igc;
+      }
+    } catch (err: any) {
+      console.error('[sync] earnings query failed:', err?.message);
+    }
+
     // ── Активные системные события ────────────
     const { rows: events } = await pool.query(
       `SELECT type, payload FROM system_events WHERE active_until > NOW()`,
     );
+
+    // ── Данные синдиката игрока ───────────────
+    let syndicateData: any = null;
+    try {
+      const { rows: [memberRow] } = await pool.query(
+        `SELECT sm.syndicate_id, sm.role,
+                s.name, s.level, s.xp, s.treasury_igc, s.leader_id,
+                s.total_blocks_won, s.total_ton_earned, s.total_igc_earned,
+                s.created_at
+         FROM syndicate_members sm
+         JOIN syndicates s ON s.id = sm.syndicate_id
+         WHERE sm.user_id = $1`,
+        [user.id],
+      );
+      if (memberRow) {
+        const [{ rows: members }, { rows: activeBonuses }, { rows: [gpuCountRow] }] = await Promise.all([
+          pool.query(
+            `SELECT sm.user_id, sm.role, u.tg_username
+             FROM syndicate_members sm
+             JOIN users u ON u.id = sm.user_id
+             WHERE sm.syndicate_id = $1
+             ORDER BY sm.role DESC, sm.joined_at ASC`,
+            [memberRow.syndicate_id],
+          ),
+          pool.query(
+            `SELECT type, expires_at FROM syndicate_bonuses
+             WHERE syndicate_id = $1 AND expires_at > NOW()`,
+            [memberRow.syndicate_id],
+          ),
+          pool.query(
+            `SELECT COUNT(g.id) AS active_gpu_count
+             FROM syndicate_members sm
+             JOIN gpus g ON g.user_id = sm.user_id AND g.status = 'active'
+             WHERE sm.syndicate_id = $1`,
+            [memberRow.syndicate_id],
+          ),
+        ]);
+
+        const level = parseInt(memberRow.level);
+        const xp    = parseFloat(memberRow.xp);
+        // Найти применимый бонусный milestone
+        const milestoneKeys = Object.keys(SYNDICATE_LEVEL_MILESTONES).map(Number).sort((a, b) => b - a);
+        const activeMilestoneKey = milestoneKeys.find(k => level >= k);
+        const passiveBonus  = activeMilestoneKey ? SYNDICATE_LEVEL_MILESTONES[activeMilestoneKey] : null;
+        const maxMembers    = passiveBonus?.maxMembers ?? SYNDICATE_BASE_MAX_MEMBERS;
+
+        // XP до следующего уровня
+        let xpRemaining = xp;
+        for (let i = 0; i < level - 1 && i < SYNDICATE_LEVEL_XP_COSTS.length; i++) {
+          xpRemaining -= SYNDICATE_LEVEL_XP_COSTS[i];
+        }
+        const xpToNext = level < 50 ? SYNDICATE_LEVEL_XP_COSTS[level - 1] ?? 0 : 0;
+
+        syndicateData = {
+          id:             memberRow.syndicate_id,
+          name:           memberRow.name,
+          level,
+          xp,
+          xpToNext,
+          xpProgress:    xpToNext > 0 ? Math.max(0, xpRemaining) : xp,
+          treasuryIgc:   parseFloat(memberRow.treasury_igc),
+          memberCount:   members.length,
+          maxMembers,
+          role:          memberRow.role,
+          hashrateBonus: passiveBonus?.hashrateBonus ?? 0,
+          wearReduction: passiveBonus?.wearReduction ?? 0,
+          activeBonuses: activeBonuses.map((b: any) => ({ type: b.type, expiresAt: b.expires_at })),
+          members:       members.map((m: any) => ({ userId: m.user_id, username: m.tg_username, role: m.role })),
+          totalBlocksWon: parseInt(memberRow.total_blocks_won ?? '0', 10),
+          totalTonEarned: parseFloat(memberRow.total_ton_earned ?? '0'),
+          totalIgcEarned: parseFloat(memberRow.total_igc_earned ?? '0'),
+          activeGpuCount: parseInt(gpuCountRow?.active_gpu_count ?? '0', 10),
+          foundedAt:      memberRow.created_at ?? null,
+        };
+      }
+    } catch (err: any) {
+      console.error('[sync] syndicate query failed:', err?.message);
+    }
 
     // ── snake_case → camelCase mapping ───────────
     const rawUser = snapshot.user as any;
@@ -145,12 +253,15 @@ export async function syncRoutes(app: FastifyInstance) {
     } : null;
 
     const mappedFarm = rawFarm ? {
-      id:             rawFarm.id,
-      level:          rawFarm.level,
-      coolingLevel:   rawFarm.cooling_level   ?? 0,
-      workbenchLevel: rawFarm.workbench_level ?? 0,
-      maxSlots:       rawFarm.max_slots ?? 5,
-      igcBalance:     parseFloat(rawUser?.igc_balance ?? '0'),
+      id:              rawFarm.id,
+      level:           rawFarm.level,
+      coolingLevel:    rawFarm.cooling_level    ?? 0,
+      workbenchLevel:  rawFarm.workbench_level  ?? 0,
+      maxSlots:        rawFarm.max_slots ?? 5,
+      igcBalance:      parseFloat(rawUser?.igc_balance ?? '0'),
+      serverRoomLevel: rawFarm.server_room_level ?? 1,
+      upsLevel:        rawFarm.ups_level         ?? 1,
+      providerLevel:   rawFarm.provider_level    ?? 1,
     } : null;
 
     const mapGpu = (g: any) => ({
@@ -162,6 +273,8 @@ export async function syncRoutes(app: FastifyInstance) {
       undervolted:   g.undervolted ?? false,
       coolingLevel:  g.cooling_level ?? 0,
       isRefurbished: g.is_refurbished ?? false,
+      pasteLevel:    g.paste_level ?? 1,
+      fanLevel:      g.fan_level   ?? 1,
     });
 
     const mappedGpus      = rawGpus.filter((g: any) => g.status !== 'stored').map(mapGpu);
@@ -186,10 +299,11 @@ export async function syncRoutes(app: FastifyInstance) {
         igcSupply: {
           totalMinted:   parseFloat(poolRow?.total_igc_minted ?? '0'),
           totalBurned:   parseFloat(poolRow?.total_igc_burned  ?? '0'),
-          remaining:     1_000_000_000 - parseFloat(poolRow?.total_igc_minted ?? '0'),
+          remaining:     10_000_000_000 - parseFloat(poolRow?.total_igc_minted ?? '0'),
           ratio:         igcRatio,
           pricePerIgc:   Math.max(0.00005, Math.min(0.0005, 0.0001 / Math.max(0.5, igcRatio))),
         },
+        earnings: earningsData,
         tapBoost,
         network: {
           totalUsers:    parseInt(netStats?.total_users  ?? '0', 10),
@@ -200,6 +314,7 @@ export async function syncRoutes(app: FastifyInstance) {
           acc[e.type] = e.payload;
           return acc;
         }, {}),
+        syndicate: syndicateData,
       },
     });
   });
@@ -225,7 +340,7 @@ async function registerNewPlayer(
       inviterId = inv?.id ?? null;
     }
 
-    // Создать пользователя
+    // Создать пользователя (mining_mode = 'solo' по умолчанию из схемы БД)
     const { rows: [newUser] } = await client.query(`
       INSERT INTO users (tg_user_id, tg_username, igc_balance, inviter_id)
       VALUES ($1, $2, 150, $3)
