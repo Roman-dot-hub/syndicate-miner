@@ -7,8 +7,14 @@ const SYNC_INTERVAL = 6000;  // 6s — достаточно свежо, не п�
 const MAX_RETRIES   = 4;
 const RETRY_DELAY   = 4000; // ms between retries
 
-async function fetchSync(initDataStr: string): Promise<SyncData> {
-  const res = await fetch(`${API_URL}/api/sync`, {
+// Читаем start_param один раз при загрузке модуля.
+// Формат: "ref_<tgUserId>" (из t.me deep link) → обрезаем "ref_" → остаётся tg_user_id
+const _sp    = WebApp.initDataUnsafe?.start_param ?? '';
+const REF_ID = _sp ? (_sp.startsWith('ref_') ? _sp.slice(4) : _sp) : undefined;
+
+async function fetchSync(initDataStr: string, refId?: string): Promise<SyncData> {
+  const query = refId ? `?ref=${encodeURIComponent(refId)}` : '';
+  const res = await fetch(`${API_URL}/api/sync${query}`, {
     headers: { 'X-TG-Init-Data': initDataStr },
     cache: 'no-store',
   });
@@ -37,7 +43,7 @@ export function useSync() {
     syncing.current = true;
 
     try {
-      const snapshot = await fetchSync(initData.current);
+      const snapshot = await fetchSync(initData.current, REF_ID);
       hasData.current = true;
       setData(snapshot);
       setError(null);

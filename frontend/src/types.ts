@@ -112,6 +112,13 @@ export interface SyndicateData {
   foundedAt:       string | null;
 }
 
+export interface ReferralEntry {
+  level:    1 | 2;
+  username: string | null;
+  tgUserId: string;
+  joinedAt: string;
+}
+
 export interface SyncData {
   user:       UserData;
   farm:       Farm;
@@ -125,6 +132,7 @@ export interface SyncData {
   earnings?:  PlayerEarnings;
   events:     Record<string, unknown>;
   syndicate?: SyndicateData | null;
+  referrals?: ReferralEntry[];
 }
 
 // GPU specs (mirrors backend constants)

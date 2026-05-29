@@ -40,7 +40,9 @@ export async function syncRoutes(app: FastifyInstance) {
 
     if (!user) {
       // Новый игрок: регистрация с USB-майнером
-      const refCode = (req.query as any).ref as string | undefined;
+      // Поддерживаем оба формата: "ref_12345" (из t.me ссылки) и "12345" (plain)
+      const rawRef  = (req.query as any).ref as string | undefined;
+      const refCode = rawRef?.startsWith('ref_') ? rawRef.slice(4) : rawRef;
       user = await registerNewPlayer(tgUser, refCode);
     }
 
@@ -154,6 +156,22 @@ export async function syncRoutes(app: FastifyInstance) {
       }
     } catch (err: any) {
       console.error('[sync] earnings query failed:', err?.message);
+    }
+
+    // ── Рефералы игрока ──────────────────────
+    let referrals: any[] = [];
+    try {
+      const { rows } = await pool.query(`
+        SELECT r.level, r.created_at::text AS joined_at,
+               u.tg_username, u.tg_user_id::text AS tg_user_id
+        FROM referrals r
+        JOIN users u ON u.id = r.invitee_id
+        WHERE r.inviter_id = $1
+        ORDER BY r.level ASC, r.created_at DESC
+      `, [user.id]);
+      referrals = rows;
+    } catch (err: any) {
+      console.error('[sync] referrals query failed:', err?.message);
     }
 
     // ── Активные системные события ────────────
@@ -315,6 +333,12 @@ export async function syncRoutes(app: FastifyInstance) {
           return acc;
         }, {}),
         syndicate: syndicateData,
+        referrals: referrals.map((r: any) => ({
+          level:     parseInt(r.level),
+          username:  r.tg_username ?? null,
+          tgUserId:  r.tg_user_id,
+          joinedAt:  r.joined_at,
+        })),
       },
     });
   });
