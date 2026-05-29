@@ -175,6 +175,10 @@ export default function App() {
           0%,100% { opacity: 1; }
           50%      { opacity: 0.5; }
         }
+        @keyframes radar-ping {
+          0%   { transform: scale(0.6); opacity: 0.8; }
+          100% { transform: scale(3.5); opacity: 0; }
+        }
         * { box-sizing: border-box; }
         body { background: #060D1A !important; }
       `}</style>
