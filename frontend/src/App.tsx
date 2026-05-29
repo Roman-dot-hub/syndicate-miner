@@ -126,50 +126,99 @@ export default function App() {
 
   return (
   <ErrorBoundary>
-    <div style={{
-      minHeight: '100vh', display: 'flex', flexDirection: 'column',
-      background: '#17212b', color: '#fff',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    }}>
-      {/* Balance header */}
-      <BalanceBar user={data.user} />
+    <>
+      {/* ── Глобальные CSS анимации ── */}
+      <style>{`
+        @keyframes hero-glow {
+          0%,100% { box-shadow: 0 0 20px rgba(0,212,255,0.10), inset 0 1px 0 rgba(0,212,255,0.12); }
+          50%      { box-shadow: 0 0 40px rgba(0,212,255,0.25), inset 0 1px 0 rgba(0,212,255,0.25); }
+        }
+        @keyframes pulse-dot {
+          0%,100% { transform: scale(1);   opacity: 1; }
+          50%      { transform: scale(1.4); opacity: 0.7; }
+        }
+        @keyframes scan-bar {
+          0%   { transform: translateX(-100%); opacity: 0.6; }
+          100% { transform: translateX(500%);  opacity: 0; }
+        }
+        @keyframes cyber-load {
+          0%   { box-shadow: 0 0 8px rgba(0,212,255,0.3); }
+          50%  { box-shadow: 0 0 20px rgba(0,212,255,0.7); }
+          100% { box-shadow: 0 0 8px rgba(0,212,255,0.3); }
+        }
+        @keyframes tab-glow {
+          0%,100% { text-shadow: 0 0 6px rgba(0,212,255,0.4); }
+          50%      { text-shadow: 0 0 12px rgba(0,212,255,0.9); }
+        }
+        * { box-sizing: border-box; }
+        body { background: #060D1A !important; }
+      `}</style>
 
-      {/* Page content */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
-        {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} />}
-        {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
-        {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
-        {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} />}
-        {tab === 'leaderboard' && <Leaderboard />}
-        {tab === 'company'     && <Company     data={data} />}
-      </div>
-
-      {/* Bottom nav */}
-      <nav style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0,
-        display: 'flex',
-        background: 'rgba(15,25,35,0.97)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
+      <div style={{
+        minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        background: '#060D1A', color: '#E0F0FF',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}>
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => switchTab(t.id)}
-            style={{
-              flex: 1, padding: '8px 0 6px', border: 'none',
-              background: 'transparent', cursor: 'pointer',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-              color: tab === t.id ? '#0098EA' : 'rgba(255,255,255,0.35)',
-              transition: 'color 0.15s',
-            }}
-          >
-            <span style={{ fontSize: 20 }}>{t.emoji}</span>
-            <span style={{ fontSize: 10, fontWeight: tab === t.id ? 600 : 400 }}>{t.label}</span>
-          </button>
-        ))}
-      </nav>
-    </div>
+        {/* Balance header */}
+        <BalanceBar user={data.user} />
+
+        {/* Page content */}
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
+          {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} />}
+          {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
+          {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
+          {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} />}
+          {tab === 'leaderboard' && <Leaderboard />}
+          {tab === 'company'     && <Company     data={data} />}
+        </div>
+
+        {/* Bottom nav — cyberpunk */}
+        <nav style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          display: 'flex',
+          background: 'rgba(4,9,20,0.97)',
+          borderTop: '1px solid rgba(0,212,255,0.15)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          backdropFilter: 'blur(12px)',
+        }}>
+          {TABS.map(t => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => switchTab(t.id)}
+                style={{
+                  flex: 1, padding: '8px 0 6px', border: 'none',
+                  background: 'transparent', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                  color: active ? '#00D4FF' : 'rgba(140,210,255,0.35)',
+                  transition: 'color 0.15s',
+                  position: 'relative',
+                }}
+              >
+                {active && (
+                  <div style={{
+                    position: 'absolute', top: 0, left: '20%', right: '20%', height: 2,
+                    background: '#00D4FF',
+                    boxShadow: '0 0 8px #00D4FF, 0 0 16px rgba(0,212,255,0.5)',
+                    borderRadius: '0 0 2px 2px',
+                  }} />
+                )}
+                <span style={{ fontSize: 20 }}>{t.emoji}</span>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: active ? 700 : 400,
+                  letterSpacing: active ? 0.5 : 0,
+                  animation: active ? 'tab-glow 2.5s ease-in-out infinite' : 'none',
+                }}>
+                  {t.label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+    </>
   </ErrorBoundary>
   );
 }
@@ -255,57 +304,70 @@ function LoadingSplash({ retrying }: { retrying: boolean }) {
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      background: '#17212b', color: '#fff', padding: '0 32px',
+      background: '#060D1A', color: '#E0F0FF', padding: '0 32px',
     }}>
-      {/* Иконка */}
-      <div style={{ fontSize: 52, marginBottom: 16, filter: 'drop-shadow(0 0 16px rgba(0,152,234,0.6))' }}>
+      {/* Иконка с cyber-glow */}
+      <div style={{
+        fontSize: 60, marginBottom: 8,
+        filter: 'drop-shadow(0 0 20px rgba(0,212,255,0.8))',
+        animation: 'cyber-load 2s ease-in-out infinite',
+      }}>
         🖥️
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, fontSize: 18, opacity: 0.55 }}>
-        <span>🎮</span><span>⚡</span><span>🚀</span>
       </div>
 
       {/* Заголовок */}
-      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, letterSpacing: 0.3 }}>
-        Syndicate Miner
+      <div style={{
+        fontSize: 22, fontWeight: 900, letterSpacing: 3,
+        color: '#00D4FF',
+        textShadow: '0 0 20px rgba(0,212,255,0.8)',
+        marginBottom: 4,
+      }}>
+        SYNDICATE
+      </div>
+      <div style={{
+        fontSize: 13, fontWeight: 400, letterSpacing: 6,
+        color: 'rgba(0,212,255,0.5)', marginBottom: 32,
+      }}>
+        MINER
       </div>
 
       {/* Шаг загрузки */}
-      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 28, minHeight: 18 }}>
+      <div style={{ fontSize: 11, color: 'rgba(140,210,255,0.5)', marginBottom: 14, letterSpacing: 1, minHeight: 16 }}>
         {stepLabel}{dots}
       </div>
 
       {/* Прогресс-бар */}
-      <div style={{ width: '100%', maxWidth: 280 }}>
+      <div style={{ width: '100%', maxWidth: 260 }}>
         <div style={{
-          height: 6, background: 'rgba(255,255,255,0.08)',
-          borderRadius: 3, overflow: 'hidden',
-          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)',
+          height: 3, background: 'rgba(0,212,255,0.08)',
+          borderRadius: 2, overflow: 'hidden',
+          border: '1px solid rgba(0,212,255,0.15)',
         }}>
           <div style={{
-            height: '100%', borderRadius: 3,
+            height: '100%', borderRadius: 2,
             width: `${pct}%`,
-            background: 'linear-gradient(90deg, #9B59B6, #0098EA)',
+            background: 'linear-gradient(90deg, rgba(0,212,255,0.4), #00D4FF)',
             transition: 'width 0.3s ease',
-            boxShadow: '0 0 8px rgba(0,152,234,0.6)',
+            boxShadow: '0 0 10px rgba(0,212,255,0.8)',
           }} />
         </div>
         <div style={{
           display: 'flex', justifyContent: 'space-between',
-          marginTop: 6, fontSize: 10, color: 'rgba(255,255,255,0.25)',
+          marginTop: 6, fontSize: 9, letterSpacing: 1.5,
+          color: 'rgba(0,212,255,0.3)',
         }}>
-          <span>v1.0</span>
+          <span>SYN-MINER v1.0</span>
           <span>{pct}%</span>
         </div>
       </div>
 
       {retrying && (
         <div style={{
-          marginTop: 24, fontSize: 11, color: 'rgba(255,255,255,0.3)',
-          textAlign: 'center', lineHeight: 1.6,
+          marginTop: 28, fontSize: 10, letterSpacing: 1,
+          color: 'rgba(140,210,255,0.35)', textAlign: 'center', lineHeight: 1.8,
         }}>
-          Сервер запускается после простоя<br />
-          <span style={{ color: 'rgba(255,255,255,0.5)' }}>обычно занимает ~30 секунд</span>
+          СЕРВЕР ЗАПУСКАЕТСЯ<br />
+          <span style={{ color: 'rgba(140,210,255,0.55)' }}>обычно ~30 секунд</span>
         </div>
       )}
     </div>
@@ -317,17 +379,19 @@ function Splash({ text, sub, retry }: { text: string; sub?: string; retry?: () =
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      background: '#17212b', color: '#fff', gap: 12,
+      background: '#060D1A', color: '#E0F0FF', gap: 12, padding: '0 24px',
     }}>
-      <div style={{ fontSize: 40 }}>🖥️</div>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{text}</div>
-      {sub && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', textAlign: 'center', maxWidth: 260, padding: '0 20px' }}>{sub}</div>}
+      <div style={{ fontSize: 40, filter: 'drop-shadow(0 0 12px rgba(0,212,255,0.5))' }}>🖥️</div>
+      <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: 1, color: '#00D4FF', textAlign: 'center' }}>{text}</div>
+      {sub && <div style={{ fontSize: 11, color: 'rgba(140,210,255,0.4)', textAlign: 'center', maxWidth: 260, lineHeight: 1.6 }}>{sub}</div>}
       {retry && (
         <button onClick={retry} style={{
-          marginTop: 8, padding: '8px 24px', borderRadius: 8, border: 'none',
-          background: '#0098EA', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          marginTop: 8, padding: '10px 28px', borderRadius: 8,
+          border: '1px solid rgba(0,212,255,0.4)',
+          background: 'rgba(0,212,255,0.1)',
+          color: '#00D4FF', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
         }}>
-          Повторить
+          ПОВТОРИТЬ
         </button>
       )}
     </div>
