@@ -42,7 +42,7 @@ export const pgPoolConfig = {
 };
 
 // ── Подключение ───────────────────────────────
-const pool = new Pool(pgPoolConfig);
+export const pool = new Pool(pgPoolConfig);
 
 pool.on('error', (err) => {
   console.error('[DB] Неожиданная ошибка пула:', err);
@@ -51,26 +51,32 @@ pool.on('error', (err) => {
 // ── Хелпер: маппинг строки БД → GPU ──────────
 function rowToGpu(row: Record<string, unknown>): GPU {
   return {
-    id:            row.id           as string,
-    farmId:        row.farm_id      as string,
-    userId:        row.user_id      as string,
-    modelTier:     row.model_tier   as number,
+    id:            row.id            as string,
+    farmId:        row.farm_id       as string,
+    userId:        row.user_id       as string,
+    modelTier:     row.model_tier    as number,
     health:        parseFloat(row.health as string),
-    overclocked:   row.overclocked  as boolean,
-    coolingLevel:  row.cooling_level as number,
-    status:        row.status       as GPU['status'],
+    overclocked:   row.overclocked   as boolean,
+    undervolted:   (row.undervolted  ?? false) as boolean,
+    coolingLevel:  (row.cooling_level as number) ?? 1,
+    status:        row.status        as GPU['status'],
     isRefurbished: row.is_refurbished as boolean,
+    pasteLevel:    (row.paste_level  as number) ?? 1,
+    fanLevel:      (row.fan_level    as number) ?? 1,
   };
 }
 
 function rowToFarm(row: Record<string, unknown>): Farm {
   return {
-    id:           row.id           as string,
-    userId:       row.user_id      as string,
-    miningMode:   row.mining_mode  as Farm['miningMode'],
-    level:        row.level        as number,
-    coolingLevel: row.cooling_level as number,
-    igcBalance:   parseFloat(row.igc_balance as string),
+    id:              row.id              as string,
+    userId:          row.user_id         as string,
+    miningMode:      row.mining_mode     as Farm['miningMode'],
+    level:           row.level           as number,
+    coolingLevel:    row.cooling_level   as number,
+    igcBalance:      parseFloat(row.igc_balance as string),
+    serverRoomLevel: (row.server_room_level as number) ?? 1,
+    upsLevel:        (row.ups_level         as number) ?? 1,
+    providerLevel:   (row.provider_level    as number) ?? 1,
   };
 }
 
@@ -113,7 +119,9 @@ export const db: DbClient = {
   // Все активные фермы (у которых есть хотя бы один active GPU)
   async getActiveFarms(): Promise<Farm[]> {
     const { rows } = await pool.query(`
-      SELECT f.*, u.igc_balance
+      SELECT f.id, f.user_id, f.level, f.cooling_level,
+             f.server_room_level, f.ups_level, f.provider_level,
+             u.igc_balance, u.mining_mode
       FROM   farms f
       JOIN   users u ON u.id = f.user_id
       WHERE  EXISTS (
@@ -153,9 +161,8 @@ export const db: DbClient = {
   // Active GPU конкретной фермы
   async getActiveFarmGpus(farmId: string): Promise<GPU[]> {
     const { rows } = await pool.query(`
-      SELECT g.*, f.cooling_level
+      SELECT g.*
       FROM   gpus g
-      JOIN   farms f ON f.id = g.farm_id
       WHERE  g.farm_id = $1 AND g.status = 'active'
     `, [farmId]);
     return rows.map(rowToGpu);

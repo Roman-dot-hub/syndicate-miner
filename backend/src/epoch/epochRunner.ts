@@ -24,6 +24,14 @@ import {
   REDIS_GLOBAL_H,
   REDIS_TAP_PREFIX,
   EPOCH_INTERVAL_MS,
+  SYNDICATE_LEVEL_MILESTONES,
+  SYNDICATE_LEVEL_XP_COSTS,
+  SYNDICATE_XP_PER_BLOCK_WIN,
+  SYNDICATE_BONUS_DEFS,
+  GPU_BASE_UPTIME,
+  UPS_LEVELS,
+  PROVIDER_LEVELS,
+  FAN_LEVELS,
 } from './constants';
 
 import { checkHalving, getActivePhase }     from './halvingChecker';
@@ -48,7 +56,7 @@ import type {
 
 // ── Заглушки БД и Redis (замени на реальные клиенты) ─────
 // В продакшне: import { db } from '../db/client'; import { redis } from '../redis/client';
-import { db, type DbClient } from '../db/client';
+import { db, pool, type DbClient } from '../db/client';
 import { redis }             from '../redis/client';
 
 // ─────────────────────────────────────────────────────────
@@ -90,6 +98,48 @@ export async function runEpoch(): Promise<EpochResult | null> {
     const allFarms:  Farm[]      = await db.getActiveFarms();
     const allUsers:  User[]      = await db.getAllUsers();
     const usersMap               = new Map(allUsers.map(u => [u.id, u]));
+
+    // Загружаем синдикатные данные для применения бонусов
+    const userSyndicateMap   = new Map<string, { syndicateId: string; hashrateBonus: number; wearReduction: number }>();
+    const syndicateWinnerMap = new Map<string, string>(); // syndicateId → userId (leader, for notifications)
+    const activeSynBonuses   = new Map<string, Set<string>>(); // syndicateId → Set<bonusType>
+    try {
+      const { rows: memberships } = await pool.query(
+        `SELECT sm.user_id, sm.syndicate_id, sm.role, s.level
+         FROM syndicate_members sm JOIN syndicates s ON s.id = sm.syndicate_id`,
+      );
+      const { rows: bonusRows } = await pool.query(
+        `SELECT syndicate_id, type FROM syndicate_bonuses WHERE expires_at > NOW()`,
+      );
+
+      for (const b of bonusRows) {
+        if (!activeSynBonuses.has(b.syndicate_id)) activeSynBonuses.set(b.syndicate_id, new Set());
+        activeSynBonuses.get(b.syndicate_id)!.add(b.type);
+      }
+
+      for (const m of memberships) {
+        const level   = parseInt(m.level);
+        const milestoneKeys = Object.keys(SYNDICATE_LEVEL_MILESTONES).map(Number).sort((a, b) => b - a);
+        const mKey    = milestoneKeys.find(k => level >= k);
+        const passive = mKey ? SYNDICATE_LEVEL_MILESTONES[mKey] : null;
+
+        // Временные бонусы синдиката поверх пассивных
+        const synBonuses = activeSynBonuses.get(m.syndicate_id) ?? new Set<string>();
+        let hashrateBonus = passive?.hashrateBonus ?? 0;
+        if (synBonuses.has('boost_x1'))  hashrateBonus += 0.10;
+        if (synBonuses.has('boost_x2'))  hashrateBonus += 0.20;
+        if (synBonuses.has('domination')) hashrateBonus += 0.50;
+
+        userSyndicateMap.set(m.user_id, {
+          syndicateId:  m.syndicate_id,
+          hashrateBonus,
+          wearReduction: passive?.wearReduction ?? 0,
+        });
+        if (m.role === 'leader') syndicateWinnerMap.set(m.syndicate_id, m.user_id);
+      }
+    } catch {
+      console.warn('[Epoch] Не удалось загрузить данные синдикатов');
+    }
 
     // ── 3. Сезонная ставка (синусоида × halvingRate) ──
     const cycleDay    = poolStats.cycle_day ?? 1; // 1..28
@@ -143,8 +193,10 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       if (farmGpus.length === 0) continue;
 
-      // 4. Электричество (с сезонным коэффициентом)
-      const elec = processElectricityBill(farm, farmGpus, elecMultiplier);
+      // 4. Электричество (с сезонным коэффициентом + скидкой провайдера)
+      const providerDef     = PROVIDER_LEVELS.find(l => l.level === (farm.providerLevel ?? 1)) ?? PROVIDER_LEVELS[0];
+      const providerDiscount = 1 - (providerDef.igcDiscountPct / 100);
+      const elec = processElectricityBill(farm, farmGpus, elecMultiplier * providerDiscount);
       totalIgcConsumed += elec.igcCharged;
       farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcRemaining });
       elec.offlineGpuIds.forEach(id => offlineGpuSets.add(id));
@@ -193,21 +245,38 @@ export async function runEpoch(): Promise<EpochResult | null> {
         if (offlineGpuSets.has(gpu.id)) continue;
 
         const wear = calculateWear(gpu, farm.coolingLevel);
+        // Применяем снижение износа от синдиката
+        let finalHealth = wear.newHealth;
+        let finalBroken = wear.broken;
+        const userSynInfo = userSyndicateMap.get(farm.userId);
+        if (userSynInfo && userSynInfo.wearReduction > 0 && !wear.broken) {
+          const reducedWear = wear.wearApplied * (1 - userSynInfo.wearReduction);
+          finalHealth = Math.max(0, gpu.health - reducedWear);
+        }
+        // shield_break активен → игнорируем поломки
+        const synBonusSet = userSynInfo ? activeSynBonuses.get(userSynInfo.syndicateId) : null;
+        if (synBonusSet?.has('shield_break')) finalBroken = false;
+
         gpuUpdates.push({
           id:     gpu.id,
-          health: wear.newHealth,
-          status: wear.broken ? 'broken' : 'active',
+          health: finalBroken ? 0 : finalHealth,
+          status: finalBroken ? 'broken' : 'active',
         });
 
-        if (wear.broken) {
+        if (finalBroken) {
           console.log(`[Epoch] 💥 GPU ${gpu.id} (tier ${gpu.modelTier}) СЛОМАЛАСЬ! Health → 0.`);
           errors.push(`GPU ${gpu.id} сломана`);
           continue;
         }
 
-        // Эффективный хешрейт с учётом износа
-        const gpuH = effectiveHashrate({ ...gpu, health: wear.newHealth });
-        farmHashrate += gpuH;
+        // Эффективный хешрейт с учётом износа и uptime
+        const gpuH = effectiveHashrate({ ...gpu, health: finalHealth });
+        const upsDef = UPS_LEVELS.find(l => l.level === (farm.upsLevel ?? 1)) ?? UPS_LEVELS[0];
+        const fanDef = FAN_LEVELS.find(l => l.level === (gpu.fanLevel ?? 1)) ?? FAN_LEVELS[0];
+        const effectiveUptimePct = Math.min(99,
+          (GPU_BASE_UPTIME[gpu.modelTier] ?? 85) + upsDef.uptimeBonus + providerDef.uptimeBonus + fanDef.uptimeBonus,
+        );
+        farmHashrate += gpuH * (effectiveUptimePct / 100);
       }
 
       if (farmHashrate === 0) continue;
@@ -229,6 +298,12 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       let totalUserH = farmHashrate + refHashrate;
 
+      // Применяем синдикатный бонус к хешрейту
+      const synData = userSyndicateMap.get(user.id);
+      if (synData && synData.hashrateBonus > 0) {
+        totalUserH *= (1 + synData.hashrateBonus);
+      }
+
       // Применяем буст от Tap-to-Cool (+10% если boost_end > now)
       try {
         const nowSec   = Math.floor(Date.now() / 1000);
@@ -244,6 +319,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       const igcEarned = calculateIgcEarned(totalUserH);
       igcPerEpoch.set(user.id, igcEarned);
+      totalIgcProduced += igcEarned;
 
       minerSnapshots.push({
         userId:   user.id,
@@ -290,6 +366,71 @@ export async function runEpoch(): Promise<EpochResult | null> {
       }
     }
 
+    // ── 7а. Синдикатный XP за победу в блоке + stats ──
+    if (soloWinnerId) {
+      const winnerSyn = userSyndicateMap.get(soloWinnerId);
+      if (winnerSyn) {
+        try {
+          const { rows: [synRow] } = await pool.query(
+            `UPDATE syndicates
+             SET xp = xp + $1,
+                 total_blocks_won = total_blocks_won + 1,
+                 total_ton_earned = total_ton_earned + $2
+             WHERE id = $3
+             RETURNING xp, level`,
+            [SYNDICATE_XP_PER_BLOCK_WIN, epochReward, winnerSyn.syndicateId],
+          );
+          const newLevel = calcSyndicateLevelFromXp(parseFloat(synRow.xp));
+          if (newLevel > parseInt(synRow.level)) {
+            await pool.query(
+              `UPDATE syndicates SET level = $1 WHERE id = $2`,
+              [newLevel, winnerSyn.syndicateId],
+            );
+          }
+        } catch { /* не критично */ }
+      }
+    }
+
+    // ── 7б. Синдикатная статистика TON + IGC за эпоху ──
+    // Накапливаем по синдикатам: TON (pool-выплаты) + IGC (все майнеры)
+    try {
+      const synTonAccum = new Map<string, number>(); // syndicateId → totalTon
+      const synIgcAccum = new Map<string, number>(); // syndicateId → totalIgc
+
+      // TON от pool-выплат участникам синдиката
+      for (const payout of distribution.minerPayouts) {
+        const synInfo = userSyndicateMap.get(payout.userId);
+        if (!synInfo) continue;
+        if (payout.tonEarned > 0)
+          synTonAccum.set(synInfo.syndicateId, (synTonAccum.get(synInfo.syndicateId) ?? 0) + payout.tonEarned);
+      }
+
+      // IGC всех майнеров синдиката (pool + solo)
+      for (const snapshot of minerSnapshots) {
+        const synInfo = userSyndicateMap.get(snapshot.userId);
+        if (!synInfo) continue;
+        const igcEarned = igcPerEpoch.get(snapshot.userId) ?? 0;
+        if (igcEarned > 0)
+          synIgcAccum.set(synInfo.syndicateId, (synIgcAccum.get(synInfo.syndicateId) ?? 0) + igcEarned);
+      }
+
+      // Один UPDATE за синдикат
+      const allSynIds = new Set([...synTonAccum.keys(), ...synIgcAccum.keys()]);
+      for (const synId of allSynIds) {
+        const ton = synTonAccum.get(synId) ?? 0;
+        const igc = synIgcAccum.get(synId) ?? 0;
+        await pool.query(
+          `UPDATE syndicates
+           SET total_ton_earned = total_ton_earned + $1,
+               total_igc_earned = total_igc_earned + $2
+           WHERE id = $3`,
+          [ton, igc, synId],
+        );
+      }
+    } catch (e) {
+      console.warn('[Epoch] Ошибка обновления статистики синдикатов:', e);
+    }
+
     // ── 8. Халвинг ─────────────────────────────────────
     const updatedStats: PoolStats = {
       ...poolStats,
@@ -297,7 +438,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
       totalPaidOut:   poolStats.totalPaidOut   + totalDistributed,
       adminEarnedTon: poolStats.adminEarnedTon + distribution.commissionTaken,
       totalIgcMinted: (poolStats.totalIgcMinted ?? 0) + totalIgcProduced,
-      totalIgcBurned: poolStats.totalIgcBurned ?? 0,
+      totalIgcBurned: (poolStats.totalIgcBurned ?? 0) + totalIgcConsumed,
     };
 
     const halvingResult   = checkHalving(updatedStats);
@@ -358,9 +499,19 @@ export async function runEpoch(): Promise<EpochResult | null> {
         await trx.creditUser(ref.referrerId, { ton: 0, igc: ref.igcBonus });
       }
 
-      // Solo-победитель
+      // Solo-победитель получает TON
       if (soloWinnerId) {
         await trx.creditUser(soloWinnerId, { ton: epochReward, igc: 0 });
+      }
+
+      // Начисляем IGC solo-майнерам (pool-майнеры уже получили IGC выше)
+      const poolPayoutIds = new Set(distribution.minerPayouts.map(p => p.userId));
+      for (const snapshot of minerSnapshots) {
+        if (poolPayoutIds.has(snapshot.userId)) continue; // уже начислено
+        const igcEarned = igcPerEpoch.get(snapshot.userId) ?? 0;
+        if (igcEarned > 0) {
+          await trx.creditUser(snapshot.userId, { ton: 0, igc: igcEarned });
+        }
       }
 
       // Обновляем pool_stats
@@ -376,6 +527,41 @@ export async function runEpoch(): Promise<EpochResult | null> {
         activeMinerCount,
       });
     });
+
+    // ── Кэшируем дневной заработок в Redis ────────────────
+    const todayStr = epochAt.toISOString().slice(0, 10); // YYYY-MM-DD UTC
+    try {
+      const pipe = redis.pipeline();
+
+      // Pool-майнеры: TON + IGC
+      for (const payout of distribution.minerPayouts) {
+        const key = `earn:d:${payout.userId}:${todayStr}`;
+        if (payout.tonEarned > 0) pipe.hincrbyfloat(key, 'ton', payout.tonEarned);
+        if (payout.igcEarned > 0) pipe.hincrbyfloat(key, 'igc', payout.igcEarned);
+        pipe.expire(key, 9 * 86400);
+      }
+
+      // Solo-победитель: TON
+      if (soloWinnerId) {
+        const key = `earn:d:${soloWinnerId}:${todayStr}`;
+        pipe.hincrbyfloat(key, 'ton', epochReward);
+        pipe.expire(key, 9 * 86400);
+      }
+
+      // Solo-майнеры: IGC (pool-майнеры уже записаны выше)
+      const poolPayoutIdsRedis = new Set(distribution.minerPayouts.map(p => p.userId));
+      for (const snapshot of minerSnapshots) {
+        if (poolPayoutIdsRedis.has(snapshot.userId)) continue;
+        const igcEarned = igcPerEpoch.get(snapshot.userId) ?? 0;
+        if (igcEarned > 0) {
+          const key = `earn:d:${snapshot.userId}:${todayStr}`;
+          pipe.hincrbyfloat(key, 'igc', igcEarned);
+          pipe.expire(key, 9 * 86400);
+        }
+      }
+
+      await pipe.exec();
+    } catch { /* Redis недоступен — пропускаем кэш */ }
 
     // ── Уведомления о низком IGC (fire-and-forget) ─────────
     for (const alert of lowIgcAlerts) {
@@ -431,4 +617,17 @@ export async function runEpoch(): Promise<EpochResult | null> {
     // ── 11. Освобождаем лок всегда ─────────────────────
     try { await redis.del(REDIS_EPOCH_LOCK); } catch { /* Redis недоступен */ }
   }
+}
+
+function calcSyndicateLevelFromXp(xp: number): number {
+  let level = 1;
+  let remaining = xp;
+  for (let i = 0; i < SYNDICATE_LEVEL_XP_COSTS.length; i++) {
+    if (remaining >= SYNDICATE_LEVEL_XP_COSTS[i]) {
+      remaining -= SYNDICATE_LEVEL_XP_COSTS[i];
+      level++;
+    } else break;
+    if (level >= 50) break;
+  }
+  return Math.min(level, 50);
 }
