@@ -12,7 +12,7 @@ const ru = {
   // ── Табы ──────────────────────────────────────────────────
   tab_dashboard:   'Стата',
   tab_farm:        'Ферма',
-  tab_syndicate:   'Клан',
+  tab_syndicate:   'Синдикат',
   tab_market:      'Маркет',
   tab_leaderboard: 'Топ',
   tab_company:     'Компания',
@@ -428,7 +428,7 @@ const ru = {
 const en: typeof ru = {
   tab_dashboard:   'Stats',
   tab_farm:        'Farm',
-  tab_syndicate:   'Clan',
+  tab_syndicate:   'Syndicate',
   tab_market:      'Market',
   tab_leaderboard: 'Top',
   tab_company:     'Company',
