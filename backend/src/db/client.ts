@@ -102,8 +102,9 @@ function rowToPoolStats(row: Record<string, unknown>): PoolStats {
     currentPhase:   row.current_phase as PoolStats['currentPhase'],
     totalPaidOut:   parseFloat(row.total_paid_out    as string),
     adminEarnedTon: parseFloat(row.admin_earned_ton  as string),
-    totalIgcMinted: parseFloat((row.total_igc_minted as string) ?? '0'),
-    totalIgcBurned: parseFloat((row.total_igc_burned  as string) ?? '0'),
+    totalIgcMinted:    parseFloat((row.total_igc_minted    as string) ?? '0'),
+    totalIgcBurned:    parseFloat((row.total_igc_burned     as string) ?? '0'),
+    igcRatioSmoothed:  parseFloat((row.igc_ratio_smoothed   as string) ?? '1'),
   };
 }
 

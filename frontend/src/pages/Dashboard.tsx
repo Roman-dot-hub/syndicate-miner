@@ -3,8 +3,11 @@ import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 import { SEASON_EMOJI, GPU_SPECS } from '../types';
 import { FearGreedIndex } from '../components/FearGreedIndex';
+import { GpuIcon } from '../components/GpuIcon';
 import { useAction } from '../hooks/useAction';
 import { useTonConnect } from '../hooks/useTonConnect';
+import { useLang } from '../LangContext';
+import { fmt } from '../i18n';
 
 // ── Палитра ────────────────────────────────────────────────
 const CY  = '#00D4FF';
@@ -49,9 +52,14 @@ function fmtBig(n: number): string {
   return n.toFixed(0);
 }
 
-interface Props { data: SyncData; onUpdate: () => void }
+interface Props {
+  data: SyncData;
+  onUpdate: () => void;
+  optimisticMode?: 'pool' | 'solo' | null;
+  setOptimisticMode?: (m: 'pool' | 'solo' | null) => void;
+}
 
-export function Dashboard({ data, onUpdate }: Props) {
+export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }: Props) {
   const raw  = data.user as any;
   const user = {
     ...data.user,
@@ -60,9 +68,12 @@ export function Dashboard({ data, onUpdate }: Props) {
     miningMode: (raw.miningMode ?? raw.mining_mode ?? 'pool') as 'pool' | 'solo',
   };
   const { season, igc } = data;
+  const { t } = useLang();
   const { action }      = useAction();
   const { connected, connect } = useTonConnect();
   const [busy, setBusy] = useState(false);
+
+  const setOptMode = setOptimisticMode ?? (() => {});
 
   const activeGpus = data.gpus.filter(g => g.status === 'active');
   const totalHashrate = activeGpus.reduce((s, g) => {
@@ -78,27 +89,44 @@ export function Dashboard({ data, onUpdate }: Props) {
     ? (season.poolTon * season.dripRate * shareRatio).toFixed(4)
     : null;
 
+  const displayMode = optimisticMode ?? user.miningMode;
+
+  // Сбрасываем оптимистик только когда сервер реально вернул новый режим
+  useEffect(() => {
+    if (optimisticMode && user.miningMode === optimisticMode) {
+      setOptMode(null);
+    }
+  }, [user.miningMode, optimisticMode]);
+
   const toggleMode = async () => {
     if (busy) return;
+    const nextMode = displayMode === 'pool' ? 'solo' : 'pool';
     setBusy(true);
+    setOptMode(nextMode); // мгновенно переключаем UI
     WebApp.HapticFeedback.impactOccurred('medium');
     try {
-      await action('set_mode', { mode: user.miningMode === 'pool' ? 'solo' : 'pool' });
-      onUpdate();
-    } catch (e) { WebApp.showAlert(String(e)); }
-    finally     { setBusy(false); }
+      await action('set_mode', { mode: nextMode });
+      onUpdate(); // запускаем синк — useEffect очистит оптимистик когда данные придут
+    } catch (e) {
+      setOptMode(null); // только при ошибке откатываем
+      WebApp.showAlert(String(e));
+    } finally {
+      setBusy(false);
+      // НЕ сбрасываем оптимистик здесь — только через useEffect когда сервер подтвердит
+    }
   };
 
   const handleWithdraw = async () => {
+    if (busy) return;
     if (!connected) { connect(); return; }
-    if (user.tonBalance < 0.1) { WebApp.showAlert('Минимальная сумма вывода: 0.1 TON'); return; }
-    WebApp.showConfirm(`Вывести ${user.tonBalance.toFixed(4)} TON?`, async (ok) => {
-      if (!ok) return;
-      setBusy(true);
+    if (user.tonBalance < 0.1) { WebApp.showAlert(t.min_withdraw); return; }
+    setBusy(true);
+    WebApp.showConfirm(fmt(t.withdraw_confirm, { amount: user.tonBalance.toFixed(4) }), async (ok) => {
+      if (!ok) { setBusy(false); return; }
       try {
         await action('withdraw', { amount_ton: user.tonBalance });
         onUpdate();
-        WebApp.showAlert('Заявка принята. Придёт в течение 2 минут.');
+        WebApp.showAlert(t.withdraw_ok);
       } catch (e) { WebApp.showAlert(String(e)); }
       finally     { setBusy(false); }
     });
@@ -113,7 +141,12 @@ export function Dashboard({ data, onUpdate }: Props) {
   const modColor  = modPct > 0 ? GR : modPct < 0 ? '#FF3355' : DIM;
 
   const SEASON_ENDS: Record<string, number> = { spring: 7, summer: 14, autumn: 21, winter: 28 };
-  const SEASON_NEXT: Record<string, string> = { spring: '☀️ Лето', summer: '🍂 Осень', autumn: '❄️ Зима', winter: '🌸 Весна' };
+  const SEASON_NEXT: Record<string, string> = {
+    spring: t.season_summer,
+    summer: t.season_autumn,
+    autumn: t.season_winter,
+    winter: t.season_spring,
+  };
   const daysLeft = SEASON_ENDS[season.name] - season.day;
 
   const PHASE_BASE:      Record<number, number>         = { 1: 4, 2: 2, 3: 1, 4: 0.5 };
@@ -197,52 +230,53 @@ export function Dashboard({ data, onUpdate }: Props) {
             </div>
             <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.5, color: isActive ? GR : '#FF3355',
               textShadow: isActive ? `0 0 8px ${GR}` : '0 0 8px #FF3355' }}>
-              {isActive ? 'MINING ACTIVE' : 'NO MINERS'}
+              {isActive ? t.mining_active : t.no_miners}
             </span>
           </div>
           <button onClick={toggleMode} disabled={busy} style={{
             padding: '5px 13px', borderRadius: 6,
-            border: `1px solid ${user.miningMode === 'pool' ? CYE : 'rgba(255,107,53,0.4)'}`,
-            background: user.miningMode === 'pool' ? 'rgba(0,212,255,0.12)' : 'rgba(255,107,53,0.12)',
-            color: user.miningMode === 'pool' ? CY : OR,
+            border: `1px solid ${displayMode === 'pool' ? CYE : 'rgba(255,107,53,0.4)'}`,
+            background: displayMode === 'pool' ? 'rgba(0,212,255,0.12)' : 'rgba(255,107,53,0.12)',
+            color: displayMode === 'pool' ? CY : OR,
             fontSize: 11, fontWeight: 800, cursor: 'pointer', letterSpacing: 1.5,
-            boxShadow: user.miningMode === 'pool' ? '0 0 10px rgba(0,212,255,0.2)' : '0 0 10px rgba(255,107,53,0.2)',
+            boxShadow: displayMode === 'pool' ? '0 0 10px rgba(0,212,255,0.2)' : '0 0 10px rgba(255,107,53,0.2)',
           }}>
-            {user.miningMode === 'pool' ? '⛏ POOL' : '🎰 SOLO'}
+            {displayMode === 'pool' ? t.mode_pool : t.mode_solo}
           </button>
         </div>
 
         {/* GPU label + мини-статистика */}
         <div style={{ marginBottom: 8, position: 'relative' }}>
           {topGpu && (
-            <div style={{ textAlign: 'center', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 6 }}>
+              <GpuIcon tier={topGpu.modelTier ?? 0} size={16} />
               <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>
-                {GPU_SPECS[topGpu.modelTier]?.emoji} {GPU_SPECS[topGpu.modelTier]?.name?.toUpperCase()}
+                {GPU_SPECS[topGpu.modelTier]?.name?.toUpperCase()}
                 {activeGpus.length > 1 ? ` +${activeGpus.length - 1}` : ''}
               </span>
             </div>
           )}
           {/* Строка быстрых статов */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: 14 }}>
-            <MiniStat label="GPU" value={`${activeGpus.length}/${totalGpus}`} color={isActive ? GR : 'rgba(255,255,255,0.2)'} />
+            <MiniStat label={t.gpu_label} value={`${activeGpus.length}/${totalGpus}`} color={isActive ? GR : 'rgba(255,255,255,0.2)'} />
             <div style={{ width: 1, background: 'rgba(0,212,255,0.15)' }} />
             <MiniStat
-              label="HP ср."
+              label={t.hp_avg}
               value={isActive ? `${avgHealth}%` : '—'}
               color={avgHealth > 60 ? GR : avgHealth > 30 ? OR : '#FF3355'}
             />
             <div style={{ width: 1, background: 'rgba(0,212,255,0.15)' }} />
             <MiniStat
-              label="РЕЖИМ"
-              value={user.miningMode === 'pool' ? 'POOL' : 'SOLO'}
-              color={user.miningMode === 'pool' ? CY : OR}
+              label={t.mode_label}
+              value={displayMode === 'pool' ? 'POOL' : 'SOLO'}
+              color={displayMode === 'pool' ? CY : OR}
             />
           </div>
         </div>
 
         {/* Большой хешрейт */}
         <div style={{ textAlign: 'center', marginBottom: 6, position: 'relative' }}>
-          <div style={{ fontSize: 9, letterSpacing: 3, color: DIM, marginBottom: 6 }}>TOTAL HASHRATE</div>
+          <div style={{ fontSize: 9, letterSpacing: 3, color: DIM, marginBottom: 6 }}>{t.total_hashrate}</div>
           <div style={{
             fontSize: 44, fontWeight: 900, color: CY, lineHeight: 1,
             textShadow: `0 0 20px ${CY}, 0 0 50px rgba(0,212,255,0.5)`,
@@ -281,13 +315,13 @@ export function Dashboard({ data, onUpdate }: Props) {
         {/* Нижняя строка: доля + est. доход */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 10, color: DIM }}>
-            <span style={{ color: 'rgba(255,255,255,0.3)' }}>SHARE  </span>
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}>{t.share_label}  </span>
             <span style={{ color: sharePct ? CY : 'rgba(255,255,255,0.2)', fontWeight: 700 }}>
               {sharePct ? `${sharePct}%` : '—'}
             </span>
           </div>
           <div style={{ fontSize: 10, color: DIM }}>
-            <span style={{ color: 'rgba(255,255,255,0.3)' }}>~EST/ДЕНЬ  </span>
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}>{t.est_per_day}  </span>
             <span style={{ color: estTonDay ? OR : 'rgba(255,255,255,0.2)', fontWeight: 700 }}>
               {estTonDay ? `${estTonDay} TON` : '—'}
             </span>
@@ -300,32 +334,32 @@ export function Dashboard({ data, onUpdate }: Props) {
 
         {/* Ставка */}
         <StatCard
-          label="СТАВКА"
+          label={t.stat_rate}
           icon="📈"
           main={`${dripPct}%`}
-          sub="в день"
-          extra={<span style={{ color: modColor, fontSize: 10, fontWeight: 700 }}>{modStr} сезон</span>}
+          sub={t.stat_rate_sub}
+          extra={<span style={{ color: modColor, fontSize: 10, fontWeight: 700 }}>{modStr} {t.stat_season_mod}</span>}
         />
 
         {/* Сезон */}
         <StatCard
-          label="СЕЗОН"
+          label={t.stat_season}
           icon={SEASON_EMOJI[season.name]}
-          main={`День ${season.day}/28`}
-          sub={daysLeft > 0 ? `→ ${SEASON_NEXT[season.name]} через ${daysLeft}д` : 'Смена сезона!'}
+          main={fmt(t.stat_season_day, { day: season.day })}
+          sub={daysLeft > 0 ? fmt(t.stat_season_next, { next: SEASON_NEXT[season.name], days: daysLeft }) : t.stat_season_change}
           subColor={daysLeft === 0 ? OR : undefined}
           bar={<SeasonBar day={season.day} />}
         />
 
         {/* Фаза халвинга */}
         <StatCard
-          label="ФАЗА ХАЛВИНГА"
+          label={t.stat_halving}
           icon="🔄"
-          main={`Фаза ${season.phase}`}
+          main={fmt(t.stat_halving_phase, { phase: season.phase })}
           sub={phaseThreshold
             ? `${season.totalPaid.toFixed(0)} / ${phaseThreshold} TON`
-            : 'Финальная фаза'}
-          extra={<span style={{ color: DIM, fontSize: 10 }}>{phaseBase}%/день</span>}
+            : t.stat_halving_final}
+          extra={<span style={{ color: DIM, fontSize: 10 }}>{fmt(t.stat_halving_rate, { rate: phaseBase })}</span>}
           bar={phaseThreshold ? (
             <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
               <div style={{
@@ -340,11 +374,11 @@ export function Dashboard({ data, onUpdate }: Props) {
 
         {/* В сети */}
         <StatCard
-          label="В СЕТИ"
+          label={t.stat_online}
           icon="👥"
           main={`${data.network?.activeMiners ?? '—'}`}
-          sub="активных GPU"
-          extra={<span style={{ color: DIM, fontSize: 10 }}>{data.network?.totalUsers ?? '—'} игроков</span>}
+          sub={t.stat_online_gpus}
+          extra={<span style={{ color: DIM, fontSize: 10 }}>{data.network?.totalUsers ?? '—'} {t.stat_online_players}</span>}
         />
       </div>
 
@@ -357,7 +391,7 @@ export function Dashboard({ data, onUpdate }: Props) {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={{ fontSize: 9, letterSpacing: 2.5, color: 'rgba(255,180,130,0.6)', marginBottom: 4 }}>TON BALANCE</div>
+            <div style={{ fontSize: 9, letterSpacing: 2.5, color: 'rgba(255,180,130,0.6)', marginBottom: 4 }}>{t.ton_balance}</div>
             <div style={{
               fontSize: 30, fontWeight: 900, color: OR, lineHeight: 1,
               textShadow: `0 0 16px ${OR}`,
@@ -376,7 +410,7 @@ export function Dashboard({ data, onUpdate }: Props) {
             color: connected ? OR : 'rgba(255,255,255,0.35)',
             fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
           }}>
-            {connected ? '💸 ВЫВОД' : '🔗 КОШЕЛЁК'}
+            {connected ? t.withdraw_btn : t.wallet_btn}
           </button>
         </div>
       </div>
@@ -385,8 +419,8 @@ export function Dashboard({ data, onUpdate }: Props) {
       {data.earnings && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
-            { label: 'ВЧЕРА',  ton: data.earnings.yesterdayTon, igc: data.earnings.yesterdayIgc },
-            { label: '7 ДНЕЙ', ton: data.earnings.weekTon,      igc: data.earnings.weekIgc },
+            { label: t.earnings_yesterday, ton: data.earnings.yesterdayTon, igc: data.earnings.yesterdayIgc },
+            { label: t.earnings_week,      ton: data.earnings.weekTon,      igc: data.earnings.weekIgc },
           ].map(({ label, ton, igc: igcVal }) => (
             <div key={label} style={{
               background: CYB, borderRadius: 12, border: `1px solid ${CYE}`,
@@ -408,7 +442,7 @@ export function Dashboard({ data, onUpdate }: Props) {
       {/* ── POOL RESERVE ─────────────────────────────────── */}
       <div style={{ background: CYB, borderRadius: 14, border: `1px solid ${CYE}`, padding: '12px 14px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>POOL RESERVE</span>
+          <span style={{ fontSize: 9, letterSpacing: 2, color: DIM }}>{t.pool_reserve}</span>
           <span style={{ fontSize: 13, fontWeight: 700, color: CY,
             textShadow: `0 0 8px ${CY}` }}>{season.poolTon.toFixed(1)} TON</span>
         </div>
@@ -421,7 +455,7 @@ export function Dashboard({ data, onUpdate }: Props) {
           }} />
         </div>
         <div style={{ fontSize: 9, color: 'rgba(140,210,255,0.3)', marginTop: 6, letterSpacing: 1 }}>
-          ВЫПЛАЧЕНО: {season.totalPaid.toFixed(1)} TON
+          {t.pool_paid} {season.totalPaid.toFixed(1)} TON
         </div>
       </div>
 
@@ -437,15 +471,15 @@ export function Dashboard({ data, onUpdate }: Props) {
           return '<0.01%';
         };
         const rows = [
-          { label: 'ДОБЫТО',      value: animMinted,           bar: 1,                          color: 'rgba(155,89,182,0.9)' },
-          { label: 'СОЖЖЕНО',     value: animBurned,           bar: animBurned / barBase,        color: '#FF3355' },
-          { label: 'В ОБРАЩЕНИИ', value: circulating,          bar: circulating / barBase,       color: OR },
-          { label: 'ОСТАЛОСЬ',    value: IGC_MAX - animMinted, bar: (IGC_MAX - animMinted) / IGC_MAX, color: 'rgba(255,255,255,0.18)' },
+          { label: t.igc_minted,      value: animMinted,           bar: 1,                               color: 'rgba(155,89,182,0.9)' },
+          { label: t.igc_burned,      value: animBurned,           bar: animBurned / barBase,             color: '#FF3355' },
+          { label: t.igc_circulating, value: circulating,          bar: circulating / barBase,            color: OR },
+          { label: t.igc_remaining,   value: IGC_MAX - animMinted, bar: (IGC_MAX - animMinted) / IGC_MAX, color: 'rgba(255,255,255,0.18)' },
         ];
         return (
           <div style={{ background: CYB, borderRadius: 14, border: `1px solid ${CYE}`, padding: '12px 14px' }}>
             <div style={{ fontSize: 9, letterSpacing: 2, color: DIM, marginBottom: 12 }}>
-              IGC EMISSION — 10,000,000,000 MAX
+              {t.igc_emission}
             </div>
             {rows.map(r => (
               <div key={r.label} style={{ marginBottom: 9 }}>

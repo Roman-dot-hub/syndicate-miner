@@ -1,12 +1,16 @@
 import { useState } from 'react';
+import { InfoSheet, InfoBtn } from '../components/InfoSheet';
+import type { UpgradeInfo } from '../components/InfoSheet';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData, TapBoost, GPU } from '../types';
-import { FARM_LEVELS, GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS } from '../types';
+import { GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS } from '../types';
 import { useAction } from '../hooks/useAction';
 import { GpuCard }       from '../components/GpuCard';
 import { GpuDetailModal } from '../components/GpuDetailModal';
 import { GpuShopModal }  from '../components/GpuShopModal';
 import { AdBoost }       from '../components/AdBoost';
+import { useLang } from '../LangContext';
+import { fmt } from '../i18n';
 
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
@@ -14,7 +18,7 @@ function fmtH(h: number): string {
   return `${(h * 1000).toFixed(0)} MH/s`;
 }
 
-function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number) {
+function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0) {
   let totalHashrate = 0;
   let igcEarnDay    = 0;
   let igcCostDay    = 0;
@@ -28,14 +32,12 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
     totalHashrate += spec.hashrate * overcMult * uvMult;
     igcEarnDay    += spec.igcPerDay * overcMult * uvMult;
 
-    if (gpu.overclocked) {
-      igcCostDay += spec.igcCostPerDay * 1.20;
-    } else if (gpu.undervolted) {
-      const elecPerDay = spec.wattBackend * 0.001 * 288;
-      igcCostDay += spec.igcCostPerDay - elecPerDay * 0.10;
-    } else {
-      igcCostDay += spec.igcCostPerDay;
-    }
+    const baseCost = gpu.overclocked
+      ? spec.igcCostPerDay * 1.20
+      : gpu.undervolted
+        ? spec.igcCostPerDay - spec.wattBackend * 0.001 * 288 * 0.10
+        : spec.igcCostPerDay;
+    igcCostDay += baseCost * elecMult;
   }
 
   const dailyPoolTon = poolTon * dripRate;
@@ -56,6 +58,7 @@ interface Props {
 }
 
 export function Farm({ data, onUpdate }: Props) {
+  const { t } = useLang();
   const [boostEndTime, setBoostEndTime] = useState(() => {
     const stored = localStorage.getItem('adBoost_endTime');
     return stored ? parseInt(stored, 10) : 0;
@@ -91,9 +94,9 @@ export function Farm({ data, onUpdate }: Props) {
     maxSlots:        rawFarm.maxSlots        ?? rawFarm.max_slots        ?? 5,
     coolingLevel:    rawFarm.coolingLevel    ?? rawFarm.cooling_level    ?? 0,
     igcBalance:      rawFarm.igcBalance      ?? rawFarm.igc_balance      ?? 0,
-    serverRoomLevel: rawFarm.serverRoomLevel ?? rawFarm.server_room_level ?? 1,
-    upsLevel:        rawFarm.upsLevel        ?? rawFarm.ups_level         ?? 1,
-    providerLevel:   rawFarm.providerLevel   ?? rawFarm.provider_level   ?? 1,
+    serverRoomLevel: rawFarm.serverRoomLevel ?? rawFarm.server_room_level ?? 0,
+    upsLevel:        rawFarm.upsLevel        ?? rawFarm.ups_level         ?? 0,
+    providerLevel:   rawFarm.providerLevel   ?? rawFarm.provider_level   ?? 0,
     workbenchLevel:  rawFarm.workbenchLevel  ?? rawFarm.workbench_level  ?? 0,
   };
 
@@ -104,7 +107,8 @@ export function Farm({ data, onUpdate }: Props) {
   const globalH   = data.network?.globalHashrate ?? 0;
   const poolTon   = data.season.poolTon;
   const dripRate  = data.season.dripRate;
-  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH);
+  const elecMult  = data.igcSupply?.electricityMult ?? 1;
+  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult);
 
   // Refresh modal GPU state when data updates
   const refreshedSelected = selectedGpu
@@ -123,17 +127,17 @@ export function Farm({ data, onUpdate }: Props) {
       }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
-            🏭 {FARM_LEVELS[farm.level] ?? 'Ферма'}
+            🏭 {farmLvName(farm.level, t)}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-            {activeGpus.length} / {farm.maxSlots} слотов
+            {fmt(t.farm_slots, { active: activeGpus.length, max: farm.maxSlots })}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 12, color: '#9B59B6', fontWeight: 600 }}>
             {Math.floor(farm.igcBalance)} IGC
           </div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>на электричество</div>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{t.farm_electricity}</div>
         </div>
       </div>
 
@@ -151,19 +155,32 @@ export function Farm({ data, onUpdate }: Props) {
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             borderBottom: '1px solid rgba(255,255,255,0.05)',
           }}>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>⛏️ Суммарный хешрейт</span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{t.farm_hashrate}</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: '#0098EA' }}>{fmtH(stats.totalHashrate)}</span>
           </div>
           {/* Income / Expense grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
             {/* IGC income */}
             <div style={{ padding: '10px 16px', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 3 }}>IGC доход/день</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 3 }}>{t.farm_igc_income}</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#9B59B6' }}>+{stats.igcEarnDay.toFixed(1)}</div>
             </div>
             {/* IGC expense */}
             <div style={{ padding: '10px 16px' }}>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 3 }}>IGC расход/день</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{t.farm_igc_expense}</span>
+                {Math.abs(elecMult - 1) >= 0.02 && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 800, letterSpacing: 0.3,
+                    color: elecMult > 1 ? '#FF6B35' : '#00FF88',
+                    background: elecMult > 1 ? 'rgba(255,107,53,0.12)' : 'rgba(0,255,136,0.1)',
+                    border: `1px solid ${elecMult > 1 ? 'rgba(255,107,53,0.35)' : 'rgba(0,255,136,0.3)'}`,
+                    borderRadius: 3, padding: '1px 4px',
+                  }}>
+                    {elecMult > 1 ? '+' : ''}{Math.round((elecMult - 1) * 100)}%
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,100,100,0.85)' }}>−{stats.igcCostDay.toFixed(1)}</div>
             </div>
           </div>
@@ -173,7 +190,7 @@ export function Farm({ data, onUpdate }: Props) {
             display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0,
           }}>
             <div style={{ padding: '8px 16px', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>IGC баланс/день</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.farm_igc_balance}</div>
               <div style={{
                 fontSize: 13, fontWeight: 700,
                 color: stats.netIgcDay >= 0 ? '#2ECC71' : '#E74C3C',
@@ -182,10 +199,10 @@ export function Farm({ data, onUpdate }: Props) {
               </div>
             </div>
             <div style={{ padding: '8px 16px' }}>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>≈ TON/день</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.farm_ton_day}</div>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#F39C12' }}>
                 ~{stats.estimatedTonDay.toFixed(4)}
-                {!stats.isExact && <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginLeft: 3 }}>макс</span>}
+                {!stats.isExact && <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginLeft: 3 }}>{t.farm_ton_max}</span>}
               </div>
             </div>
           </div>
@@ -220,7 +237,7 @@ export function Farm({ data, onUpdate }: Props) {
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            Активные майнеры
+            {t.farm_active_label}
           </div>
           {storedGpus.length > 0 && (
             <button
@@ -233,7 +250,7 @@ export function Farm({ data, onUpdate }: Props) {
                 color: showStorage ? '#F39C12' : 'rgba(255,255,255,0.55)',
               }}
             >
-              📦 Склад ({storedGpus.length})
+              {fmt(t.farm_storage_btn, { n: storedGpus.length })}
             </button>
           )}
         </div>
@@ -249,8 +266,8 @@ export function Farm({ data, onUpdate }: Props) {
               cursor: 'pointer',
             }}
           >
-            Нет активных майнеров.<br />
-            <span style={{ color: '#0098EA', fontSize: 11 }}>Нажми чтобы купить GPU →</span>
+            {t.farm_no_miners}<br />
+            <span style={{ color: '#0098EA', fontSize: 11 }}>{t.farm_buy_hint}</span>
           </button>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -280,7 +297,7 @@ export function Farm({ data, onUpdate }: Props) {
                   transition: 'all 0.15s',
                 }}
               >
-                + Купить GPU
+                {t.farm_empty_slot}
               </button>
             ))}
           </div>
@@ -294,7 +311,7 @@ export function Farm({ data, onUpdate }: Props) {
             fontSize: 12, fontWeight: 600, color: '#F39C12',
             textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8,
           }}>
-            📦 Склад — неустановленное оборудование
+            {t.farm_storage_title}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {storedGpus.map(gpu => (
@@ -318,6 +335,7 @@ export function Farm({ data, onUpdate }: Props) {
           farmUps={farm.upsLevel}
           farmProvider={farm.providerLevel}
           igcRatio={data.igcSupply?.ratio ?? data.igc?.ratio ?? 1}
+          electricityMult={data.igcSupply?.electricityMult ?? 1}
           tapBoost={mergedBoost}
           onClose={() => setSelectedGpu(null)}
           onUpdate={() => { onUpdate(); }}
@@ -352,6 +370,11 @@ const WORKBENCH_UPGRADE_DATA = [
 
 const FARM_SLOT_LABELS: Record<number, number> = { 1: 5, 2: 10, 3: 20, 4: 50 };
 
+/** Returns the translated farm level name for a given numeric level */
+function farmLvName(lv: number, t: { farm_lv1: string; farm_lv2: string; farm_lv3: string; farm_lv4: string }): string {
+  return ({ 1: t.farm_lv1, 2: t.farm_lv2, 3: t.farm_lv3, 4: t.farm_lv4 } as Record<number, string>)[lv] ?? t.farm_lv1;
+}
+
 interface FarmUpgradesProps {
   farm:     { level: number; workbenchLevel: number };
   userTon:  number;
@@ -361,6 +384,7 @@ interface FarmUpgradesProps {
 }
 
 function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: FarmUpgradesProps) {
+  const { t } = useLang();
   const { action }       = useAction();
   const [busy, setBusy]  = useState<string | null>(null);
   const [open, setOpen]  = useState(false);
@@ -379,18 +403,17 @@ function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: Far
 
   const do_ = async (type: string, baseIgc: number, costTon: number, label: string) => {
     if (busy) return;
+    setBusy(type); // блокируем сразу — игрок видит реакцию до диалога
     const finalIgc = adjIgc(baseIgc);
-    const balStr = costTon > 0
-      ? `${userTon.toFixed(3)} TON`
-      : `${Math.floor(userIgc)} IGC`;
-    const costStr = costTon > 0
-      ? `${costTon} TON`
-      : `${finalIgc} IGC${ratioSuffix}`;
+    const balStr  = costTon > 0 ? `${userTon.toFixed(3)} TON` : `${Math.floor(userIgc)} IGC`;
+    const costStr = costTon > 0 ? `${costTon} TON` : `${finalIgc} IGC${ratioSuffix}`;
     const ok = await new Promise<boolean>(res =>
-      WebApp.showConfirm(`${label}\n\nСтоимость: ${costStr}\nБаланс: ${balStr}\n\nПодтвердить?`, res),
+      WebApp.showConfirm(
+        `${label}\n\n${fmt(t.confirm_cost, { cost: costStr })}\n${fmt(t.confirm_balance, { bal: balStr })}\n\n${t.confirm_q}`,
+        res,
+      ),
     );
-    if (!ok) return;
-    setBusy(type);
+    if (!ok) { setBusy(null); return; } // отменил — разблокируем
     try {
       await action(type, {});
       WebApp.HapticFeedback.notificationOccurred('success');
@@ -417,10 +440,11 @@ function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: Far
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🏠</span>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Ферма & Верстак</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{t.farm_wb_title}</div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
-              {FARM_LEVELS[farmLevel] ?? 'Балкон'} · {FARM_SLOT_LABELS[farmLevel] ?? 5} слотов
-              {wbLevel > 0 ? ` · Верстак Lv${wbLevel}` : ' · Верстак не установлен'}
+              {farmLvName(farmLevel, t)} · {FARM_SLOT_LABELS[farmLevel] ?? 5} · {wbLevel > 0
+                ? fmt(t.farm_wb_lv, { n: wbLevel, t: wbLevel * 2 })
+                : t.farm_wb_none}
             </div>
           </div>
         </div>
@@ -436,9 +460,9 @@ function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: Far
           {/* Farm level */}
           <MixedUpgradeRow
             emoji={nextFarm?.emoji ?? '🏠'}
-            label="Уровень фермы"
-            currentInfo={`${FARM_LEVELS[farmLevel] ?? 'Балкон'} · ${FARM_SLOT_LABELS[farmLevel] ?? 5} слотов`}
-            nextInfo={nextFarm ? `→ ${nextFarm.name} · ${nextFarm.slots} слотов` : null}
+            label={t.farm_level_label}
+            currentInfo={`${farmLvName(farmLevel, t)} · ${fmt(t.slots_n, { n: FARM_SLOT_LABELS[farmLevel] ?? 5 })}`}
+            nextInfo={nextFarm ? `→ ${farmLvName(nextFarm.level, t)} · ${fmt(t.slots_n, { n: nextFarm.slots })}` : null}
             costIgc={nextFarm?.costIgc ? adjIgc(nextFarm.costIgc) : null}
             costTon={nextFarm?.costTon ?? null}
             canAfford={nextFarm
@@ -447,13 +471,13 @@ function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: Far
             ratioSuffix={nextFarm?.costIgc && nextFarm.costIgc > 0 ? ratioSuffix : ''}
             busy={busy === nextFarm?.type}
             isMax={!nextFarm}
-            onPress={() => nextFarm && do_(nextFarm.type, nextFarm.costIgc, nextFarm.costTon, `${nextFarm.emoji} ${nextFarm.name}`)}
+            onPress={() => nextFarm && do_(nextFarm.type, nextFarm.costIgc, nextFarm.costTon, `${nextFarm.emoji} ${farmLvName(nextFarm.level, t)}`)}
           />
           {/* Workbench */}
           <MixedUpgradeRow
             emoji={nextWb?.emoji ?? '🔧'}
-            label="Верстак (ремонт GPU)"
-            currentInfo={wbLevel === 0 ? 'Не установлен · ремонт недоступен' : `Lv${wbLevel} · ремонт до T${wbLevel * 2}`}
+            label={t.farm_wb_label}
+            currentInfo={wbLevel === 0 ? t.farm_wb_none : fmt(t.farm_wb_lv, { n: wbLevel, t: wbLevel * 2 })}
             nextInfo={nextWb ? `→ ${nextWb.name}` : null}
             costIgc={nextWb?.costIgc ? adjIgc(nextWb.costIgc) : null}
             costTon={nextWb?.costTon ?? null}
@@ -476,6 +500,7 @@ function MixedUpgradeRow({ emoji, label, currentInfo, nextInfo, costIgc, costTon
   costIgc: number | null; costTon: number | null;
   canAfford: boolean; busy: boolean; isMax: boolean; ratioSuffix?: string; onPress: () => void;
 }) {
+  const { t } = useLang();
   const costLabel = costTon ? `${costTon} TON` : costIgc ? `${costIgc} IGC${ratioSuffix ?? ''}` : null;
   return (
     <div style={{
@@ -493,7 +518,7 @@ function MixedUpgradeRow({ emoji, label, currentInfo, nextInfo, costIgc, costTon
         </div>
       </div>
       {isMax ? (
-        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>МАКС</span>
+        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>{t.btn_max}</span>
       ) : (
         <button
           onClick={onPress}
@@ -527,20 +552,21 @@ interface ServerRoomProps {
 }
 
 function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
+  const { t, lang }       = useLang();
   const { action }        = useAction();
   const [busy, setBusy]   = useState<string | null>(null);
   const [open, setOpen]   = useState(false);
 
   const do_ = async (type: string, costTon: number, confirmLabel: string) => {
     if (busy) return;
+    setBusy(type); // блокируем сразу
     const ok = await new Promise<boolean>(res =>
       WebApp.showConfirm(
-        `${confirmLabel}\n\nСтоимость: ${costTon} TON\nБаланс: ${userTon.toFixed(3)} TON\n\nПодтвердить?`,
+        `${confirmLabel}\n\n${fmt(t.confirm_cost, { cost: `${costTon} TON` })}\n${fmt(t.confirm_balance, { bal: `${userTon.toFixed(3)} TON` })}\n\n${t.confirm_q}`,
         res,
       ),
     );
-    if (!ok) return;
-    setBusy(type);
+    if (!ok) { setBusy(null); return; }
     try {
       await action(type, {});
       WebApp.HapticFeedback.notificationOccurred('success');
@@ -556,11 +582,12 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
   const upsLevel  = farm.upsLevel;
   const provLevel = farm.providerLevel;
 
-  const srCur   = SERVER_ROOM_LEVELS.find(l => l.level === srLevel)!;
+  // level 0 = не куплено → cur = null (показываем "нет бонуса")
+  const srCur   = SERVER_ROOM_LEVELS.find(l => l.level === srLevel)  ?? null;
   const srNext  = SERVER_ROOM_LEVELS.find(l => l.level === srLevel + 1);
-  const upsCur  = UPS_LEVELS.find(l => l.level === upsLevel)!;
+  const upsCur  = UPS_LEVELS.find(l => l.level === upsLevel)         ?? null;
   const upsNext = UPS_LEVELS.find(l => l.level === upsLevel + 1);
-  const provCur  = PROVIDER_LEVELS.find(l => l.level === provLevel)!;
+  const provCur  = PROVIDER_LEVELS.find(l => l.level === provLevel)  ?? null;
   const provNext = PROVIDER_LEVELS.find(l => l.level === provLevel + 1);
 
   return (
@@ -579,9 +606,9 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🏢</span>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Серверная</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{t.infra_title}</div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
-              Инфраструктура · влияет на все GPU
+              {t.infra_sub}
             </div>
           </div>
         </div>
@@ -597,43 +624,58 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
         }}>
           <InfraUpgradeRow
             emoji="❄️"
-            label="Серверная комната"
+            label={t.infra_sr}
             levelInfo={`Lv${srLevel}/${SERVER_ROOM_LEVELS.length}`}
-            currentEffect={srCur.tempReduction > 0 ? `−${srCur.tempReduction}°C температура` : 'Без бонуса'}
+            currentEffect={srCur && srCur.tempReduction > 0 ? fmt(t.infra_temp_fx, { n: srCur.tempReduction }) : t.infra_no_bonus}
             nextEffect={srNext ? `→ −${srNext.tempReduction}°C` : null}
             costTon={srNext?.costTon ?? null}
             canAfford={srNext ? userTon >= srNext.costTon : false}
             busy={busy === 'upgrade_server_room'}
             isMax={!srNext}
-            onPress={() => do_('upgrade_server_room', srNext!.costTon, `❄️ Серверная Lv${srLevel} → Lv${srLevel + 1}`)}
+            onPress={() => do_('upgrade_server_room', srNext!.costTon, fmt(t.infra_sr_confirm, { a: srLevel, b: srLevel + 1 }))}
+            info={{
+              emoji: '❄️', title: t.infra_sr, costUnit: 'TON',
+              description: lang === 'ru' ? 'Снижает базовую температуру всей фермы. Чем холоднее — тем медленнее изнашиваются все GPU.' : 'Lowers base temperature of the whole farm. Cooler = slower wear on all GPUs.',
+              levels: SERVER_ROOM_LEVELS.map((lv, i) => ({ label: `Lv ${lv.level}`, effect: `−${lv.tempReduction}°C`, cost: `${lv.costTon} TON`, current: srLevel === i + 1 })),
+            }}
           />
           <InfraUpgradeRow
             emoji="🔋"
-            label="ИБП (UPS)"
+            label={t.infra_ups}
             levelInfo={`Lv${upsLevel}/${UPS_LEVELS.length}`}
-            currentEffect={upsCur.uptimeBonus > 0 ? `+${upsCur.uptimeBonus}% стабильность` : 'Без бонуса'}
+            currentEffect={upsCur && upsCur.uptimeBonus > 0 ? fmt(t.infra_uptime_fx, { n: upsCur.uptimeBonus }) : t.infra_no_bonus}
             nextEffect={upsNext ? `→ +${upsNext.uptimeBonus}%` : null}
             costTon={upsNext?.costTon ?? null}
             canAfford={upsNext ? userTon >= upsNext.costTon : false}
             busy={busy === 'upgrade_ups'}
             isMax={!upsNext}
-            onPress={() => do_('upgrade_ups', upsNext!.costTon, `🔋 ИБП Lv${upsLevel} → Lv${upsLevel + 1}`)}
+            onPress={() => do_('upgrade_ups', upsNext!.costTon, fmt(t.infra_ups_confirm, { a: upsLevel, b: upsLevel + 1 }))}
+            info={{
+              emoji: '🔋', title: t.infra_ups, costUnit: 'TON',
+              description: lang === 'ru' ? 'Повышает uptime всех GPU фермы. Выше uptime = больше часов в работе = больше TON и IGC.' : 'Boosts uptime of all farm GPUs. Higher uptime = more mining hours = more TON and IGC.',
+              levels: UPS_LEVELS.map((lv, i) => ({ label: `Lv ${lv.level}`, effect: `+${lv.uptimeBonus}% uptime`, cost: `${lv.costTon} TON`, current: upsLevel === i + 1 })),
+            }}
           />
           <InfraUpgradeRow
             emoji="📡"
-            label="Провайдер"
+            label={t.infra_provider}
             levelInfo={`Lv${provLevel}/${PROVIDER_LEVELS.length}`}
             currentEffect={
-              provCur.igcDiscountPct > 0
-                ? `−${provCur.igcDiscountPct}% IGC · +${provCur.uptimeBonus}% стаб.`
-                : 'Без бонуса'
+              provCur && provCur.igcDiscountPct > 0
+                ? fmt(t.infra_prov_fx, { igc: provCur.igcDiscountPct, up: provCur.uptimeBonus })
+                : t.infra_no_bonus
             }
             nextEffect={provNext ? `→ −${provNext.igcDiscountPct}% IGC` : null}
             costTon={provNext?.costTon ?? null}
             canAfford={provNext ? userTon >= provNext.costTon : false}
             busy={busy === 'upgrade_provider'}
             isMax={!provNext}
-            onPress={() => do_('upgrade_provider', provNext!.costTon, `📡 Провайдер Lv${provLevel} → Lv${provLevel + 1}`)}
+            onPress={() => do_('upgrade_provider', provNext!.costTon, fmt(t.infra_prov_confirm, { a: provLevel, b: provLevel + 1 }))}
+            info={{
+              emoji: '📡', title: t.infra_provider, costUnit: 'TON',
+              description: lang === 'ru' ? 'Снижает стоимость электричества в IGC и повышает uptime. Два эффекта сразу.' : 'Cuts IGC electricity cost and boosts uptime. Two effects at once.',
+              levels: PROVIDER_LEVELS.map((lv, i) => ({ label: `Lv ${lv.level}`, effect: `−${lv.igcDiscountPct}% IGC · +${lv.uptimeBonus}% uptime`, cost: `${lv.costTon} TON`, current: provLevel === i + 1 })),
+            }}
           />
         </div>
       )}
@@ -641,13 +683,17 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
   );
 }
 
-function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, costTon, canAfford, busy, isMax, onPress }: {
+function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, costTon, canAfford, busy, isMax, onPress, info }: {
   emoji: string; label: string; levelInfo: string;
   currentEffect: string; nextEffect: string | null;
   costTon: number | null; canAfford: boolean; busy: boolean; isMax: boolean;
   onPress: () => void;
+  info?: UpgradeInfo;
 }) {
+  const { t } = useLang();
+  const [sheetOpen, setSheetOpen] = useState(false);
   return (
+    <>
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10,
       padding: '9px 10px', borderRadius: 11,
@@ -659,6 +705,7 @@ function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, c
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{label}</span>
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>{levelInfo}</span>
+          {info && <InfoBtn onClick={() => setSheetOpen(true)} />}
         </div>
         <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
           {currentEffect}
@@ -666,7 +713,7 @@ function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, c
         </div>
       </div>
       {isMax ? (
-        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>МАКС</span>
+        <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700, flexShrink: 0 }}>{t.btn_max}</span>
       ) : (
         <button
           onClick={onPress}
@@ -689,5 +736,7 @@ function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, c
         </button>
       )}
     </div>
+    {sheetOpen && info && <InfoSheet info={info} onClose={() => setSheetOpen(false)} />}
+    </>
   );
 }

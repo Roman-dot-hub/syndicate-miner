@@ -1,28 +1,30 @@
 import React from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData, ReferralEntry } from '../types';
+import { useLang } from '../LangContext';
 
 interface Props { data: SyncData }
 
 export function Company({ data }: Props) {
+  const { t } = useLang();
   const { user } = data;
   const referrals: ReferralEntry[] = data.referrals ?? [];
 
   const l1 = referrals.filter(r => r.level === 1);
   const l2 = referrals.filter(r => r.level === 2);
 
-  const refLink = `https://t.me/Syndicate_miner_bot?start=ref_${user.tgUserId}`;
+  const refLink = `https://t.me/Syndicate_miner_bot/app?startapp=ref_${user.tgUserId}`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(refLink).then(() => {
       WebApp.HapticFeedback.notificationOccurred('success');
-      WebApp.showAlert('Ссылка скопирована!');
+      WebApp.showAlert(t.cmp_copied);
     });
   };
 
   const shareLink = () => {
     WebApp.HapticFeedback.impactOccurred('medium');
-    const text = encodeURIComponent(`⛏️ Syndicate Miner — строй крипто-ферму и зарабатывай TON!\n${refLink}`);
+    const text = encodeURIComponent(`${t.cmp_share_text}\n${refLink}`);
     window.open(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${text}`);
   };
 
@@ -35,10 +37,10 @@ export function Company({ data }: Props) {
         border: '1px solid rgba(155,89,182,0.25)',
       }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
-          🏢 Управляющая компания
+          {t.cmp_title}
         </div>
         <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 16 }}>
-          Приглашай игроков и получай % от их хешрейта
+          {t.cmp_sub}
         </div>
 
         <div style={{
@@ -55,14 +57,14 @@ export function Company({ data }: Props) {
             background: 'rgba(155,89,182,0.3)', color: '#9B59B6',
             fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}>
-            📋 Копировать
+            {t.cmp_copy}
           </button>
           <button onClick={shareLink} style={{
             flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
             background: '#0098EA', color: '#fff',
             fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}>
-            📤 Поделиться
+            {t.cmp_share}
           </button>
         </div>
       </div>
@@ -73,10 +75,10 @@ export function Company({ data }: Props) {
         border: '1px solid rgba(255,255,255,0.08)',
       }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>
-          💼 Структура бонусов
+          {t.cmp_bonuses}
         </div>
-        <BonusRow level="L1 (прямые)" pct="5%" desc="от хешрейта приглашённых" color="#2ECC71" />
-        <BonusRow level="L2 (рефералы рефералов)" pct="2%" desc="от их хешрейта" color="#F39C12" />
+        <BonusRow level={t.cmp_l1_label} pct="5%" desc={t.cmp_l1_desc} color="#2ECC71" />
+        <BonusRow level={t.cmp_l2_label} pct="2%" desc={t.cmp_l2_desc} color="#F39C12" />
       </div>
 
       {/* Как это работает */}
@@ -85,17 +87,11 @@ export function Company({ data }: Props) {
         border: '1px solid rgba(255,255,255,0.08)',
       }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 10 }}>
-          📖 Как работает
+          {t.cmp_how}
         </div>
-        {[
-          ['1.', 'Отправь реф-ссылку другу'],
-          ['2.', 'Он открывает игру и строит ферму'],
-          ['3.', 'Его хешрейт прибавляется к твоему (L1: +5%)'],
-          ['4.', 'Если он кого-то пригласит — ты получишь ещё +2% от их хешрейта (L2)'],
-          ['5.', 'Больше суммарный хешрейт → больше доля от пула → больше TON'],
-        ].map(([n, text]) => (
-          <div key={n} style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
-            <span style={{ color: '#0098EA', fontWeight: 700, minWidth: 16 }}>{n}</span>
+        {(t.cmp_how_steps as string[]).map((text, idx) => (
+          <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+            <span style={{ color: '#0098EA', fontWeight: 700, minWidth: 16 }}>{idx + 1}.</span>
             <span>{text}</span>
           </div>
         ))}
@@ -108,7 +104,7 @@ export function Company({ data }: Props) {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
-            👥 Моя сеть
+            {t.cmp_network}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <span style={countChip('#2ECC71')}>L1: {l1.length}</span>
@@ -118,14 +114,14 @@ export function Company({ data }: Props) {
 
         {referrals.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '16px 0', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
-            Ещё нет рефералов — поделись ссылкой 👆
+            {t.cmp_no_refs}
           </div>
         ) : (
           <>
             {l1.length > 0 && (
               <>
                 <div style={{ fontSize: 10, fontWeight: 600, color: '#2ECC71', letterSpacing: 1, marginBottom: 6 }}>
-                  L1 — ПРЯМЫЕ ({l1.length})
+                  {t.cmp_l1_group} ({l1.length})
                 </div>
                 {l1.map(r => <ReferralRow key={r.tgUserId} r={r} color="#2ECC71" />)}
               </>
@@ -133,7 +129,7 @@ export function Company({ data }: Props) {
             {l2.length > 0 && (
               <>
                 <div style={{ fontSize: 10, fontWeight: 600, color: '#F39C12', letterSpacing: 1, marginTop: l1.length > 0 ? 10 : 0, marginBottom: 6 }}>
-                  L2 — СЕТЬ РЕФЕРАЛОВ ({l2.length})
+                  {t.cmp_l2_group} ({l2.length})
                 </div>
                 {l2.map(r => <ReferralRow key={r.tgUserId} r={r} color="#F39C12" />)}
               </>
@@ -162,7 +158,7 @@ function BonusRow({ level, pct, desc, color }: { level: string; pct: string; des
 
 function ReferralRow({ r, color }: { r: ReferralEntry; color: string }) {
   const name = r.username ? `@${r.username}` : `#${r.tgUserId.slice(-5)}`;
-  const date = new Date(r.joinedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  const date = new Date(r.joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',

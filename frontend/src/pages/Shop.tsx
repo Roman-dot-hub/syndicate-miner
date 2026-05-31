@@ -3,6 +3,7 @@ import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 import { GPU_SPECS } from '../types';
 import { useAction } from '../hooks/useAction';
+import { GpuIcon } from '../components/GpuIcon';
 
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
@@ -32,10 +33,11 @@ const FARM_LEVELS = [
     emoji: '🚗',
     name: 'Гараж',
     slots: 20,
+
     cost: '12 TON',
     costIgc: 0, costTon: 12,
     perks: ['20 слотов для GPU', 'Пространство для ASIC-риг'],
-    availablePhase: 1,
+    availablePhase: 2,
   },
   {
     type: 'farm_level_4',
@@ -103,10 +105,10 @@ export function Shop({ data, onUpdate }: Props) {
 
   const buyGpu = async (tier: number) => {
     if (busyGpu !== null) return;
+    setBusyGpu(tier); // блокируем карточку сразу
     const spec = GPU_SPECS[tier];
     WebApp.showConfirm(`Купить ${spec.name} за ${spec.priceTon} TON?`, async (ok) => {
-      if (!ok) return;
-      setBusyGpu(tier);
+      if (!ok) { setBusyGpu(null); return; }
       try {
         await action('buy_gpu', { model_tier: tier });
         await onUpdate();
@@ -117,17 +119,20 @@ export function Shop({ data, onUpdate }: Props) {
   };
 
   const buyInfra = async (type: string, label: string, cost: string, _costIgc: number, costTon: number) => {
+    if (busyGpu !== null) return;
+    setBusyGpu(-1); // -1 = инфра-кнопка заблокирована
     const balance = costTon > 0 ? `${tonBalance.toFixed(3)} TON` : `${Math.floor(igcBalance)} IGC`;
     WebApp.showConfirm(
       `${label}\nСтоимость: ${cost}\nТвой баланс: ${balance}`,
       async (ok) => {
-        if (!ok) return;
+        if (!ok) { setBusyGpu(null); return; }
         try {
           await action(type);
           await onUpdate();
           WebApp.HapticFeedback.notificationOccurred('success');
           setExpanded(null);
         } catch (e) { WebApp.showAlert(String(e)); }
+        finally { setBusyGpu(null); }
       }
     );
   };
@@ -170,7 +175,7 @@ export function Shop({ data, onUpdate }: Props) {
               onClick={() => toggle(key)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
             >
-              <span style={{ fontSize: 26, flexShrink: 0 }}>{spec.emoji}</span>
+              <GpuIcon tier={tier} size={36} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: locked ? 'rgba(255,255,255,0.35)' : '#fff' }}>
                   {spec.name}

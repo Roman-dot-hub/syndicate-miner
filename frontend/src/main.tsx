@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
+import { LangProvider } from './LangContext';
 import App from './App';
 
 // Global error display — shown even if React fails to mount
@@ -34,9 +35,11 @@ try {
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <TonConnectUIProvider manifestUrl={manifestUrl}>
-        <App />
-      </TonConnectUIProvider>
+      <LangProvider>
+        <TonConnectUIProvider manifestUrl={manifestUrl}>
+          <App />
+        </TonConnectUIProvider>
+      </LangProvider>
     </React.StrictMode>,
   );
 } catch (e: unknown) {

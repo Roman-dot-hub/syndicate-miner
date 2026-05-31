@@ -64,11 +64,12 @@ export interface NetworkStats {
 }
 
 export interface IgcSupply {
-  totalMinted: number;
+  totalMinted:      number;
   totalBurned: number;
   remaining:   number;
-  ratio:       number;
-  pricePerIgc: number;
+  ratio:           number;
+  pricePerIgc:     number;
+  electricityMult: number;  // текущий множитель тарифа (сезон × ratio-индексация)
 }
 
 export interface PlayerEarnings {
@@ -119,6 +120,13 @@ export interface ReferralEntry {
   joinedAt: string;
 }
 
+export interface StakingData {
+  stakedTon:           number;  // сколько TON застейкано
+  dailyYieldIgc:       number;  // IGC в сутки при текущем стейке
+  unstakeLimitTon:     number;  // 1% пула = максимум вывода в сутки (суммарно по всем)
+  unstakeRemainingTon: number;  // сколько ещё можно вывести сегодня
+}
+
 export interface SyncData {
   user:       UserData;
   farm:       Farm;
@@ -130,6 +138,7 @@ export interface SyncData {
   tapBoost?:  TapBoost;
   network?:   NetworkStats;
   earnings?:  PlayerEarnings;
+  staking?:   StakingData;
   events:     Record<string, unknown>;
   syndicate?: SyndicateData | null;
   referrals?: ReferralEntry[];
@@ -152,47 +161,44 @@ export const GPU_SPECS: Record<number, {
   2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88 },
   3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86 },
   4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84 },
-  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 1, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82 },
-  6: { name: 'Квантовый X1',emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80 },
+  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82 },
+  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80 },
 };
 
 // ── Таблицы апгрейдов (зеркало backend constants.ts) ─────
 
+// 0 = не куплено, 1 = первый купленный апгрейд
 export const SERVER_ROOM_LEVELS = [
-  { level: 1, tempReduction: 0,  costTon: 0   },
-  { level: 2, tempReduction: 5,  costTon: 0.5 },
-  { level: 3, tempReduction: 12, costTon: 1.5 },
-  { level: 4, tempReduction: 22, costTon: 4.0 },
+  { level: 1, tempReduction: 5,  costTon: 0.5 },
+  { level: 2, tempReduction: 12, costTon: 1.5 },
+  { level: 3, tempReduction: 22, costTon: 4.0 },
 ] as const;
 
 export const UPS_LEVELS = [
-  { level: 1, uptimeBonus: 0,  costTon: 0   },
-  { level: 2, uptimeBonus: 5,  costTon: 0.4 },
-  { level: 3, uptimeBonus: 12, costTon: 1.0 },
-  { level: 4, uptimeBonus: 20, costTon: 3.0 },
+  { level: 1, uptimeBonus: 5,  costTon: 0.4 },
+  { level: 2, uptimeBonus: 12, costTon: 1.0 },
+  { level: 3, uptimeBonus: 20, costTon: 3.0 },
 ] as const;
 
 export const PROVIDER_LEVELS = [
-  { level: 1, uptimeBonus: 0, igcDiscountPct: 0,  costTon: 0   },
-  { level: 2, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
-  { level: 3, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
-  { level: 4, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
-  { level: 5, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
+  { level: 1, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
+  { level: 2, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
+  { level: 3, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
+  { level: 4, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
 ] as const;
 
+// level = номер покупки (1 = первый апгрейд), 0 = не куплено (базовое состояние)
 export const PASTE_LEVELS = [
-  { level: 1, tempReduction: 0,  costIgc: 0    },
-  { level: 2, tempReduction: 5,  costIgc: 200  },
-  { level: 3, tempReduction: 10, costIgc: 600  },
-  { level: 4, tempReduction: 15, costIgc: 1500 },
+  { level: 1, tempReduction: 5,  costIgc: 200  },
+  { level: 2, tempReduction: 10, costIgc: 600  },
+  { level: 3, tempReduction: 15, costIgc: 1500 },
 ] as const;
 
 export const FAN_LEVELS = [
-  { level: 1, uptimeBonus: 0,  costIgc: 0    },
-  { level: 2, uptimeBonus: 4,  costIgc: 250  },
-  { level: 3, uptimeBonus: 8,  costIgc: 750  },
-  { level: 4, uptimeBonus: 12, costIgc: 1900 },
-  { level: 5, uptimeBonus: 16, costIgc: 4800 },
+  { level: 1, uptimeBonus: 4,  costIgc: 250  },
+  { level: 2, uptimeBonus: 8,  costIgc: 750  },
+  { level: 3, uptimeBonus: 12, costIgc: 1900 },
+  { level: 4, uptimeBonus: 16, costIgc: 4800 },
 ] as const;
 
 // Жидкостное охлаждение GPU (per-GPU апгрейд, 3 уровня, за IGC)

@@ -45,7 +45,7 @@ export const GPU_SPECS: Record<number, {
   2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // GTX 1660S — ~30д до 50%
   3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // RTX 3070 — ~30д до 50%
   4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0056, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // RTX 4090 — ~31д до 50%
-  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 1 }, // ASIC S19 — ~30д до 50%
+  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 2 }, // ASIC S19 — ~30д до 50%
   6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0040, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // X1 — ~43д до 50%
 };
 
@@ -71,6 +71,14 @@ export const COOLING_KTEMP: Record<number, number> = {
 // ── ЭЛЕКТРИЧЕСТВО ────────────────────────────────────────
 // Стоимость 1 Ватта в IGC за эпоху
 export const IGC_PER_WATT_PER_EPOCH = 0.001;
+
+// Индексация электричества по IGC-ratio (ограниченный диапазон)
+// Дефицит (ratio < 1) → свет дешевле → стимулирует майнинг
+// Профицит (ratio > 1) → свет дороже → давит производство IGC
+export const ELEC_RATIO_MULT_MIN  = 0.85;  // нижний порог (дефицит)
+export const ELEC_RATIO_MULT_MAX  = 1.20;  // верхний порог (профицит)
+export const ELEC_RATIO_SENSITIVITY = 0.20; // 20% изменение на единицу ratio
+export const REDIS_ELEC_MULT        = 'epoch:elec_mult'; // текущий итоговый множитель
 
 // ── ПОЛОМКИ ──────────────────────────────────────────────
 // P_fail = ((100-health)/100)³ / BREAKAGE_PROBABILITY_FACTOR
@@ -100,6 +108,12 @@ export const TAP_COOLDOWN_SEC       = 21600;
 export const TAP_JITTER_MIN_MS      = 15;
 export const TAP_JITTER_SAMPLE      = 5;
 
+// ── СТЕЙКИНГ TON ─────────────────────────────────────────
+// Игрок стейкает TON → TON идёт в резервный пул → каждую эпоху начисляется IGC
+export const STAKE_IGC_PER_TON_PER_DAY    = 5;     // 5 IGC на 1 TON в сутки (≈18.25% годовых при ratio=1)
+export const STAKE_MIN_TON                = 1;     // минимальная сумма стейкинга
+export const STAKE_UNSTAKE_DAILY_LIMIT_PCT = 0.01; // 1% от пула можно вывести в сутки суммарно
+
 // ── AD BOOST ─────────────────────────────────────────────
 export const AD_BOOST_SEC           = 300;     // +5 минут буста за просмотр
 export const AD_VIEWS_PER_CYCLE     = 10;      // просмотров до обязательной паузы
@@ -113,47 +127,43 @@ export const GPU_BASE_UPTIME: Record<number, number> = {
 };
 
 // ── АПГРЕЙДЫ СЕРВЕРНОЙ (глобальные, за TON) ──────────────
+// 0 = не куплено, 1 = первый купленный апгрейд
 // server_room_level: снижает T_ambient для всей фермы
 export const SERVER_ROOM_LEVELS: Array<{ level: number; tempReduction: number; costTon: number }> = [
-  { level: 1, tempReduction: 0,  costTon: 0   },
-  { level: 2, tempReduction: 5,  costTon: 0.5 },
-  { level: 3, tempReduction: 12, costTon: 1.5 },
-  { level: 4, tempReduction: 22, costTon: 4.0 },
+  { level: 1, tempReduction: 5,  costTon: 0.5 },
+  { level: 2, tempReduction: 12, costTon: 1.5 },
+  { level: 3, tempReduction: 22, costTon: 4.0 },
 ];
 
 // ups_level: глобальный бонус к uptime всех GPU фермы (%)
 export const UPS_LEVELS: Array<{ level: number; uptimeBonus: number; costTon: number }> = [
-  { level: 1, uptimeBonus: 0,  costTon: 0   },
-  { level: 2, uptimeBonus: 5,  costTon: 0.4 },
-  { level: 3, uptimeBonus: 12, costTon: 1.0 },
-  { level: 4, uptimeBonus: 20, costTon: 3.0 },
+  { level: 1, uptimeBonus: 5,  costTon: 0.4 },
+  { level: 2, uptimeBonus: 12, costTon: 1.0 },
+  { level: 3, uptimeBonus: 20, costTon: 3.0 },
 ];
 
 // provider_level: глобальный uptime + скидка на электричество IGC (%)
 export const PROVIDER_LEVELS: Array<{ level: number; uptimeBonus: number; igcDiscountPct: number; costTon: number }> = [
-  { level: 1, uptimeBonus: 0, igcDiscountPct: 0,  costTon: 0   },
-  { level: 2, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
-  { level: 3, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
-  { level: 4, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
-  { level: 5, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
+  { level: 1, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
+  { level: 2, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
+  { level: 3, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
+  { level: 4, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
 ];
 
 // ── ПОУЗЛОВЫЕ АПГРЕЙДЫ GPU (за IGC) ─────────────────────
-// paste_level: снижает нагрев конкретного GPU (°C)
+// paste_level: 0 = не куплено (базовое), 1–3 = купленные апгрейды
 export const PASTE_LEVELS: Array<{ level: number; tempReduction: number; costIgc: number }> = [
-  { level: 1, tempReduction: 0,  costIgc: 0    },
-  { level: 2, tempReduction: 5,  costIgc: 200  },
-  { level: 3, tempReduction: 10, costIgc: 600  },
-  { level: 4, tempReduction: 15, costIgc: 1500 },
+  { level: 1, tempReduction: 5,  costIgc: 200  },
+  { level: 2, tempReduction: 10, costIgc: 600  },
+  { level: 3, tempReduction: 15, costIgc: 1500 },
 ];
 
-// fan_level: бонус к uptime конкретного GPU (%)
+// fan_level: 0 = не куплено (базовое), 1–4 = купленные апгрейды
 export const FAN_LEVELS: Array<{ level: number; uptimeBonus: number; costIgc: number }> = [
-  { level: 1, uptimeBonus: 0,  costIgc: 0    },
-  { level: 2, uptimeBonus: 4,  costIgc: 250  },
-  { level: 3, uptimeBonus: 8,  costIgc: 750  },
-  { level: 4, uptimeBonus: 12, costIgc: 1900 },
-  { level: 5, uptimeBonus: 16, costIgc: 4800 },
+  { level: 1, uptimeBonus: 4,  costIgc: 250  },
+  { level: 2, uptimeBonus: 8,  costIgc: 750  },
+  { level: 3, uptimeBonus: 12, costIgc: 1900 },
+  { level: 4, uptimeBonus: 16, costIgc: 4800 },
 ];
 
 // cooling_level (жидкостное охлаждение): снижает температуру конкретного GPU (°C)

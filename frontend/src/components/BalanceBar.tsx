@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { UserData } from '../types';
+import { useLang } from '../LangContext';
 
 // Анимированное число — плавный count-up при изменении
 function useAnimatedValue(target: number, decimals: number): string {
@@ -28,13 +29,14 @@ function useAnimatedValue(target: number, decimals: number): string {
   return val.toFixed(decimals);
 }
 
-interface Props { user: UserData }
+interface Props { user: UserData; optimisticMode?: 'pool' | 'solo' | null }
 
-export function BalanceBar({ user }: Props) {
+export function BalanceBar({ user, optimisticMode }: Props) {
+  const { t, lang, setLang } = useLang();
   const u   = user as any;
   const ton = parseFloat(u.tonBalance ?? u.ton_balance ?? 0);
   const igc = parseFloat(u.igcBalance ?? u.igc_balance ?? 0);
-  const mode = u.miningMode ?? u.mining_mode ?? 'pool';
+  const mode = optimisticMode ?? u.miningMode ?? u.mining_mode ?? 'pool';
 
   const tonStr = useAnimatedValue(ton, 4);
   const igcStr = useAnimatedValue(Math.floor(igc), 0);
@@ -59,17 +61,38 @@ export function BalanceBar({ user }: Props) {
         <CyberCoin label="IGC" value={igcStr} color="#BD00FF" glow="rgba(189,0,255,0.4)" />
       </div>
 
-      <div style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
-        color: mode === 'pool' ? '#00D4FF' : '#FF6B35',
-        background: mode === 'pool' ? 'rgba(0,212,255,0.1)' : 'rgba(255,107,53,0.1)',
-        border: `1px solid ${mode === 'pool' ? 'rgba(0,212,255,0.25)' : 'rgba(255,107,53,0.25)'}`,
-        padding: '3px 9px', borderRadius: 6,
-        boxShadow: mode === 'pool'
-          ? '0 0 8px rgba(0,212,255,0.2)'
-          : '0 0 8px rgba(255,107,53,0.2)',
-      }}>
-        {mode === 'pool' ? '⛏ POOL' : '🎰 SOLO'}
+      {/* Right side: mode badge + lang toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
+          color: mode === 'pool' ? '#00D4FF' : '#FF6B35',
+          background: mode === 'pool' ? 'rgba(0,212,255,0.1)' : 'rgba(255,107,53,0.1)',
+          border: `1px solid ${mode === 'pool' ? 'rgba(0,212,255,0.25)' : 'rgba(255,107,53,0.25)'}`,
+          padding: '3px 9px', borderRadius: 6,
+          boxShadow: mode === 'pool'
+            ? '0 0 8px rgba(0,212,255,0.2)'
+            : '0 0 8px rgba(255,107,53,0.2)',
+        }}>
+          {mode === 'pool' ? t.mode_pool : t.mode_solo}
+        </div>
+
+        {/* Language toggle */}
+        <button
+          onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')}
+          style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+            background: 'rgba(0,212,255,0.07)',
+            border: '1px solid rgba(0,212,255,0.2)',
+            borderRadius: 6, padding: '3px 7px',
+            cursor: 'pointer', color: 'rgba(0,212,255,0.65)',
+            lineHeight: 1,
+          }}
+        >
+          <span style={{ fontSize: 13 }}>🌐</span>
+          <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.5 }}>
+            {lang === 'ru' ? 'EN' : 'RU'}
+          </span>
+        </button>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useEffect, Component } from 'react';
 import type { ReactNode } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useSync } from './hooks/useSync';
+import { useLang } from './LangContext';
 
 // ── Error Boundary — catches React render crashes ──
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
@@ -14,29 +15,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
   }
   render() {
     if (this.state.error) {
-      return (
-        <div style={{
-          minHeight: '100vh', display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          background: '#17212b', color: '#fff', gap: 12, padding: 24,
-        }}>
-          <div style={{ fontSize: 32 }}>⚠️</div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Ошибка рендера</div>
-          <div style={{
-            fontSize: 11, color: 'rgba(255,255,255,0.5)', wordBreak: 'break-all',
-            background: 'rgba(255,0,0,0.1)', padding: 12, borderRadius: 8,
-            maxWidth: 320, textAlign: 'center',
-          }}>
-            {this.state.error}
-          </div>
-          <button onClick={() => window.location.reload()} style={{
-            marginTop: 8, padding: '8px 24px', borderRadius: 8, border: 'none',
-            background: '#0098EA', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-          }}>
-            Перезагрузить
-          </button>
-        </div>
-      );
+      return <ErrorDisplay error={this.state.error} />;
     }
     return this.props.children;
   }
@@ -48,22 +27,29 @@ import { Market }      from './pages/Market';
 import { Company }     from './pages/Company';
 import { Leaderboard } from './pages/Leaderboard';
 import { Syndicate }   from './pages/Syndicate';
+import { Guide }       from './pages/Guide';
 
-type Tab = 'farm' | 'dashboard' | 'market' | 'company' | 'leaderboard' | 'syndicate';
+type Tab = 'farm' | 'dashboard' | 'market' | 'company' | 'leaderboard' | 'syndicate' | 'guide';
 
-const TABS: { id: Tab; emoji: string; label: string }[] = [
-  { id: 'dashboard',   emoji: '📊', label: 'Стата'    },
-  { id: 'farm',        emoji: '🏭', label: 'Ферма'    },
-  { id: 'syndicate',   emoji: '⚔️', label: 'Клан'     },
-  { id: 'market',      emoji: '🔄', label: 'Маркет'   },
-  { id: 'leaderboard', emoji: '🏆', label: 'Топ'      },
-  { id: 'company',     emoji: '🏢', label: 'Компания' },
-];
+// TABS defined inside App to pick up translations
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('farm');
   const isInTelegram  = Boolean(WebApp.initData);
   const { data, loading, error, retrying, sync } = useSync();
+  const { t } = useLang();
+  // Оптимистичный режим майнинга — синхронизируется между BalanceBar и Dashboard
+  const [optimisticMode, setOptimisticMode] = useState<'pool' | 'solo' | null>(null);
+
+  const TABS: { id: Tab; emoji: string; label: string }[] = [
+    { id: 'dashboard',   emoji: '📊', label: t.tab_dashboard   },
+    { id: 'farm',        emoji: '🏭', label: t.tab_farm        },
+    { id: 'syndicate',   emoji: '⚔️', label: t.tab_syndicate   },
+    { id: 'market',      emoji: '🔄', label: t.tab_market      },
+    { id: 'leaderboard', emoji: '🏆', label: t.tab_leaderboard },
+    { id: 'company',     emoji: '🏢', label: t.tab_company     },
+    { id: 'guide',       emoji: '📖', label: t.tab_guide       },
+  ];
 
   useEffect(() => {
     WebApp.ready();
@@ -99,28 +85,21 @@ export default function App() {
   };
 
   if (!isInTelegram) return (
-    <Splash
-      text="Открой через Telegram"
-      sub={'Найди бота @Syndicate_miner_bot и нажми «Играть»'}
-    />
+    <Splash text={t.open_telegram} sub={t.open_telegram_sub} />
   );
 
   if (loading || retrying) return (
     <LoadingSplash retrying={retrying} />
   );
   if (error || !data) return (
-    <Splash
-      text="Нет соединения с сервером"
-      sub={error ?? ''}
-      retry={sync}
-    />
+    <Splash text={t.no_connection} sub={error ?? ''} retry={sync} retryLabel={t.retry} />
   );
 
   if (!data.user || !data.farm) return (
     <Splash
-      text="Данные не загружены"
+      text={t.data_not_loaded}
       sub={`user=${JSON.stringify(data.user)?.slice(0,60)}`}
-      retry={sync}
+      retry={sync} retryLabel={t.retry}
     />
   );
 
@@ -189,17 +168,18 @@ export default function App() {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}>
         {/* Balance header */}
-        <BalanceBar user={data.user} />
+        <BalanceBar user={data.user} optimisticMode={optimisticMode} />
 
         {/* Page content — анимация при смене вкладки */}
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
           <div key={tab} style={{ animation: 'page-in 0.22s ease-out' }}>
-            {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} />}
+            {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} optimisticMode={optimisticMode} setOptimisticMode={setOptimisticMode} />}
             {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
             {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
             {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} />}
             {tab === 'leaderboard' && <Leaderboard />}
             {tab === 'company'     && <Company     data={data} />}
+            {tab === 'guide'       && <Guide />}
           </div>
         </div>
 
@@ -212,12 +192,12 @@ export default function App() {
           paddingBottom: 'env(safe-area-inset-bottom)',
           backdropFilter: 'blur(12px)',
         }}>
-          {TABS.map(t => {
-            const active = tab === t.id;
+          {TABS.map(tb => {
+            const active = tab === tb.id;
             return (
               <button
-                key={t.id}
-                onClick={() => switchTab(t.id)}
+                key={tb.id}
+                onClick={() => switchTab(tb.id)}
                 style={{
                   flex: 1, padding: '8px 0 6px', border: 'none',
                   background: 'transparent', cursor: 'pointer',
@@ -235,14 +215,14 @@ export default function App() {
                     borderRadius: '0 0 2px 2px',
                   }} />
                 )}
-                <span style={{ fontSize: 20 }}>{t.emoji}</span>
+                <span style={{ fontSize: 20 }}>{tb.emoji}</span>
                 <span style={{
                   fontSize: 10,
                   fontWeight: active ? 700 : 400,
                   letterSpacing: active ? 0.5 : 0,
                   animation: active ? 'tab-glow 2.5s ease-in-out infinite' : 'none',
                 }}>
-                  {t.label}
+                  {tb.label}
                 </span>
               </button>
             );
@@ -254,15 +234,37 @@ export default function App() {
   );
 }
 
-// ── Экран загрузки с прогресс-баром ─────────────────────
-const LOAD_STEPS = [
-  { pct: 20, label: 'Подключение к серверу...' },
-  { pct: 45, label: 'Загружаем ферму...'        },
-  { pct: 70, label: 'Синхронизируем GPU...'      },
-  { pct: 88, label: 'Почти готово...'            },
-];
+// ── ErrorBoundary fallback (functional, can use hooks) ────
+function ErrorDisplay({ error }: { error: string }) {
+  const { t } = useLang();
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      background: '#17212b', color: '#fff', gap: 12, padding: 24,
+    }}>
+      <div style={{ fontSize: 32 }}>⚠️</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{t.render_error}</div>
+      <div style={{
+        fontSize: 11, color: 'rgba(255,255,255,0.5)', wordBreak: 'break-all',
+        background: 'rgba(255,0,0,0.1)', padding: 12, borderRadius: 8,
+        maxWidth: 320, textAlign: 'center',
+      }}>
+        {error}
+      </div>
+      <button onClick={() => window.location.reload()} style={{
+        marginTop: 8, padding: '8px 24px', borderRadius: 8, border: 'none',
+        background: '#0098EA', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+      }}>
+        {t.reload}
+      </button>
+    </div>
+  );
+}
 
+// ── Экран загрузки с прогресс-баром ─────────────────────
 function LoadingSplash({ retrying }: { retrying: boolean }) {
+  const { t } = useLang();
   const [pct,      setPct]      = useState(0);
   const [stepIdx,  setStepIdx]  = useState(0);
   const [dots,     setDots]     = useState('');
@@ -312,13 +314,22 @@ function LoadingSplash({ retrying }: { retrying: boolean }) {
 
   // Шаги текста
   useEffect(() => {
-    const steps = retrying
-      ? [{ pct: 10, label: 'Сервер просыпается...' }, { pct: 40, label: 'Ждём ответа...' }, { pct: 75, label: 'Почти готов...' }]
-      : LOAD_STEPS;
+    const loadSteps = [
+      { pct: 20, label: t.load_connecting },
+      { pct: 45, label: t.load_farm       },
+      { pct: 70, label: t.load_gpu        },
+      { pct: 88, label: t.load_almost     },
+    ];
+    const retrySteps = [
+      { pct: 10, label: t.load_server_waking },
+      { pct: 40, label: t.load_waiting       },
+      { pct: 75, label: t.load_ready         },
+    ];
+    const steps = retrying ? retrySteps : loadSteps;
     let idx = 0;
     for (let i = 0; i < steps.length; i++) { if (pct >= steps[i].pct) idx = i; }
     setStepIdx(idx);
-  }, [pct, retrying]);
+  }, [pct, retrying, t]);
 
   // Мигающие точки
   useEffect(() => {
@@ -326,9 +337,18 @@ function LoadingSplash({ retrying }: { retrying: boolean }) {
     return () => clearInterval(id);
   }, []);
 
-  const steps = retrying
-    ? [{ pct: 10, label: 'Сервер просыпается...' }, { pct: 40, label: 'Ждём ответа...' }, { pct: 75, label: 'Почти готов...' }]
-    : LOAD_STEPS;
+  const loadSteps = [
+    { pct: 20, label: t.load_connecting },
+    { pct: 45, label: t.load_farm       },
+    { pct: 70, label: t.load_gpu        },
+    { pct: 88, label: t.load_almost     },
+  ];
+  const retrySteps = [
+    { pct: 10, label: t.load_server_waking },
+    { pct: 40, label: t.load_waiting       },
+    { pct: 75, label: t.load_ready         },
+  ];
+  const steps = retrying ? retrySteps : loadSteps;
   const stepLabel = steps[Math.max(0, stepIdx)]?.label ?? steps[steps.length - 1].label;
 
   return (
@@ -357,9 +377,21 @@ function LoadingSplash({ retrying }: { retrying: boolean }) {
       </div>
       <div style={{
         fontSize: 13, fontWeight: 400, letterSpacing: 6,
-        color: 'rgba(0,212,255,0.5)', marginBottom: 32,
+        color: 'rgba(0,212,255,0.5)', marginBottom: 14,
       }}>
         MINER
+      </div>
+
+      {/* Бета-бейдж */}
+      <div style={{
+        fontSize: 10, fontWeight: 800, letterSpacing: 2,
+        color: '#FF6B35',
+        background: 'rgba(255,107,53,0.1)',
+        border: '1px solid rgba(255,107,53,0.35)',
+        borderRadius: 6, padding: '3px 10px',
+        marginBottom: 28,
+      }}>
+        BETA
       </div>
 
       {/* Шаг загрузки */}
@@ -397,15 +429,15 @@ function LoadingSplash({ retrying }: { retrying: boolean }) {
           marginTop: 28, fontSize: 10, letterSpacing: 1,
           color: 'rgba(140,210,255,0.35)', textAlign: 'center', lineHeight: 1.8,
         }}>
-          СЕРВЕР ЗАПУСКАЕТСЯ<br />
-          <span style={{ color: 'rgba(140,210,255,0.55)' }}>обычно ~30 секунд</span>
+          {t.server_starting}<br />
+          <span style={{ color: 'rgba(140,210,255,0.55)' }}>{t.server_starting_sub}</span>
         </div>
       )}
     </div>
   );
 }
 
-function Splash({ text, sub, retry }: { text: string; sub?: string; retry?: () => void }) {
+function Splash({ text, sub, retry, retryLabel }: { text: string; sub?: string; retry?: () => void; retryLabel?: string }) {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
@@ -422,7 +454,7 @@ function Splash({ text, sub, retry }: { text: string; sub?: string; retry?: () =
           background: 'rgba(0,212,255,0.1)',
           color: '#00D4FF', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
         }}>
-          ПОВТОРИТЬ
+          {retryLabel ?? 'RETRY'}
         </button>
       )}
     </div>

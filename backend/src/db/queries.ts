@@ -352,12 +352,12 @@ export const sync = {
     ] = await Promise.all([
       pool.query(
         `SELECT id, tg_user_id, ton_balance, igc_balance, mining_mode,
-                daily_spend_ton, last_spend_reset
+                daily_spend_ton, last_spend_reset, staked_ton
          FROM users WHERE id = $1`,
         [userId],
       ),
       pool.query(
-        `SELECT g.*, f.cooling_level
+        `SELECT g.*, f.cooling_level AS farm_cooling_level
          FROM gpus g JOIN farms f ON f.id = g.farm_id
          WHERE g.user_id = $1 ORDER BY g.created_at`,
         [userId],

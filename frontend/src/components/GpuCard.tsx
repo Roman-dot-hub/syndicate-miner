@@ -1,5 +1,8 @@
 import type { GPU, TapBoost } from '../types';
 import { GPU_SPECS } from '../types';
+import { useLang } from '../LangContext';
+import { fmt } from '../i18n';
+import { GpuIcon } from './GpuIcon';
 
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
@@ -14,6 +17,7 @@ interface Props {
 }
 
 export function GpuCard({ gpu, onClick, tapBoost }: Props) {
+  const { t } = useLang();
   const tier = gpu.modelTier ?? (gpu as any).model_tier ?? 0;
   const spec = GPU_SPECS[tier] ?? GPU_SPECS[0];
 
@@ -73,9 +77,9 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
         }} />
       )}
 
-      {/* Emoji + status dot */}
+      {/* GPU Icon + status dot */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <span style={{ fontSize: 28 }}>{spec.emoji}</span>
+        <GpuIcon tier={tier} size={38} />
         {isActive && !boostActive && (
           <span style={{
             position: 'absolute', top: 1, right: -3,
@@ -137,9 +141,9 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
         </div>
 
         <div style={{ fontSize: 10, color: 'rgba(140,210,255,0.45)', marginBottom: 6 }}>
-          {isStored  ? '📦 НА СКЛАДЕ'
-           : isBroken ? '⚠️ ТРЕБУЕТ РЕМОНТА'
-           : isOffline ? 'ОФЛАЙН'
+          {isStored  ? t.gpu_stored
+           : isBroken ? t.gpu_broken_label
+           : isOffline ? t.gpu_offline
            : `${fmtH(spec.hashrate)} · ${spec.watt}W`}
         </div>
 
@@ -164,7 +168,7 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
             textShadow: '0 0 8px rgba(0,212,255,0.8)',
             animation: 'oc-pulse 1s ease-in-out infinite',
           }}>
-            ⚡ BOOST ACTIVE · {tapBoost!.secondsLeft}s
+            {fmt(t.boost_active, { sec: tapBoost!.secondsLeft })}
           </div>
         )}
       </div>

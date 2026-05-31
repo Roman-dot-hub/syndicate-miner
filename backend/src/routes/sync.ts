@@ -14,10 +14,12 @@ import { sync }             from '../db/queries';
 import { getLiveIgcStatus } from '../monitoring/igcMonitor';
 import { sendTgMessage }    from '../notifications/sendTgNotification';
 import { redis }                                                  from '../redis/client';
-import { REDIS_TAP_PREFIX, REDIS_GLOBAL_H, TAP_SESSION_LIMIT,
+import { REDIS_TAP_PREFIX, REDIS_GLOBAL_H, REDIS_ELEC_MULT, TAP_SESSION_LIMIT,
          REDIS_AD_COUNT_PREFIX, REDIS_AD_COOLDOWN_PREFIX, AD_VIEWS_PER_CYCLE,
          SYNDICATE_LEVEL_MILESTONES, SYNDICATE_BASE_MAX_MEMBERS,
-         SYNDICATE_LEVEL_XP_COSTS }                             from '../epoch/constants';
+         SYNDICATE_LEVEL_XP_COSTS,
+         ELEC_RATIO_MULT_MIN, ELEC_RATIO_MULT_MAX, ELEC_RATIO_SENSITIVITY,
+         STAKE_IGC_PER_TON_PER_DAY, STAKE_UNSTAKE_DAILY_LIMIT_PCT } from '../epoch/constants';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -67,7 +69,8 @@ export async function syncRoutes(app: FastifyInstance) {
       const { rows: [row] } = await pool.query(
         `SELECT cycle_day, season, drip_rate, current_phase,
                 reserve_pool_ton, total_paid_out,
-                total_igc_minted, total_igc_burned, igc_ratio_smoothed
+                total_igc_minted, total_igc_burned, igc_ratio_smoothed,
+                staking_daily_unstaked, staking_daily_unstake_date
          FROM pool_stats WHERE id = 1`,
       );
       poolRow = row;
@@ -108,6 +111,27 @@ export async function syncRoutes(app: FastifyInstance) {
       const raw = await redis.get(REDIS_GLOBAL_H);
       globalHashrate = parseFloat(raw ?? '0');
     } catch { /* Redis недоступен */ }
+
+    // ── Множитель электричества: Redis → fallback расчёт на лету ──
+    let electricityMult = 1.0;
+    try {
+      const raw = await redis.get(REDIS_ELEC_MULT);
+      if (raw) {
+        electricityMult = parseFloat(raw);
+      } else {
+        // Redis пуст (первый запуск) — считаем по формуле
+        const cycleDay  = poolRow?.cycle_day ?? 1;
+        const seasonMod = 1 + 0.25 * Math.sin(2 * Math.PI * cycleDay / 28);
+        const ratioMult = Math.max(ELEC_RATIO_MULT_MIN, Math.min(ELEC_RATIO_MULT_MAX, 1.0 + (igcRatio - 1.0) * ELEC_RATIO_SENSITIVITY));
+        electricityMult = (2.0 - seasonMod) * ratioMult;
+      }
+    } catch {
+      // Redis недоступен — fallback
+      const cycleDay  = poolRow?.cycle_day ?? 1;
+      const seasonMod = 1 + 0.25 * Math.sin(2 * Math.PI * cycleDay / 28);
+      const ratioMult = Math.max(ELEC_RATIO_MULT_MIN, Math.min(ELEC_RATIO_MULT_MAX, 1.0 + (igcRatio - 1.0) * ELEC_RATIO_SENSITIVITY));
+      electricityMult = (2.0 - seasonMod) * ratioMult;
+    }
     if (!globalHashrate) {
       try {
         const { rows: [lastEpoch] } = await pool.query(
@@ -277,9 +301,9 @@ export async function syncRoutes(app: FastifyInstance) {
       workbenchLevel:  rawFarm.workbench_level  ?? 0,
       maxSlots:        rawFarm.max_slots ?? 5,
       igcBalance:      parseFloat(rawUser?.igc_balance ?? '0'),
-      serverRoomLevel: rawFarm.server_room_level ?? 1,
-      upsLevel:        rawFarm.ups_level         ?? 1,
-      providerLevel:   rawFarm.provider_level    ?? 1,
+      serverRoomLevel: rawFarm.server_room_level ?? 0,
+      upsLevel:        rawFarm.ups_level         ?? 0,
+      providerLevel:   rawFarm.provider_level    ?? 0,
     } : null;
 
     const mapGpu = (g: any) => ({
@@ -289,10 +313,10 @@ export async function syncRoutes(app: FastifyInstance) {
       status:        g.status,
       overclocked:   g.overclocked ?? false,
       undervolted:   g.undervolted ?? false,
-      coolingLevel:  g.cooling_level ?? 0,
-      isRefurbished: g.is_refurbished ?? false,
-      pasteLevel:    g.paste_level ?? 1,
-      fanLevel:      g.fan_level   ?? 1,
+      coolingLevel:  g.coolingLevel  ?? g.cooling_level  ?? 1,  // camelCase (из rowToGpu) или snake_case
+      isRefurbished: g.is_refurbished ?? g.isRefurbished ?? false,
+      pasteLevel:    g.pasteLevel    ?? g.paste_level    ?? 0,  // 0 = не куплено
+      fanLevel:      g.fanLevel      ?? g.fan_level      ?? 0,  // 0 = не куплено
     });
 
     const mappedGpus      = rawGpus.filter((g: any) => g.status !== 'stored').map(mapGpu);
@@ -314,12 +338,29 @@ export async function syncRoutes(app: FastifyInstance) {
           poolTon:    parseFloat(poolRow?.reserve_pool_ton ?? '0'),
           totalPaid:  parseFloat(poolRow?.total_paid_out ?? '0'),
         },
+        staking: (() => {
+          const stakedTon    = parseFloat(rawUser?.staked_ton ?? '0');
+          const poolSize     = parseFloat(poolRow?.reserve_pool_ton ?? '0');
+          const dailyLimit   = poolSize * STAKE_UNSTAKE_DAILY_LIMIT_PCT;
+          const isToday      = poolRow?.staking_daily_unstake_date
+            ? new Date(poolRow.staking_daily_unstake_date).toDateString() === new Date().toDateString()
+            : false;
+          const alreadyOut   = isToday ? parseFloat(poolRow?.staking_daily_unstaked ?? '0') : 0;
+          const dailyYieldIgc = stakedTon * STAKE_IGC_PER_TON_PER_DAY;
+          return {
+            stakedTon,
+            dailyYieldIgc:      parseFloat(dailyYieldIgc.toFixed(4)),
+            unstakeLimitTon:    parseFloat(dailyLimit.toFixed(4)),
+            unstakeRemainingTon: parseFloat(Math.max(0, dailyLimit - alreadyOut).toFixed(4)),
+          };
+        })(),
         igcSupply: {
-          totalMinted:   parseFloat(poolRow?.total_igc_minted ?? '0'),
-          totalBurned:   parseFloat(poolRow?.total_igc_burned  ?? '0'),
-          remaining:     10_000_000_000 - parseFloat(poolRow?.total_igc_minted ?? '0'),
-          ratio:         igcRatio,
-          pricePerIgc:   Math.max(0.00005, Math.min(0.0005, 0.0001 / Math.max(0.5, igcRatio))),
+          totalMinted:     parseFloat(poolRow?.total_igc_minted ?? '0'),
+          totalBurned:     parseFloat(poolRow?.total_igc_burned  ?? '0'),
+          remaining:       10_000_000_000 - parseFloat(poolRow?.total_igc_minted ?? '0'),
+          ratio:           igcRatio,
+          pricePerIgc:     Math.max(0.00005, Math.min(0.0005, 0.0001 / Math.max(0.5, igcRatio))),
+          electricityMult: parseFloat(electricityMult.toFixed(3)),
         },
         earnings: earningsData,
         tapBoost,
@@ -365,11 +406,13 @@ async function registerNewPlayer(
     }
 
     // Создать пользователя (mining_mode = 'solo' по умолчанию из схемы БД)
+    // ⚠️ БЕТА: новым игрокам выдаём 20 тестовых TON — убрать перед запуском смарт-контракта
+    const BETA_START_TON = 20;
     const { rows: [newUser] } = await client.query(`
-      INSERT INTO users (tg_user_id, tg_username, igc_balance, inviter_id)
-      VALUES ($1, $2, 150, $3)
+      INSERT INTO users (tg_user_id, tg_username, ton_balance, igc_balance, inviter_id)
+      VALUES ($1, $2, $3, 150, $4)
       RETURNING id
-    `, [tgUser.id, tgUser.username ?? null, inviterId]);
+    `, [tgUser.id, tgUser.username ?? null, BETA_START_TON, inviterId]);
 
     // Создать ферму (уровень 1 = Балкон, 5 слотов)
     const { rows: [farm] } = await client.query(`

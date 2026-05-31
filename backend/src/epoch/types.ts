@@ -52,8 +52,9 @@ export interface PoolStats {
   adminEarnedTon: number;
   totalIgcMinted: number;   // всего IGC добыто с начала игры
   totalIgcBurned: number;   // всего IGC сожжено (электро, ремонт, продажа)
-  cycle_day?:     number;   // день 28-дневного цикла (1–28)
-  season?:        string;   // spring | summer | autumn | winter
+  cycle_day?:          number;   // день 28-дневного цикла (1–28)
+  season?:             string;   // spring | summer | autumn | winter
+  igcRatioSmoothed?:   number;   // EMA-сглаженный ratio из pool_stats
 }
 
 // Результат одной эпохи — для логирования

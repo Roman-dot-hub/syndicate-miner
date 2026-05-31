@@ -3,6 +3,8 @@ import WebApp from '@twa-dev/sdk';
 import type { SyncData } from '../types';
 import { GPU_SPECS } from '../types';
 import { useAction } from '../hooks/useAction';
+import { useLang } from '../LangContext';
+import { GpuIcon } from './GpuIcon';
 
 // ── Палитра ───────────────────────────────────────────────
 const CY  = '#00D4FF';
@@ -26,6 +28,7 @@ interface Props {
 }
 
 export function GpuShopModal({ data, onClose, onUpdate }: Props) {
+  const { t } = useLang();
   const { action }              = useAction();
   const [busyGpu, setBusyGpu]   = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -111,10 +114,10 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
         }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 900, color: '#E0F0FF', letterSpacing: 0.3 }}>
-              🖥️ МАГАЗИН GPU
+              {t.shop_title}
             </div>
             <div style={{ fontSize: 9, letterSpacing: 2, color: DIM, marginTop: 2 }}>
-              ФАЗА {phase} · ДОСТУПНОЕ ОБОРУДОВАНИЕ
+              {t.shop_phase} {phase} · {t.shop_subtitle}
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -192,9 +195,8 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
                       background: locked ? 'rgba(255,255,255,0.05)' : CYB,
                       border: `1px solid ${locked ? 'rgba(255,255,255,0.08)' : CYE}`,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 24,
                     }}>
-                      {spec.emoji}
+                      <GpuIcon tier={tier} size={34} />
                     </div>
 
                     {/* Инфо */}
@@ -209,7 +211,7 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
                             background: 'rgba(255,51,85,0.12)', border: '1px solid rgba(255,51,85,0.3)',
                             borderRadius: 4, padding: '1px 5px',
                           }}>
-                            🔒 ФАЗА {spec.availablePhase}
+                            🔒 {t.shop_phase} {spec.availablePhase}
                           </span>
                         )}
                       </div>
@@ -259,9 +261,9 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
                         gap: 6, marginBottom: 10,
                       }}>
                         {[
-                          { label: 'ХЕШРЕЙТ',     value: fmtH(spec.hashrate),              color: CY  },
-                          { label: 'ДОХОД/ДЕНЬ',   value: `+${spec.igcPerDay.toFixed(1)}`,  color: PU  },
-                          { label: 'РАСХОД/ДЕНЬ',  value: `−${spec.igcCostPerDay.toFixed(1)}`, color: '#FF3355' },
+                          { label: t.hashrate_label, value: fmtH(spec.hashrate),              color: CY  },
+                          { label: t.income_day,     value: `+${spec.igcPerDay.toFixed(1)}`,  color: PU  },
+                          { label: t.expense_day,    value: `−${spec.igcCostPerDay.toFixed(1)}`, color: '#FF3355' },
                         ].map((s, i) => (
                           <div key={i} style={{
                             background: CYB, borderRadius: 8, border: `1px solid ${CYE}`,
@@ -275,9 +277,9 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
 
                       {/* Доп. строки */}
                       {[
-                        { label: 'Мощность',        value: `${spec.watt}W`,                                    color: DIM      },
-                        { label: 'IGC баланс/день',  value: `${netIgc >= 0 ? '+' : ''}${netIgc.toFixed(1)} IGC`, color: netColor },
-                        { label: 'Стабильность (баз.)', value: `${spec.baseUptime}%`,                           color: spec.baseUptime >= 88 ? GR : OR },
+                        { label: t.shop_power,     value: `${spec.watt}W`,                                    color: DIM      },
+                        { label: t.shop_igc_bal,   value: `${netIgc >= 0 ? '+' : ''}${netIgc.toFixed(1)} IGC`, color: netColor },
+                        { label: t.shop_stability, value: `${spec.baseUptime}%`,                              color: spec.baseUptime >= 88 ? GR : OR },
                       ].map(row => (
                         <div key={row.label} style={{
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -296,7 +298,7 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
                           border: '1px solid rgba(255,107,53,0.25)',
                           borderRadius: 8, padding: '7px 10px',
                         }}>
-                          ⚠️ IGC-расход превышает добычу. Окупается за счёт доли сети в TON.
+                          ⚠️ {t.shop_warning}
                         </div>
                       )}
                     </div>

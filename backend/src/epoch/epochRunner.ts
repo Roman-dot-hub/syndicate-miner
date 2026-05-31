@@ -22,6 +22,11 @@ import {
   REFERRAL_L2_HASHRATE_BONUS,
   REDIS_EPOCH_LOCK,
   REDIS_GLOBAL_H,
+  REDIS_ELEC_MULT,
+  ELEC_RATIO_MULT_MIN,
+  ELEC_RATIO_MULT_MAX,
+  STAKE_IGC_PER_TON_PER_DAY,
+  ELEC_RATIO_SENSITIVITY,
   REDIS_TAP_PREFIX,
   EPOCH_INTERVAL_MS,
   SYNDICATE_LEVEL_MILESTONES,
@@ -148,7 +153,16 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
     // Коэффициент электричества — в противофазе к сезону
     // Лето (пик) → 0.95x, Зима (дно) → 1.25x
-    let elecMultiplier = 2.2 - seasonMod; // ~0.95 – 1.45
+    let elecMultiplier = 2.0 - seasonMod; // 0.75 – 1.25, нейтраль = 1.0
+
+    // Индексация по IGC-ratio: дефицит → дешевле, профицит → дороже
+    const igcRatio     = poolStats.igcRatioSmoothed ?? 1;
+    const ratioMult    = Math.max(
+      ELEC_RATIO_MULT_MIN,
+      Math.min(ELEC_RATIO_MULT_MAX, 1.0 + (igcRatio - 1.0) * ELEC_RATIO_SENSITIVITY),
+    );
+    elecMultiplier    *= ratioMult;
+    console.log(`[Epoch] ⚡ elecMult: сезон=${(2.2 - seasonMod).toFixed(3)} ratio=${igcRatio.toFixed(3)} ratioMult=${ratioMult.toFixed(3)} → итого=${elecMultiplier.toFixed(3)}`);
 
     // ── 3а. Читаем активные системные события ───────────
     // emergency_burn: boost_electricity × N (поднимает спрос IGC при профиците)
@@ -194,8 +208,12 @@ export async function runEpoch(): Promise<EpochResult | null> {
       if (farmGpus.length === 0) continue;
 
       // 4. Электричество (с сезонным коэффициентом + скидкой провайдера)
-      const providerDef     = PROVIDER_LEVELS.find(l => l.level === (farm.providerLevel ?? 1)) ?? PROVIDER_LEVELS[0];
-      const providerDiscount = 1 - (providerDef.igcDiscountPct / 100);
+      // level 0 = не куплено → нет бонусов
+      const providerDef = farm.providerLevel > 0
+        ? (PROVIDER_LEVELS.find(l => l.level === farm.providerLevel) ?? null)
+        : null;
+      const providerDiscount = providerDef ? 1 - (providerDef.igcDiscountPct / 100) : 1;
+      const providerUptime   = providerDef?.uptimeBonus ?? 0;
       const elec = processElectricityBill(farm, farmGpus, elecMultiplier * providerDiscount);
       totalIgcConsumed += elec.igcCharged;
       farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcRemaining });
@@ -271,10 +289,15 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
         // Эффективный хешрейт с учётом износа и uptime
         const gpuH = effectiveHashrate({ ...gpu, health: finalHealth });
-        const upsDef = UPS_LEVELS.find(l => l.level === (farm.upsLevel ?? 1)) ?? UPS_LEVELS[0];
-        const fanDef = FAN_LEVELS.find(l => l.level === (gpu.fanLevel ?? 1)) ?? FAN_LEVELS[0];
+        const upsDef = farm.upsLevel > 0
+          ? (UPS_LEVELS.find(l => l.level === farm.upsLevel) ?? null) : null;
+        const fanDef = gpu.fanLevel > 0
+          ? (FAN_LEVELS.find(l => l.level === gpu.fanLevel) ?? null)  : null;
         const effectiveUptimePct = Math.min(99,
-          (GPU_BASE_UPTIME[gpu.modelTier] ?? 85) + upsDef.uptimeBonus + providerDef.uptimeBonus + fanDef.uptimeBonus,
+          (GPU_BASE_UPTIME[gpu.modelTier] ?? 85)
+          + (upsDef?.uptimeBonus ?? 0)
+          + providerUptime
+          + (fanDef?.uptimeBonus ?? 0),
         );
         farmHashrate += gpuH * (effectiveUptimePct / 100);
       }
@@ -331,8 +354,9 @@ export async function runEpoch(): Promise<EpochResult | null> {
       });
     }
 
-    // Обновляем кэш глобального хешрейта в Redis
+    // Обновляем кэш глобального хешрейта и множителя электричества в Redis
     try { await redis.set(REDIS_GLOBAL_H, globalHashrate.toFixed(4)); } catch { /* Redis недоступен */ }
+    try { await redis.set(REDIS_ELEC_MULT, elecMultiplier.toFixed(4)); } catch { /* Redis недоступен */ }
 
     // ── 6. Розыгрыш блока (Solo Lottery) ───────────────
     const lottery = runBlockLottery(minerSnapshots);
@@ -437,7 +461,34 @@ export async function runEpoch(): Promise<EpochResult | null> {
       console.warn('[Epoch] Ошибка обновления статистики синдикатов:', e);
     }
 
-    // ── 8. Халвинг ─────────────────────────────────────
+    // ── 8. Стейкинг IGC-yield ──────────────────────────
+    // Каждую эпоху начисляем IGC стейкерам: STAKE_IGC_PER_TON_PER_DAY / EPOCHS_PER_DAY за каждый застейканый TON.
+    let totalStakingIgc = 0;
+    try {
+      const { rows: stakers } = await pool.query(
+        `SELECT u.id AS user_id, u.staked_ton, f.id AS farm_id
+         FROM users u JOIN farms f ON f.user_id = u.id
+         WHERE u.staked_ton > 0`,
+      );
+      const igcPerTonPerEpoch = STAKE_IGC_PER_TON_PER_DAY / EPOCHS_PER_DAY;
+      for (const s of stakers) {
+        const yieldIgc = parseFloat(s.staked_ton) * igcPerTonPerEpoch;
+        if (yieldIgc <= 0) continue;
+        await pool.query(
+          `UPDATE farms SET igc_balance = igc_balance + $1 WHERE id = $2`,
+          [parseFloat(yieldIgc.toFixed(6)), s.farm_id],
+        );
+        totalStakingIgc += yieldIgc;
+      }
+      if (totalStakingIgc > 0) {
+        console.log(`[Epoch] 💰 Стейкинг: ${stakers.length} стейкеров, начислено ${totalStakingIgc.toFixed(4)} IGC`);
+      }
+    } catch (e) {
+      errors.push(`staking_yield_error: ${e}`);
+    }
+    totalIgcProduced += totalStakingIgc;
+
+    // ── 9. Халвинг ─────────────────────────────────────
     const updatedStats: PoolStats = {
       ...poolStats,
       reservePoolTon: poolStats.reservePoolTon - totalDistributed,

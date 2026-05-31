@@ -36,7 +36,10 @@ import { GPU_SPECS,
          PROVIDER_LEVELS,
          PASTE_LEVELS,
          FAN_LEVELS,
-         LIQUID_COOLING_LEVELS } from '../epoch/constants';
+         LIQUID_COOLING_LEVELS,
+         STAKE_IGC_PER_TON_PER_DAY,
+         STAKE_MIN_TON,
+         STAKE_UNSTAKE_DAILY_LIMIT_PCT } from '../epoch/constants';
 import { redis }             from '../redis/client';
 import { refurbish }         from '../db/queries';
 
@@ -861,9 +864,10 @@ export async function actionRoutes(app: FastifyInstance) {
         const cost = INFRA_COSTS[upgradeType];
         if (!cost) return reply.code(400).send({ error: 'Неизвестный апгрейд' });
 
-        // Ангар только в Фазе 2+
-        if (upgradeType === 'farm_level_4' && currentPhase < 2) {
-          return reply.code(403).send({ error: 'Ангар доступен с Фазы 2' });
+        // Гараж и Ангар только в Фазе 2+
+        if ((upgradeType === 'farm_level_3' || upgradeType === 'farm_level_4') && currentPhase < 2) {
+          const name = upgradeType === 'farm_level_3' ? 'Гараж' : 'Ангар';
+          return reply.code(403).send({ error: `${name} доступен с Фазы 2` });
         }
 
         // Динамическая IGC-цена: применяем ratio только к IGC-апгрейдам
@@ -941,35 +945,40 @@ export async function actionRoutes(app: FastifyInstance) {
       case 'sell_igc': {
         const amountIgc: number = parseFloat(body.amount_igc ?? body.amountIgc ?? '0');
         if (amountIgc < 100) return reply.code(400).send({ error: 'Минимальная продажа: 100 IGC' });
+        // Быстрая предварительная проверка до транзакции
         if (parseFloat(user.igc_balance) < amountIgc) {
           return reply.code(400).send({ error: 'Недостаточно IGC' });
         }
 
-        // Динамическая цена: та же формула и тот же ratio, что показывает фронтенд
         const { rows: [ps] } = await pool.query(
-          `SELECT total_igc_minted, total_igc_burned, reserve_pool_ton, igc_ratio_smoothed FROM pool_stats WHERE id = 1`,
+          `SELECT total_igc_minted, reserve_pool_ton, igc_ratio_smoothed FROM pool_stats WHERE id = 1`,
         );
-        const ratio     = parseFloat(ps?.igc_ratio_smoothed ?? '1');
-        const IGC_FLOOR = 0.0001;
-        const pricePerIgc  = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR / Math.max(0.5, ratio)));
-        // 3% комиссия: пул выплачивает полный gross, игрок получает net, 3% → admin
+        const ratio        = parseFloat(ps?.igc_ratio_smoothed ?? '1');
+        const pricePerIgc  = Math.max(0.00005, Math.min(0.0005, 0.0001 / Math.max(0.5, ratio)));
         const grossPayout  = parseFloat((amountIgc * pricePerIgc).toFixed(8));
         const commission   = parseFloat((grossPayout * 0.03).toFixed(8));
         const netPayout    = parseFloat((grossPayout - commission).toFixed(8));
-        const poolTon      = parseFloat(ps?.reserve_pool_ton ?? '0');
 
-        if (poolTon < grossPayout) {
+        if (parseFloat(ps?.reserve_pool_ton ?? '0') < grossPayout) {
           return reply.code(400).send({ error: 'В пуле недостаточно TON для выкупа. Попробуй позже.' });
         }
 
         await pool.query('BEGIN');
         try {
+          // SELECT FOR UPDATE — исключает гонку двух одновременных sell-запросов
+          const { rows: [locked] } = await pool.query(
+            `SELECT igc_balance FROM users WHERE id = $1 FOR UPDATE`,
+            [user.id],
+          );
+          if (parseFloat(locked.igc_balance) < amountIgc) {
+            await pool.query('ROLLBACK');
+            return reply.code(400).send({ error: 'Недостаточно IGC' });
+          }
+
           await pool.query(
             `UPDATE users SET igc_balance = igc_balance - $1, ton_balance = ton_balance + $2 WHERE id = $3`,
             [amountIgc, netPayout, user.id],
           );
-          // sell_igc убирает IGC из обращения → demand в рыночном индексе
-          // Пул выплачивает grossPayout: netPayout → игроку, commission → admin
           await pool.query(`
             UPDATE pool_stats SET
               reserve_pool_ton = reserve_pool_ton - $1,
@@ -979,6 +988,11 @@ export async function actionRoutes(app: FastifyInstance) {
               igc_daily_date   = CURRENT_DATE
             WHERE id = 1`,
             [grossPayout, commission, amountIgc],
+          );
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, 'marketplace_sale', $2, $3)`,
+            [user.id, netPayout, amountIgc],
           );
           await pool.query('COMMIT');
         } catch (e) { await pool.query('ROLLBACK'); throw e; }
@@ -990,6 +1004,8 @@ export async function actionRoutes(app: FastifyInstance) {
       case 'buy_igc': {
         const amountTon: number = parseFloat(body.amount_ton ?? body.amountTon ?? '0');
         if (amountTon < 0.001) return reply.code(400).send({ error: 'Минимальная покупка: 0.001 TON' });
+
+        // Предварительная проверка (быстрый fail-fast до транзакции)
         if (parseFloat(user.ton_balance) < amountTon) {
           return reply.code(400).send({ error: 'Недостаточно TON' });
         }
@@ -997,30 +1013,34 @@ export async function actionRoutes(app: FastifyInstance) {
         const { rows: [ps2] } = await pool.query(
           `SELECT total_igc_minted, reserve_pool_ton, igc_ratio_smoothed FROM pool_stats WHERE id = 1`,
         );
-        const ratio2      = parseFloat(ps2?.igc_ratio_smoothed ?? '1');
-        const IGC_FLOOR2  = 0.0001;
-        const pricePerIgc2 = Math.max(0.00005, Math.min(0.0005, IGC_FLOOR2 / Math.max(0.5, ratio2)));
-
-        const IGC_MAX_SUPPLY = 10_000_000_000;
-        const igcMinted = parseFloat(ps2?.total_igc_minted ?? '0');
-        const igcAvailable = IGC_MAX_SUPPLY - igcMinted;
-        const igcAmount = Math.min(amountTon / pricePerIgc2, igcAvailable);
+        const ratio2       = parseFloat(ps2?.igc_ratio_smoothed ?? '1');
+        const pricePerIgc2 = Math.max(0.00005, Math.min(0.0005, 0.0001 / Math.max(0.5, ratio2)));
+        const igcAvailable = 10_000_000_000 - parseFloat(ps2?.total_igc_minted ?? '0');
+        const igcAmount    = Math.min(amountTon / pricePerIgc2, igcAvailable);
 
         if (igcAmount <= 0) {
-          return reply.code(400).send({ error: 'IGC исчерпан — все 1 миллиард добыты' });
+          return reply.code(400).send({ error: 'IGC исчерпан — все 10 миллиардов добыты' });
         }
-        const actualTonCost = igcAmount * pricePerIgc2;
+        const actualTonCost  = igcAmount * pricePerIgc2;
+        const buyCommission  = parseFloat((actualTonCost * 0.03).toFixed(8));
+        const buyToPool      = parseFloat((actualTonCost - buyCommission).toFixed(8));
 
         await pool.query('BEGIN');
         try {
+          // SELECT FOR UPDATE — блокирует строку, исключает гонку двух одновременных запросов
+          const { rows: [locked] } = await pool.query(
+            `SELECT ton_balance FROM users WHERE id = $1 FOR UPDATE`,
+            [user.id],
+          );
+          if (parseFloat(locked.ton_balance) < actualTonCost) {
+            await pool.query('ROLLBACK');
+            return reply.code(400).send({ error: 'Недостаточно TON' });
+          }
+
           await pool.query(
             `UPDATE users SET ton_balance = ton_balance - $1, igc_balance = igc_balance + $2 WHERE id = $3`,
             [actualTonCost, igcAmount, user.id],
           );
-          // buy_igc: 3% комиссия → admin, 97% → reserve_pool_ton
-          // IGC вводит в обращение → supply в рыночном индексе
-          const buyCommission  = parseFloat((actualTonCost * 0.03).toFixed(8));
-          const buyToPool      = parseFloat((actualTonCost - buyCommission).toFixed(8));
           await pool.query(`
             UPDATE pool_stats SET
               reserve_pool_ton = reserve_pool_ton + $1,
@@ -1031,10 +1051,15 @@ export async function actionRoutes(app: FastifyInstance) {
             WHERE id = 1`,
             [buyToPool, buyCommission, igcAmount],
           );
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, 'purchase', $2, $3)`,
+            [user.id, actualTonCost, igcAmount],
+          );
           await pool.query('COMMIT');
         } catch (e) { await pool.query('ROLLBACK'); throw e; }
 
-        return reply.send({ ok: true, igcReceived: igcAmount, tonSpent: actualTonCost, commission: parseFloat((actualTonCost * 0.03).toFixed(8)), pricePerIgc: pricePerIgc2 });
+        return reply.send({ ok: true, igcReceived: igcAmount, tonSpent: actualTonCost, pricePerIgc: pricePerIgc2 });
       }
 
       // ── Апгрейды серверной (глобальные, за TON) ────────
@@ -1053,7 +1078,7 @@ export async function actionRoutes(app: FastifyInstance) {
         );
         if (!farm) return reply.code(404).send({ error: 'Ферма не найдена' });
 
-        const currentLevel: number = farm[col] ?? 1;
+        const currentLevel: number = farm[col] ?? 0;
         const nextDef = levels.find((l: any) => l.level === currentLevel + 1);
         if (!nextDef) return reply.code(400).send({ error: 'Максимальный уровень уже достигнут' });
 
@@ -1111,7 +1136,7 @@ export async function actionRoutes(app: FastifyInstance) {
         );
         if (!gpu) return reply.code(404).send({ error: 'GPU не найдена или не принадлежит вам' });
 
-        const currentGpuLevel: number = gpu[gpuCol] ?? 1;
+        const currentGpuLevel: number = gpu[gpuCol] ?? 0;
         const nextGpuDef = gpuLevels.find((l: any) => l.level === currentGpuLevel + 1);
         if (!nextGpuDef) return reply.code(400).send({ error: 'Максимальный уровень уже достигнут' });
 
@@ -1149,6 +1174,89 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, newLevel: currentGpuLevel + 1, igcRatio: igcRatioUpgrade });
       }
 
+      // ── Стейкинг TON ───────────────────────────────────────
+      case 'stake_ton': {
+        const amount = parseFloat(body.amount_ton);
+        if (isNaN(amount) || amount < STAKE_MIN_TON)
+          return reply.code(400).send({ error: `Минимум ${STAKE_MIN_TON} TON для стейкинга` });
+        if (parseFloat(user.ton_balance) < amount)
+          return reply.code(400).send({ error: 'Недостаточно TON на балансе' });
+
+        await pool.query('BEGIN');
+        try {
+          // TON уходит из баланса игрока в пул и фиксируется в staked_ton
+          await pool.query(
+            `UPDATE users SET ton_balance = ton_balance - $1, staked_ton = staked_ton + $1 WHERE id = $2`,
+            [amount, user.id],
+          );
+          await pool.query(
+            `UPDATE pool_stats SET reserve_pool_ton = reserve_pool_ton + $1 WHERE id = 1`,
+            [amount],
+          );
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, 'stake_ton', $2, 0)`,
+            [user.id, amount],
+          );
+          await pool.query('COMMIT');
+        } catch (e) { await pool.query('ROLLBACK'); throw e; }
+
+        return reply.send({ ok: true, stakedTon: amount });
+      }
+
+      case 'unstake_ton': {
+        const amount = parseFloat(body.amount_ton);
+        if (isNaN(amount) || amount < STAKE_MIN_TON)
+          return reply.code(400).send({ error: `Минимум ${STAKE_MIN_TON} TON для вывода` });
+
+        const stakedRaw = parseFloat(user.staked_ton ?? '0');
+        if (stakedRaw < amount)
+          return reply.code(400).send({ error: `Застейкано только ${stakedRaw.toFixed(3)} TON` });
+
+        // Проверяем суточный лимит вывода (1% пула)
+        const { rows: [ps] } = await pool.query(
+          `SELECT reserve_pool_ton, staking_daily_unstaked, staking_daily_unstake_date FROM pool_stats WHERE id = 1`,
+        );
+        const poolSize    = parseFloat(ps.reserve_pool_ton);
+        const dailyLimit  = poolSize * STAKE_UNSTAKE_DAILY_LIMIT_PCT;
+        const isToday     = ps.staking_daily_unstake_date
+          ? new Date(ps.staking_daily_unstake_date).toDateString() === new Date().toDateString()
+          : false;
+        const alreadyOut  = isToday ? parseFloat(ps.staking_daily_unstaked ?? '0') : 0;
+        const remaining   = Math.max(0, dailyLimit - alreadyOut);
+
+        if (amount > remaining) {
+          return reply.code(400).send({
+            error: `Лимит вывода исчерпан. Осталось: ${remaining.toFixed(3)} TON сегодня (лимит ${dailyLimit.toFixed(3)} TON = 1% пула)`,
+          });
+        }
+
+        await pool.query('BEGIN');
+        try {
+          await pool.query(
+            `UPDATE users SET ton_balance = ton_balance + $1, staked_ton = staked_ton - $1 WHERE id = $2`,
+            [amount, user.id],
+          );
+          await pool.query(`
+            UPDATE pool_stats SET
+              reserve_pool_ton = reserve_pool_ton - $1,
+              staking_daily_unstaked = CASE
+                WHEN staking_daily_unstake_date = CURRENT_DATE THEN staking_daily_unstaked + $1
+                ELSE $1 END,
+              staking_daily_unstake_date = CURRENT_DATE
+            WHERE id = 1`, [amount],
+          );
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, 'unstake_ton', $2, 0)`,
+            [user.id, amount],
+          );
+          await pool.query('COMMIT');
+        } catch (e) { await pool.query('ROLLBACK'); throw e; }
+
+        return reply.send({ ok: true, unstakedTon: amount });
+      }
+
       // ── Покупка инфраструктуры (прямой вызов) ─
       default: {
         // Фронтенд может слать тип апгрейда напрямую: 'farm_level_2', 'cooling_1' и т.д.
@@ -1160,8 +1268,9 @@ export async function actionRoutes(app: FastifyInstance) {
           const cost = INFRA_COSTS[type];
           const upgradeType = type;
 
-          if (upgradeType === 'farm_level_4' && currentPhase < 2) {
-            return reply.code(403).send({ error: 'Ангар доступен с Фазы 2' });
+          if ((upgradeType === 'farm_level_3' || upgradeType === 'farm_level_4') && currentPhase < 2) {
+            const name = upgradeType === 'farm_level_3' ? 'Гараж' : 'Ангар';
+            return reply.code(403).send({ error: `${name} доступен с Фазы 2` });
           }
 
           // Динамическая IGC-цена

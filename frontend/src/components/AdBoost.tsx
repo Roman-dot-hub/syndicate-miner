@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { TapBoost } from '../types';
+import { useLang } from '../LangContext';
+import { fmt } from '../i18n';
 
 const ADSGRAM_BLOCK_ID = import.meta.env.VITE_ADSGRAM_BLOCK_ID ?? '';
 const VIEWS_PER_CYCLE  = 10;
@@ -36,6 +38,7 @@ function fmtTime(sec: number): string {
 const AD_BOOST_SEC = 300; // 5 минут на просмотр (зеркало бэкенда)
 
 export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: Props) {
+  const { t } = useLang();
   const [busy, setBusy]                   = useState(false);
   const [, setTick]                       = useState(0);
   const [optimisticViews, setOptViews]    = useState(0);  // оптимистичный +1 при досмотре
@@ -104,7 +107,7 @@ export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: P
         // Оптимистичное обновление — мгновенная реакция до ответа сервера
         setOptViews(v => v + 1);
         onBoostActivate(AD_BOOST_SEC);         // сразу продлеваем таймер
-        showToast('✅ +5 мин буста засчитано!');
+        showToast(t.ad_toast_ok);
 
         try { WebApp.expand(); } catch { /* ignore */ }
         try { WebApp.HapticFeedback.notificationOccurred('success'); } catch { /* ignore */ }
@@ -147,12 +150,10 @@ export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: P
         </span>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
-            {inCooldown ? 'Перегрев! Ждём перезарядку' : 'Буст хешрейта'}
+            {inCooldown ? t.ad_overheat : t.ad_title}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>
-            {inCooldown
-              ? 'Посмотрел все 10 — отдых 4 часа'
-              : '+10% к хешрейту · 1 просмотр = +5 мин'}
+            {inCooldown ? t.ad_cooldown_sub : t.ad_boost_sub}
           </div>
         </div>
       </div>
@@ -163,14 +164,14 @@ export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: P
           background: 'rgba(231,76,60,0.12)', border: '1px solid rgba(231,76,60,0.3)',
         }}>
           <div style={{ fontSize: 10, color: '#E74C3C', marginBottom: 3, fontWeight: 600 }}>
-            ⏳ Следующий цикл через
+            {t.ad_next_cycle}
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#E74C3C', fontVariantNumeric: 'tabular-nums' }}>
             {fmtTime(cooldownSeconds)}
           </div>
           {boostActive && (
             <div style={{ fontSize: 11, color: '#0098EA', marginTop: 4 }}>
-              ⚡ Буст ещё активен: {fmtTime(secondsLeft)}
+              {t.ad_still_active} {fmtTime(secondsLeft)}
             </div>
           )}
         </div>
@@ -191,7 +192,7 @@ export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: P
 
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
-          <span>Просмотров в цикле</span>
+          <span>{t.ad_views_label}</span>
           <span style={{ color: inCooldown ? '#E74C3C' : viewsInCycle > 0 ? '#9B59B6' : 'rgba(255,255,255,0.4)' }}>
             {viewsInCycle} / {viewsPerCycle}
           </span>
@@ -211,7 +212,7 @@ export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: P
         </div>
         {!inCooldown && (
           <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', marginTop: 4, textAlign: 'right' }}>
-            {viewsPerCycle - viewsInCycle} просмотров до паузы · потом 4ч ожидание
+            {fmt(t.ad_views_left, { n: viewsPerCycle - viewsInCycle })}
           </div>
         )}
       </div>
@@ -246,10 +247,10 @@ export function AdBoost({ tapBoost, onUpdate, boostEndTime, onBoostActivate }: P
           }}
         >
           {busy
-            ? '⏳ Загружаем рекламу...'
+            ? t.ad_loading
             : viewsInCycle === 0
-              ? '▶ Смотреть рекламу (+5 мин буста)'
-              : `▶ Смотреть рекламу · ещё ${viewsPerCycle - viewsInCycle} в цикле`}
+              ? t.ad_watch_first
+              : fmt(t.ad_watch_more, { n: viewsPerCycle - viewsInCycle })}
         </button>
       )}
 
