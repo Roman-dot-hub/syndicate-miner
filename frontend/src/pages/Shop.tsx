@@ -99,7 +99,7 @@ export function Shop({ data, onUpdate }: Props) {
   const tonBalance   = parseFloat(rawUser.tonBalance   ?? rawUser.ton_balance   ?? '0');
   const igcBalance   = parseFloat(rawUser.igcBalance   ?? rawUser.igc_balance   ?? '0');
   const farmLevel    = rawFarm.level        ?? 1;
-  const wbLevel      = rawFarm.workbenchLevel ?? rawFarm.workbench_level ?? 0;
+  const wbLevel      = rawFarm.wbLevel ?? rawFarm.workbench_level ?? 0;
 
   const toggle = (key: string) => setExpanded(e => e === key ? null : key);
 
@@ -205,11 +205,36 @@ export function Shop({ data, onUpdate }: Props) {
                 <Row label="IGC расход/день" value={`−${spec.igcCostPerDay.toFixed(1)}`} color="#E74C3C" />
                 <Row label="Баланс IGC/день" value={`${(spec.igcPerDay - spec.igcCostPerDay) >= 0 ? '+' : ''}${(spec.igcPerDay - spec.igcCostPerDay).toFixed(1)}`}
                   color={(spec.igcPerDay - spec.igcCostPerDay) >= 0 ? '#2ECC71' : '#E74C3C'} />
-                {tier >= 4 && (
-                  <div style={{ marginTop: 6, fontSize: 10, color: '#F39C12', background: 'rgba(243,156,18,0.1)', padding: '5px 8px', borderRadius: 6 }}>
-                    ⚠️ Потребление IGC превышает добычу. Окупаемость зависит от доли сети.
-                  </div>
-                )}
+
+                {/* Ограничения */}
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {/* Ремонт — верстак */}
+                  <ConstraintRow
+                    icon="🔧"
+                    label={`Ремонт: верстак ${tier <= 2 ? 'Lv1' : tier <= 4 ? 'Lv2' : 'Lv3'}`}
+                    met={tier <= 2 ? wbLevel >= 1 : tier <= 4 ? wbLevel >= 2 : wbLevel >= 3}
+                    hint={tier <= 2 ? '🔧 Lv1 (500 IGC)' : tier <= 4 ? '⚙️ Lv2 (5 TON)' : '🏗️ Lv3 (25 TON)'}
+                  />
+                  {/* Фаза */}
+                  {spec.availablePhase > 1 && (
+                    <ConstraintRow
+                      icon="🔒"
+                      label={`Доступна с Фазы ${spec.availablePhase}`}
+                      met={phase >= spec.availablePhase}
+                      hint={`Сейчас Фаза ${phase}`}
+                    />
+                  )}
+                  {/* OC/UV */}
+                  {tier === 0 ? (
+                    <ConstraintRow icon="⚡" label="Разгон и андервольт недоступны" met={false} hint="USB Nano — базовый майнер" />
+                  ) : (
+                    <ConstraintRow icon="⚡" label="Поддерживает OC (+20% хеш) и UV (−15% хеш, −30% износ)" met={true} />
+                  )}
+                  {/* IGC-предупреждение */}
+                  {tier >= 4 && (
+                    <ConstraintRow icon="⚠️" label="IGC-расход превышает добычу — нужен запас IGC" met={false} hint="Окупаемость зависит от доли сети" />
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -409,5 +434,25 @@ function buyBtnPurple(disabled: boolean): React.CSSProperties {
     ...buyBtn(disabled),
     background: disabled ? 'rgba(255,255,255,0.08)' : '#9B59B6',
   };
+}
+
+function ConstraintRow({ icon, label, met, hint }: { icon: string; label: string; met: boolean; hint?: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 6,
+      padding: '4px 7px', borderRadius: 6,
+      background: met ? 'rgba(46,204,113,0.07)' : 'rgba(231,76,60,0.07)',
+      border: `1px solid ${met ? 'rgba(46,204,113,0.2)' : 'rgba(231,76,60,0.2)'}`,
+    }}>
+      <span style={{ fontSize: 12, lineHeight: '16px' }}>{icon}</span>
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: 10, color: met ? '#2ECC71' : '#E74C3C', fontWeight: 600 }}>{label}</span>
+        {hint && !met && (
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 4 }}>({hint})</span>
+        )}
+      </div>
+      <span style={{ fontSize: 10, color: met ? '#2ECC71' : '#E74C3C' }}>{met ? '✓' : '✗'}</span>
+    </div>
+  );
 }
 
