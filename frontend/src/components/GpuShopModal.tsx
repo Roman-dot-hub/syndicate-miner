@@ -35,8 +35,10 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
 
   const phase      = data.season.phase;
   const rawUser    = data.user as any;
+  const rawFarm    = data.farm as any;
   const tonBalance = parseFloat(rawUser.tonBalance ?? rawUser.ton_balance ?? '0');
   const igcBalance = parseFloat(rawUser.igcBalance ?? rawUser.igc_balance ?? '0');
+  const wbLevel    = rawFarm.workbenchLevel ?? rawFarm.workbench_level ?? 0;
 
   const buyGpu = async (tier: number) => {
     if (busyGpu !== null) return;
@@ -177,7 +179,6 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
                     opacity: locked ? 0.45 : 1,
                     animation: `shop-card-in 0.2s ease-out ${idx * 0.04}s both`,
                     boxShadow: canAfford && !locked ? `0 0 12px rgba(0,212,255,0.08)` : 'none',
-                    overflow: 'hidden',
                   }}
                 >
                   {/* Строка GPU */}
@@ -301,6 +302,41 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
                           ⚠️ {t.shop_warning}
                         </div>
                       )}
+
+                      {/* ── Ограничения ─────────────────────────── */}
+                      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        <div style={{ fontSize: 8, letterSpacing: 1.5, color: DIM, marginBottom: 2 }}>
+                          {t.shop_constraints ?? 'ТРЕБОВАНИЯ'}
+                        </div>
+                        {/* Ремонт */}
+                        {(() => {
+                          const need = tier <= 2 ? 1 : tier <= 4 ? 2 : 3;
+                          const met  = wbLevel >= need;
+                          const hint = tier <= 2 ? '🔧 Lv1 · 500 IGC' : tier <= 4 ? '⚙️ Lv2 · 5 TON' : '🏗️ Lv3 · 25 TON';
+                          return (
+                            <ShopConstraint
+                              icon="🔧"
+                              label={`Ремонт: верстак Lv${need}`}
+                              met={met}
+                              hint={met ? undefined : hint}
+                            />
+                          );
+                        })()}
+                        {/* Фаза */}
+                        {spec.availablePhase > 1 && (
+                          <ShopConstraint
+                            icon="🔒"
+                            label={`Доступна с Фазы ${spec.availablePhase}`}
+                            met={phase >= spec.availablePhase}
+                            hint={phase < spec.availablePhase ? `Сейчас Фаза ${phase}` : undefined}
+                          />
+                        )}
+                        {/* OC/UV */}
+                        {tier === 0
+                          ? <ShopConstraint icon="⚡" label="OC и Undervolt недоступны" met={false} hint="USB Nano — базовый майнер" />
+                          : <ShopConstraint icon="⚡" label="Поддерживает OC (+20%) и Undervolt (−15% хеш, −30% износ)" met={true} />
+                        }
+                      </div>
                     </div>
                   )}
                 </div>
@@ -309,6 +345,29 @@ export function GpuShopModal({ data, onClose, onUpdate }: Props) {
         </div>
       </div>
     </>
+  );
+}
+
+// ── Строка ограничения ────────────────────────────────────
+function ShopConstraint({ icon, label, met, hint }: { icon: string; label: string; met: boolean; hint?: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '5px 8px', borderRadius: 7,
+      background: met ? 'rgba(0,255,136,0.06)' : 'rgba(255,51,85,0.07)',
+      border: `1px solid ${met ? 'rgba(0,255,136,0.2)' : 'rgba(255,51,85,0.2)'}`,
+    }}>
+      <span style={{ fontSize: 13, lineHeight: '16px', flexShrink: 0 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: met ? '#00FF88' : '#FF3355' }}>{label}</span>
+        {hint && (
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginLeft: 5 }}>({hint})</span>
+        )}
+      </div>
+      <span style={{ fontSize: 11, color: met ? '#00FF88' : '#FF3355', flexShrink: 0 }}>
+        {met ? '✓' : '✗'}
+      </span>
+    </div>
   );
 }
 

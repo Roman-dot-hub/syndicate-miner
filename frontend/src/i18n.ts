@@ -147,7 +147,8 @@ const ru = {
   shop_power:     'Мощность',
   shop_igc_bal:   'IGC баланс/день',
   shop_stability: 'Стабильность (баз.)',
-  shop_warning:   'IGC-расход превышает добычу. Окупается за счёт доли сети в TON.',
+  shop_warning:    'IGC-расход превышает добычу. Окупается за счёт доли сети в TON.',
+  shop_constraints: 'ТРЕБОВАНИЯ',
 
   // ── Farm ──────────────────────────────────────────────────
   farm_slots:        '{active} / {max} слотов',
@@ -559,7 +560,8 @@ const en: typeof ru = {
   shop_power:     'Power',
   shop_igc_bal:   'IGC balance/day',
   shop_stability: 'Stability (base)',
-  shop_warning:   'IGC expense exceeds income. Profitable via network pool share in TON.',
+  shop_warning:    'IGC expense exceeds income. Profitable via network pool share in TON.',
+  shop_constraints: 'REQUIREMENTS',
 
   farm_slots:        '{active} / {max} slots',
   farm_electricity:  'for electricity',
