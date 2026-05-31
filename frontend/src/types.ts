@@ -114,10 +114,11 @@ export interface SyndicateData {
 }
 
 export interface ReferralEntry {
-  level:    1 | 2;
-  username: string | null;
-  tgUserId: string;
-  joinedAt: string;
+  level:       1 | 2;
+  username:    string | null;
+  tgUserId:    string;
+  joinedAt:    string;
+  hashrateGh:  number;  // текущий суммарный хешрейт реферала (GH/s)
 }
 
 export interface StakingData {

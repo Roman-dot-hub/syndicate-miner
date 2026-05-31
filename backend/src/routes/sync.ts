@@ -236,10 +236,22 @@ export async function syncRoutes(app: FastifyInstance) {
     try {
       const { rows } = await pool.query(`
         SELECT r.level, r.created_at::text AS joined_at,
-               u.tg_username, u.tg_user_id::text AS tg_user_id
+               u.tg_username, u.tg_user_id::text AS tg_user_id,
+               COALESCE(SUM(
+                 CASE WHEN g.status = 'active' THEN
+                   (SELECT hashrate FROM (VALUES
+                     (0,0.1),(1,3),(2,6),(3,15),(4,45),(5,110),(6,250)
+                   ) AS t(tier,hr) WHERE t.tier = g.model_tier LIMIT 1)
+                   * CASE WHEN g.overclocked THEN 1.2 ELSE 1 END
+                   * CASE WHEN g.undervolted THEN 0.85 ELSE 1 END
+                 ELSE 0 END
+               ), 0) AS hashrate_gh
         FROM referrals r
         JOIN users u ON u.id = r.invitee_id
+        LEFT JOIN farms f ON f.user_id = u.id
+        LEFT JOIN gpus g ON g.farm_id = f.id
         WHERE r.inviter_id = $1
+        GROUP BY r.level, r.created_at, u.tg_username, u.tg_user_id
         ORDER BY r.level ASC, r.created_at DESC
       `, [user.id]);
       referrals = rows;
@@ -410,10 +422,11 @@ export async function syncRoutes(app: FastifyInstance) {
         }, {}),
         syndicate: syndicateData,
         referrals: referrals.map((r: any) => ({
-          level:     parseInt(r.level),
-          username:  r.tg_username ?? null,
-          tgUserId:  r.tg_user_id,
-          joinedAt:  r.joined_at,
+          level:      parseInt(r.level),
+          username:   r.tg_username ?? null,
+          tgUserId:   r.tg_user_id,
+          joinedAt:   r.joined_at,
+          hashrateGh: parseFloat(r.hashrate_gh ?? '0'),
         })),
       },
     });

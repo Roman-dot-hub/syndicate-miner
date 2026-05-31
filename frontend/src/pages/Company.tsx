@@ -95,6 +95,18 @@ export function Company({ data }: Props) {
             <span>{text}</span>
           </div>
         ))}
+        {/* IGC-бонус */}
+        <div style={{
+          marginTop: 10, padding: '8px 10px', borderRadius: 8,
+          background: 'rgba(155,89,182,0.1)', border: '1px solid rgba(155,89,182,0.2)',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#9B59B6', marginBottom: 4 }}>
+            💎 {t.cmp_igc_bonus_title}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6 }}>
+            {t.cmp_igc_bonus_desc}
+          </div>
+        </div>
       </div>
 
       {/* Список рефералов */}
@@ -123,7 +135,7 @@ export function Company({ data }: Props) {
                 <div style={{ fontSize: 10, fontWeight: 600, color: '#2ECC71', letterSpacing: 1, marginBottom: 6 }}>
                   {t.cmp_l1_group} ({l1.length})
                 </div>
-                {l1.map(r => <ReferralRow key={r.tgUserId} r={r} color="#2ECC71" />)}
+                {l1.map(r => <ReferralRow key={r.tgUserId} r={r} color="#2ECC71" bonusPct={0.05} />)}
               </>
             )}
             {l2.length > 0 && (
@@ -131,7 +143,7 @@ export function Company({ data }: Props) {
                 <div style={{ fontSize: 10, fontWeight: 600, color: '#F39C12', letterSpacing: 1, marginTop: l1.length > 0 ? 10 : 0, marginBottom: 6 }}>
                   {t.cmp_l2_group} ({l2.length})
                 </div>
-                {l2.map(r => <ReferralRow key={r.tgUserId} r={r} color="#F39C12" />)}
+                {l2.map(r => <ReferralRow key={r.tgUserId} r={r} color="#F39C12" bonusPct={0.02} />)}
               </>
             )}
           </>
@@ -156,9 +168,12 @@ function BonusRow({ level, pct, desc, color }: { level: string; pct: string; des
   );
 }
 
-function ReferralRow({ r, color }: { r: ReferralEntry; color: string }) {
-  const name = r.username ? `@${r.username}` : `#${r.tgUserId.slice(-5)}`;
-  const date = new Date(r.joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+function ReferralRow({ r, color, bonusPct }: { r: ReferralEntry; color: string; bonusPct: number }) {
+  const name    = r.username ? `@${r.username}` : `#${r.tgUserId.slice(-5)}`;
+  const date    = new Date(r.joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const gh      = r.hashrateGh ?? 0;
+  const bonus   = gh * bonusPct;
+  const fmtH    = (v: number) => v >= 1000 ? `${(v/1000).toFixed(2)} TH/s` : v >= 1 ? `${v.toFixed(2)} GH/s` : `${(v*1000).toFixed(0)} MH/s`;
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -173,7 +188,14 @@ function ReferralRow({ r, color }: { r: ReferralEntry; color: string }) {
         }}>
           {r.username ? r.username[0].toUpperCase() : '?'}
         </div>
-        <span style={{ fontSize: 13, color: '#fff' }}>{name}</span>
+        <div>
+          <div style={{ fontSize: 13, color: '#fff' }}>{name}</div>
+          {gh > 0 && (
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+              {fmtH(gh)} → <span style={{ color }}>+{fmtH(bonus)}</span>
+            </div>
+          )}
+        </div>
       </div>
       <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{date}</span>
     </div>

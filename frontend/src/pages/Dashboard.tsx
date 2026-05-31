@@ -578,6 +578,7 @@ const TX_META: Record<string, { icon: string; color: string; labelRu: string; la
   withdraw:          { icon: '💸', color: '#E74C3C', labelRu: 'Вывод TON',       labelEn: 'Withdrawal' },
   marketplace_sale:  { icon: '🤝', color: '#27AE60', labelRu: 'P2P сделка',      labelEn: 'P2P Deal' },
   marketplace_buy:   { icon: '🛍️', color: '#8E44AD', labelRu: 'Покупка на P2P',  labelEn: 'P2P Purchase' },
+  referral_bonus:    { icon: '👥', color: '#2ECC71', labelRu: 'Реферал IGC',      labelEn: 'Referral IGC' },
 };
 
 function TxLogBlock({ txLog }: { txLog: TxLogEntry[] }) {

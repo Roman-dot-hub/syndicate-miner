@@ -213,6 +213,8 @@ const ru = {
   cmp_no_refs:    'Ещё нет рефералов — поделись ссылкой 👆',
   cmp_l1_group:   'L1 — ПРЯМЫЕ',
   cmp_l2_group:   'L2 — СЕТЬ РЕФЕРАЛОВ',
+  cmp_igc_bonus_title: 'IGC-бонус за рефералов',
+  cmp_igc_bonus_desc:  'Каждые 5 минут ты дополнительно получаешь IGC: 10% от заработка L1-реферала и 3% от заработка L2. Это поверх хешрейт-бонуса — начисляется автоматически.',
   cmp_copied:     'Ссылка скопирована!',
   cmp_share_text: '⛏️ Syndicate Miner — строй крипто-ферму и зарабатывай TON!',
 
@@ -621,6 +623,8 @@ const en: typeof ru = {
   cmp_no_refs:    'No referrals yet — share your link 👆',
   cmp_l1_group:   'L1 — DIRECT',
   cmp_l2_group:   'L2 — REFERRAL NETWORK',
+  cmp_igc_bonus_title: 'IGC bonus from referrals',
+  cmp_igc_bonus_desc:  'Every 5 minutes you earn extra IGC: 10% of L1 referral earnings and 3% of L2. This is on top of the hashrate bonus — credited automatically.',
   cmp_copied:     'Link copied!',
   cmp_share_text: '⛏️ Syndicate Miner — build a crypto farm and earn TON!',
 

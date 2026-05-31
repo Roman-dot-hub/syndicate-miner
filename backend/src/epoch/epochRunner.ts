@@ -20,6 +20,8 @@ import {
   EPOCHS_PER_DAY,
   REFERRAL_L1_HASHRATE_BONUS,
   REFERRAL_L2_HASHRATE_BONUS,
+  REFERRAL_L1_IGC_SHARE,
+  REFERRAL_L2_IGC_SHARE,
   REDIS_EPOCH_LOCK,
   REDIS_GLOBAL_H,
   REDIS_ELEC_MULT,
@@ -567,9 +569,42 @@ export async function runEpoch(): Promise<EpochResult | null> {
         await trx.upsertDailyEarnings(payout.userId, epochAt, payout.tonEarned, payout.igcEarned);
       }
 
-      // Реферальные IGC-бонусы
+      // Реферальные IGC-бонусы (pool-майнеры)
+      // Solo-майнеры добавляются ниже
+      const refBonusMap = new Map<string, number>(); // referrerId → суммарный igcBonus
       for (const ref of distribution.referralPayouts) {
-        await trx.creditUser(ref.referrerId, { ton: 0, igc: ref.igcBonus });
+        refBonusMap.set(ref.referrerId, (refBonusMap.get(ref.referrerId) ?? 0) + ref.igcBonus);
+      }
+
+      // Solo-майнеры: тоже дают реферальный IGC-бонус своим инвайтерам
+      const poolPayoutUserIds = new Set(distribution.minerPayouts.map(p => p.userId));
+      for (const snapshot of minerSnapshots) {
+        if (poolPayoutUserIds.has(snapshot.userId)) continue; // pool уже учтён выше
+        const igcEarned = igcPerEpoch.get(snapshot.userId) ?? 0;
+        if (igcEarned <= 0) continue;
+        const miner = usersMap.get(snapshot.userId);
+        if (!miner) continue;
+        if (miner.inviter_id) {
+          const l1Bonus = parseFloat((igcEarned * REFERRAL_L1_IGC_SHARE).toFixed(4));
+          refBonusMap.set(miner.inviter_id, (refBonusMap.get(miner.inviter_id) ?? 0) + l1Bonus);
+          const l1User = usersMap.get(miner.inviter_id);
+          if (l1User?.inviter_id) {
+            const l2Bonus = parseFloat((igcEarned * REFERRAL_L2_IGC_SHARE).toFixed(4));
+            refBonusMap.set(l1User.inviter_id, (refBonusMap.get(l1User.inviter_id) ?? 0) + l2Bonus);
+          }
+        }
+      }
+
+      // Начисляем реферальные бонусы + пишем транзакции + daily earnings
+      for (const [referrerId, igcBonus] of refBonusMap) {
+        if (igcBonus <= 0) continue;
+        await trx.creditUser(referrerId, { ton: 0, igc: igcBonus });
+        await trx.upsertDailyEarnings(referrerId, epochAt, 0, igcBonus);
+        await pool.query(
+          `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+           VALUES ($1, 'referral_bonus', 0, $2)`,
+          [referrerId, igcBonus],
+        );
       }
 
       // Solo-победитель получает TON + пишем в историю
@@ -579,9 +614,8 @@ export async function runEpoch(): Promise<EpochResult | null> {
       }
 
       // Начисляем IGC solo-майнерам (pool-майнеры уже получили IGC выше)
-      const poolPayoutIds = new Set(distribution.minerPayouts.map(p => p.userId));
       for (const snapshot of minerSnapshots) {
-        if (poolPayoutIds.has(snapshot.userId)) continue; // уже начислено
+        if (poolPayoutUserIds.has(snapshot.userId)) continue; // уже начислено
         const igcEarned = igcPerEpoch.get(snapshot.userId) ?? 0;
         if (igcEarned > 0) {
           await trx.creditUser(snapshot.userId, { ton: 0, igc: igcEarned });
