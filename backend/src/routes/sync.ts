@@ -237,21 +237,22 @@ export async function syncRoutes(app: FastifyInstance) {
       const { rows } = await pool.query(`
         SELECT r.level, r.created_at::text AS joined_at,
                u.tg_username, u.tg_user_id::text AS tg_user_id,
-               COALESCE(SUM(
-                 CASE WHEN g.status = 'active' THEN
-                   (SELECT hashrate FROM (VALUES
-                     (0,0.1),(1,3),(2,6),(3,15),(4,45),(5,110),(6,250)
-                   ) AS t(tier,hr) WHERE t.tier = g.model_tier LIMIT 1)
-                   * CASE WHEN g.overclocked THEN 1.2 ELSE 1 END
-                   * CASE WHEN g.undervolted THEN 0.85 ELSE 1 END
-                 ELSE 0 END
+               COALESCE((
+                 SELECT SUM(
+                   CASE g2.model_tier
+                     WHEN 0 THEN 0.1 WHEN 1 THEN 3  WHEN 2 THEN 6
+                     WHEN 3 THEN 15  WHEN 4 THEN 45  WHEN 5 THEN 110
+                     WHEN 6 THEN 250 ELSE 0 END
+                   * CASE WHEN g2.overclocked THEN 1.2 ELSE 1 END
+                   * CASE WHEN g2.undervolted THEN 0.85 ELSE 1 END
+                 )
+                 FROM farms f2
+                 JOIN gpus g2 ON g2.farm_id = f2.id AND g2.status = 'active'
+                 WHERE f2.user_id = u.id
                ), 0) AS hashrate_gh
         FROM referrals r
         JOIN users u ON u.id = r.invitee_id
-        LEFT JOIN farms f ON f.user_id = u.id
-        LEFT JOIN gpus g ON g.farm_id = f.id
         WHERE r.inviter_id = $1
-        GROUP BY r.level, r.created_at, u.tg_username, u.tg_user_id
         ORDER BY r.level ASC, r.created_at DESC
       `, [user.id]);
       referrals = rows;

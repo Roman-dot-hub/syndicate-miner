@@ -183,6 +183,11 @@ export async function actionRoutes(app: FastifyInstance) {
              VALUES ($1, $2, $3, 100, 'active', $4)`,
             [farm.id, user.id, modelTier, price],
           );
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, 'buy_gpu', $2, 0)`,
+            [user.id, price],
+          );
           await pool.query(`COMMIT`);
         } catch (e) {
           await pool.query(`ROLLBACK`);
@@ -1052,7 +1057,7 @@ export async function actionRoutes(app: FastifyInstance) {
           );
           await pool.query(
             `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
-             VALUES ($1, 'purchase', $2, $3)`,
+             VALUES ($1, 'buy_igc', $2, $3)`,
             [user.id, actualTonCost, igcAmount],
           );
           await pool.query('COMMIT');

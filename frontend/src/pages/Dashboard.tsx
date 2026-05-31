@@ -565,20 +565,26 @@ function SeasonBar({ day }: { day: number }) {
 }
 
 // ── Лог транзакций ────────────────────────────────────────────
-const TX_META: Record<string, { icon: string; color: string; labelRu: string; labelEn: string }> = {
-  purchase:          { icon: '🛒', color: '#E74C3C', labelRu: 'Покупка GPU',     labelEn: 'GPU Purchase' },
-  buy_igc:           { icon: '💜', color: '#9B59B6', labelRu: 'Куплено IGC',     labelEn: 'Bought IGC' },
-  sell_igc:          { icon: '💚', color: '#00FF88', labelRu: 'Продано IGC',     labelEn: 'Sold IGC' },
-  stake_ton:         { icon: '🔒', color: '#0098EA', labelRu: 'Стейкинг TON',    labelEn: 'Staked TON' },
-  unstake_ton:       { icon: '🔓', color: '#00D4FF', labelRu: 'Вывод стейка',    labelEn: 'Unstaked TON' },
-  reward:            { icon: '⚡', color: '#F1C40F', labelRu: 'Награда',         labelEn: 'Reward' },
-  solo_reward:       { icon: '🎲', color: '#F39C12', labelRu: 'Соло-блок',       labelEn: 'Solo Block' },
-  refurbish:         { icon: '🔧', color: '#E67E22', labelRu: 'Ремонт GPU',      labelEn: 'GPU Repair' },
-  infra:             { icon: '🏗️', color: '#3498DB', labelRu: 'Апгрейд',         labelEn: 'Upgrade' },
-  withdraw:          { icon: '💸', color: '#E74C3C', labelRu: 'Вывод TON',       labelEn: 'Withdrawal' },
-  marketplace_sale:  { icon: '🤝', color: '#27AE60', labelRu: 'P2P сделка',      labelEn: 'P2P Deal' },
-  marketplace_buy:   { icon: '🛍️', color: '#8E44AD', labelRu: 'Покупка на P2P',  labelEn: 'P2P Purchase' },
-  referral_bonus:    { icon: '👥', color: '#2ECC71', labelRu: 'Реферал IGC',      labelEn: 'Referral IGC' },
+const TX_META: Record<string, {
+  icon: string; color: string; labelRu: string; labelEn: string;
+  tonSign: -1 | 0 | 1;  // -1=трата, +1=получение, 0=не показывать
+  igcSign: -1 | 0 | 1;
+}> = {
+  buy_gpu:           { icon: '🛒', color: '#E74C3C', labelRu: 'Покупка GPU',    labelEn: 'GPU Purchase',   tonSign: -1, igcSign:  0 },
+  purchase:          { icon: '🛒', color: '#E74C3C', labelRu: 'Покупка GPU',    labelEn: 'GPU Purchase',   tonSign: -1, igcSign:  0 },
+  buy_igc:           { icon: '💜', color: '#9B59B6', labelRu: 'Куплено IGC',    labelEn: 'Bought IGC',     tonSign: -1, igcSign: +1 },
+  sell_igc:          { icon: '💚', color: '#00FF88', labelRu: 'Продано IGC',    labelEn: 'Sold IGC',       tonSign: +1, igcSign: -1 },
+  marketplace_sale:  { icon: '🤝', color: '#27AE60', labelRu: 'Продажа IGC',    labelEn: 'IGC Sold',       tonSign: +1, igcSign: -1 },
+  marketplace_buy:   { icon: '🛍️', color: '#8E44AD', labelRu: 'Покупка на P2P', labelEn: 'P2P Purchase',   tonSign: -1, igcSign: +1 },
+  stake_ton:         { icon: '🔒', color: '#0098EA', labelRu: 'Стейкинг TON',   labelEn: 'Staked TON',     tonSign: -1, igcSign:  0 },
+  unstake_ton:       { icon: '🔓', color: '#00D4FF', labelRu: 'Вывод стейка',   labelEn: 'Unstaked TON',   tonSign: +1, igcSign:  0 },
+  epoch_reward:      { icon: '⚡', color: '#F1C40F', labelRu: 'Награда Pool',   labelEn: 'Pool Reward',    tonSign: +1, igcSign: +1 },
+  solo_reward:       { icon: '🎲', color: '#F39C12', labelRu: 'Соло-блок',      labelEn: 'Solo Block',     tonSign: +1, igcSign:  0 },
+  referral_igc:      { icon: '👥', color: '#2ECC71', labelRu: 'Реферал IGC',    labelEn: 'Referral IGC',   tonSign:  0, igcSign: +1 },
+  referral_bonus:    { icon: '👥', color: '#2ECC71', labelRu: 'Реферал IGC',    labelEn: 'Referral IGC',   tonSign:  0, igcSign: +1 },
+  refurbish:         { icon: '🔧', color: '#E67E22', labelRu: 'Ремонт GPU',     labelEn: 'GPU Repair',     tonSign:  0, igcSign: -1 },
+  infrastructure:    { icon: '🏗️', color: '#3498DB', labelRu: 'Апгрейд',        labelEn: 'Upgrade',        tonSign: -1, igcSign: -1 },
+  withdrawal:        { icon: '💸', color: '#E74C3C', labelRu: 'Вывод TON',      labelEn: 'Withdrawal',     tonSign: -1, igcSign:  0 },
 };
 
 function TxLogBlock({ txLog }: { txLog: TxLogEntry[] }) {
@@ -601,8 +607,10 @@ function TxLogBlock({ txLog }: { txLog: TxLogEntry[] }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {visible.map((tx, i) => {
-          const meta  = TX_META[tx.type] ?? { icon: '•', color: 'rgba(255,255,255,0.4)', labelRu: tx.type, labelEn: tx.type };
+          const meta  = TX_META[tx.type] ?? { icon: '•', color: 'rgba(255,255,255,0.4)', labelRu: tx.type, labelEn: tx.type, tonSign: 0 as const, igcSign: 0 as const };
           const label = lang === 'ru' ? meta.labelRu : meta.labelEn;
+          const tonVal = tx.amountTon !== 0 && meta.tonSign !== 0 ? meta.tonSign * tx.amountTon : null;
+          const igcVal = tx.amountIgc !== 0 && meta.igcSign !== 0 ? meta.igcSign * tx.amountIgc : null;
           return (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', gap: 8,
@@ -617,14 +625,14 @@ function TxLogBlock({ txLog }: { txLog: TxLogEntry[] }) {
                 </div>
               </div>
               <div style={{ textAlign: 'right', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
-                {tx.amountTon !== 0 && (
-                  <span style={{ color: tx.amountTon > 0 ? '#0098EA' : '#E74C3C', fontWeight: 700 }}>
-                    {tx.amountTon > 0 ? '+' : ''}{tx.amountTon.toFixed(3)} TON
+                {tonVal !== null && (
+                  <span style={{ color: tonVal > 0 ? '#0098EA' : '#E74C3C', fontWeight: 700 }}>
+                    {tonVal > 0 ? '+' : ''}{tonVal.toFixed(3)} TON
                   </span>
                 )}
-                {tx.amountIgc !== 0 && (
-                  <span style={{ color: tx.amountIgc > 0 ? '#9B59B6' : '#E74C3C', fontWeight: 700 }}>
-                    {tx.amountIgc > 0 ? '+' : ''}{Math.round(tx.amountIgc)} IGC
+                {igcVal !== null && (
+                  <span style={{ color: igcVal > 0 ? '#9B59B6' : '#E74C3C', fontWeight: 700 }}>
+                    {igcVal > 0 ? '+' : ''}{Math.round(igcVal)} IGC
                   </span>
                 )}
               </div>
