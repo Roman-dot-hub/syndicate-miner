@@ -212,11 +212,13 @@ export const db: DbClient = {
     await q.query(`UPDATE gpus SET ${sets.join(', ')} WHERE id = $${i}`, vals);
   },
 
-  // Обновление IGC-баланса фермы (после списания электричества)
-  async updateFarmIgc(farmId: string, igcBalance: number, client?: PoolClient): Promise<void> {
+  // Списание IGC за электричество (delta-вычитание, не абсолютный SET — исключает race condition с покупками)
+  async updateFarmIgc(farmId: string, igcCharged: number, client?: PoolClient): Promise<void> {
     const q = client ?? pool;
-    await q.query('UPDATE users u SET igc_balance = $1 FROM farms f WHERE f.id = $2 AND f.user_id = u.id',
-      [igcBalance, farmId]);
+    await q.query(
+      'UPDATE users u SET igc_balance = GREATEST(0, igc_balance - $1) FROM farms f WHERE f.id = $2 AND f.user_id = u.id',
+      [igcCharged, farmId],
+    );
   },
 
   // Обновление глобального pool_stats

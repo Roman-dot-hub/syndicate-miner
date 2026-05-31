@@ -216,7 +216,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
       const providerUptime   = providerDef?.uptimeBonus ?? 0;
       const elec = processElectricityBill(farm, farmGpus, elecMultiplier * providerDiscount);
       totalIgcConsumed += elec.igcCharged;
-      farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcRemaining });
+      farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcCharged });
       elec.offlineGpuIds.forEach(id => offlineGpuSets.add(id));
 
       // Проверяем низкий IGC: хватит ли на 1 день (288 эпох)

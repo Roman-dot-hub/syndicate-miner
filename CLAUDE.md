@@ -1877,6 +1877,24 @@ interface SyncData {
 
 `globalHashrate` — сначала читается из Redis (`epoch:global_hashrate`), при недоступности Redis — из `SELECT global_hashrate FROM epoch_log ORDER BY epoch_at DESC LIMIT 1`.
 
+### IGC баланс — race condition при покупке (исправлено)
+
+**Симптом:** купленные IGC появлялись на балансе, но пропадали через несколько минут.
+
+**Причина:** `updateFarmIgc` в `backend/src/db/client.ts` делал **абсолютный SET**:
+```sql
+UPDATE users SET igc_balance = $1  -- $1 = igcRemaining (старый баланс − электричество)
+```
+Если между загрузкой баланса эпохой и записью результата пользователь купил IGC, покупка затиралась.
+
+**Исправление:** заменить SET на атомарное вычитание:
+```sql
+UPDATE users SET igc_balance = GREATEST(0, igc_balance - $1)  -- $1 = igcCharged (только расход)
+```
+В `epochRunner.ts` передаётся `elec.igcCharged` вместо `elec.igcRemaining`.
+
+**Файлы:** `backend/src/db/client.ts` → `updateFarmIgc()`, `backend/src/epoch/epochRunner.ts` → `farmIgcUpdates.push(...)`.
+
 ### ErrorBoundary + global error handler
 
 В `frontend/src/App.tsx` — React class ErrorBoundary обёртывает всё приложение. Показывает текст ошибки вместо чёрного экрана при ошибке рендера.
