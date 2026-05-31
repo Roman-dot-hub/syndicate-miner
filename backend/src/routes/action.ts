@@ -37,7 +37,6 @@ import { GPU_SPECS,
          PASTE_LEVELS,
          FAN_LEVELS,
          LIQUID_COOLING_LEVELS,
-         STAKE_IGC_PER_TON_PER_DAY,
          STAKE_MIN_TON,
          STAKE_UNSTAKE_DAILY_LIMIT_PCT } from '../epoch/constants';
 import { redis }             from '../redis/client';

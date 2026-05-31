@@ -25,7 +25,9 @@ import {
   REDIS_ELEC_MULT,
   ELEC_RATIO_MULT_MIN,
   ELEC_RATIO_MULT_MAX,
-  STAKE_IGC_PER_TON_PER_DAY,
+  STAKE_IGC_BASE_PER_TON_PER_DAY,
+  STAKE_IGC_MIN_PER_TON_PER_DAY,
+  STAKE_IGC_MAX_PER_TON_PER_DAY,
   ELEC_RATIO_SENSITIVITY,
   REDIS_TAP_PREFIX,
   EPOCH_INTERVAL_MS,
@@ -462,7 +464,8 @@ export async function runEpoch(): Promise<EpochResult | null> {
     }
 
     // ── 8. Стейкинг IGC-yield ──────────────────────────
-    // Каждую эпоху начисляем IGC стейкерам: STAKE_IGC_PER_TON_PER_DAY / EPOCHS_PER_DAY за каждый застейканый TON.
+    // Каждую эпоху начисляем IGC стейкерам: base/ratio, зажато в [min, max].
+    // ratio<1 (дефицит IGC) → больше IGC; ratio>1 (профицит) → меньше IGC.
     let totalStakingIgc = 0;
     try {
       const { rows: stakers } = await pool.query(
@@ -470,7 +473,12 @@ export async function runEpoch(): Promise<EpochResult | null> {
          FROM users u JOIN farms f ON f.user_id = u.id
          WHERE u.staked_ton > 0`,
       );
-      const igcPerTonPerEpoch = STAKE_IGC_PER_TON_PER_DAY / EPOCHS_PER_DAY;
+      const ratio = parseFloat(poolStats.igcRatioSmoothed?.toString() ?? '1') || 1;
+      const igcPerTonPerDay = Math.min(
+        STAKE_IGC_MAX_PER_TON_PER_DAY,
+        Math.max(STAKE_IGC_MIN_PER_TON_PER_DAY, STAKE_IGC_BASE_PER_TON_PER_DAY / ratio),
+      );
+      const igcPerTonPerEpoch = igcPerTonPerDay / EPOCHS_PER_DAY;
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
       for (const s of stakers) {
         const yieldIgc = parseFloat(s.staked_ton) * igcPerTonPerEpoch;

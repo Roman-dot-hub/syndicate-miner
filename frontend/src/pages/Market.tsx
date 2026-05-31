@@ -291,8 +291,10 @@ function StakingSection({ data, onUpdate, pricePerIgc }: { data: SyncData; onUpd
   const limitRem       = staking?.unstakeRemainingTon ?? 0;
   const limitTotal     = staking?.unstakeLimitTon  ?? 0;
 
-  // APY = 5 IGC/TON/день × 365 × pricePerIgc × 100
-  const apyPct = (5 * 365 * pricePerIgc * 100).toFixed(2);
+  // APY считается от реального dailyYieldIgc (уже учитывает ratio-корректировку)
+  const stakedTonForApy = stakedTon > 0 ? stakedTon : 1;
+  const igcPerTonPerDay = stakedTon > 0 ? dailyYieldIgc / stakedTonForApy : dailyYieldIgc || 5;
+  const apyPct = (igcPerTonPerDay * 365 * pricePerIgc * 100).toFixed(2);
 
   const stakeVal  = parseFloat(stakeAmt)   || 0;
   const unstakeVal = parseFloat(unstakeAmt) || 0;

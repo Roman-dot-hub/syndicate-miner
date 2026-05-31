@@ -110,9 +110,14 @@ export const TAP_JITTER_SAMPLE      = 5;
 
 // ── СТЕЙКИНГ TON ─────────────────────────────────────────
 // Игрок стейкает TON → TON идёт в резервный пул → каждую эпоху начисляется IGC
-export const STAKE_IGC_PER_TON_PER_DAY    = 5;     // 5 IGC на 1 TON в сутки (≈18.25% годовых при ratio=1)
-export const STAKE_MIN_TON                = 1;     // минимальная сумма стейкинга
-export const STAKE_UNSTAKE_DAILY_LIMIT_PCT = 0.01; // 1% от пула можно вывести в сутки суммарно
+// Доходность: базовая ставка делится на ratio → при дефиците IGC (ratio<1) больше IGC,
+// при профиците (ratio>1) меньше. Зажим: мин 2.5, макс 15 IGC/TON/день.
+// При ratio=1: 5 IGC/TON/день ≈ 18.25% годовых. При ratio=0.5: 10 IGC/TON/день ≈ 36.5%.
+export const STAKE_IGC_BASE_PER_TON_PER_DAY = 5;     // базовая ставка при ratio=1
+export const STAKE_IGC_MIN_PER_TON_PER_DAY  = 2.5;   // минимум (ratio≥2)
+export const STAKE_IGC_MAX_PER_TON_PER_DAY  = 15;    // максимум (ratio≤0.33)
+export const STAKE_MIN_TON                  = 1;     // минимальная сумма стейкинга
+export const STAKE_UNSTAKE_DAILY_LIMIT_PCT  = 0.01; // 1% от пула можно вывести в сутки суммарно
 
 // ── AD BOOST ─────────────────────────────────────────────
 export const AD_BOOST_SEC           = 300;     // +5 минут буста за просмотр

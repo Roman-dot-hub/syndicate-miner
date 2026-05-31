@@ -19,7 +19,8 @@ import { REDIS_TAP_PREFIX, REDIS_GLOBAL_H, REDIS_ELEC_MULT, TAP_SESSION_LIMIT,
          SYNDICATE_LEVEL_MILESTONES, SYNDICATE_BASE_MAX_MEMBERS,
          SYNDICATE_LEVEL_XP_COSTS,
          ELEC_RATIO_MULT_MIN, ELEC_RATIO_MULT_MAX, ELEC_RATIO_SENSITIVITY,
-         STAKE_IGC_PER_TON_PER_DAY, STAKE_UNSTAKE_DAILY_LIMIT_PCT } from '../epoch/constants';
+         STAKE_IGC_BASE_PER_TON_PER_DAY, STAKE_IGC_MIN_PER_TON_PER_DAY,
+         STAKE_IGC_MAX_PER_TON_PER_DAY, STAKE_UNSTAKE_DAILY_LIMIT_PCT } from '../epoch/constants';
 
 const pool = new Pool(pgPoolConfig);
 
@@ -367,7 +368,12 @@ export async function syncRoutes(app: FastifyInstance) {
             ? new Date(poolRow.staking_daily_unstake_date).toDateString() === new Date().toDateString()
             : false;
           const alreadyOut    = isToday ? parseFloat(poolRow?.staking_daily_unstaked ?? '0') : 0;
-          const dailyYieldIgc = stakedTon * STAKE_IGC_PER_TON_PER_DAY;
+          const igcRatioNow    = parseFloat(poolRow?.igc_ratio_smoothed ?? '1') || 1;
+          const igcPerTonPerDay = Math.min(
+            STAKE_IGC_MAX_PER_TON_PER_DAY,
+            Math.max(STAKE_IGC_MIN_PER_TON_PER_DAY, STAKE_IGC_BASE_PER_TON_PER_DAY / igcRatioNow),
+          );
+          const dailyYieldIgc = stakedTon * igcPerTonPerDay;
           // Накопленный IGC за сегодня из стейкинга (Redis)
           let stakingEarnedToday = 0;
           try {
