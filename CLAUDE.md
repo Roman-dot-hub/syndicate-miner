@@ -1156,6 +1156,61 @@ function calcTemp(tier, coolingLevel, overclocked, undervolted) {
 
 ---
 
+## Изменения (сессия 2026-05-31)
+
+### Market — комиссии IGC
+
+Обе операции (buy_igc и sell_igc) облагаются **3% комиссией** платформы.
+
+- **sell_igc:** `grossPayout = amount × price`, `commission = gross × 0.03`, `netPayout = gross − commission`
+- **buy_igc:** `buyCommission = actualTonCost × 0.03`, идёт в `admin_earned_ton`
+
+**Frontend:** под полем ввода показывается "Получишь: X TON/IGC" (уже net) и строка "Комиссия платформы: −X (3%)". Подтверждение тоже включает комиссию. `COMMISSION = 0.03` — константа в `Market.tsx`.
+
+### Реферальная система — полный фикс
+
+**Был баг:** IGC-бонусы шли только pool-майнерам (через `distributePoolReward`). Solo-майнеры не генерировали бонусы для инвайтеров.
+
+**Исправлено в `epochRunner.ts`:**
+- Отдельный цикл solo-майнеров добавляет L1 (10%) и L2 (3%) бонусы в `refBonusMap`
+- Все бонусы из `refBonusMap` начисляются через `creditUser` + `upsertDailyEarnings` + INSERT transactions `type='referral_bonus'`
+- Теперь реферальные бонусы видны в лоrе транзакций и истории заработка
+
+**sync.ts — хешрейт реферала:**
+```sql
+-- Добавлено в запрос рефералов:
+COALESCE(SUM(hashrate × oc_mult × uv_mult WHERE status='active'), 0) AS hashrate_gh
+```
+Маппинг: `hashrateGh: parseFloat(r.hashrate_gh ?? '0')`
+
+**Company.tsx — новый UI:**
+- Карточка "Как работает" — блок 💎 с описанием IGC-бонуса (10% L1, 3% L2)
+- Карточка "Моя сеть" — под именем реферала: `54.10 GH/s → +2.71 GH/s` (5% для L1, 2% для L2)
+
+### GpuShopModal — блок ТРЕБОВАНИЯ + фикс overlap
+
+**Фикс overlap карточек:** убран `overflow: 'hidden'` с wrapper'а карточки — он зажимал высоту при раскрытии.
+
+**Блок ТРЕБОВАНИЯ** (в expanded секции каждой GPU):
+
+| Строка | Условие | Цвет |
+|--------|---------|------|
+| 🔧 Ремонт: верстак LvN | `wbLevel >= N` | ✓ зелёный / ✗ красный + подсказка |
+| 🔒 Доступна с Фазы N | `phase >= availablePhase` | только для tier 5/6 |
+| ⚡ OC/UV | всегда доступно | ✗ только для USB Nano (tier 0) |
+
+`wbLevel` читается из `data.farm` в `GpuShopModal` (раньше не читался).
+
+Компонент `ShopConstraint({ icon, label, met, hint })` — в конце `GpuShopModal.tsx`.
+
+### Прочие изменения
+
+- **Вкладка "Клан" → "Синдикат"** (ru) / "Syndicate" (en) — `i18n.ts`
+- **Market.tsx APY** теперь считается от реального `dailyYieldIgc` (не хардкод 5), корректно отражает динамическую ставку стейкинга
+- **TX_META** в Dashboard: добавлены `referral_bonus` (👥), `marketplace_sale` (🤝), `marketplace_buy` (🛍️)
+
+---
+
 ## Критические баги — решённые (для справки)
 
 ### GPU cooling_level перезаписывался cooling_level фермы
