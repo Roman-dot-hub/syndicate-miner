@@ -1,4 +1,4 @@
-import { useState, useEffect, Component } from 'react';
+import { useState, useEffect, useCallback, useRef, Component } from 'react';
 import type { ReactNode } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useSync } from './hooks/useSync';
@@ -38,8 +38,20 @@ export default function App() {
   const isInTelegram  = Boolean(WebApp.initData);
   const { data, loading, error, retrying, sync } = useSync();
   const { t } = useLang();
-  // Оптимистичный режим майнинга — синхронизируется между BalanceBar и Dashboard
+  // displayMode: мгновенно меняется при действии, сбрасывается при следующем sync с сервера
   const [optimisticMode, setOptimisticMode] = useState<'pool' | 'solo' | null>(null);
+  const optimisticSetAt = useRef(0);
+
+  const setOptMode = useCallback((m: 'pool' | 'solo' | null) => {
+    if (m !== null) optimisticSetAt.current = Date.now();
+    setOptimisticMode(m);
+  }, []);
+
+  // Сбрасываем оптимистик при каждом свежем ответе сервера (≥2с после установки)
+  useEffect(() => {
+    if (!optimisticMode || !data) return;
+    if (Date.now() - optimisticSetAt.current >= 2000) setOptimisticMode(null);
+  }, [data, optimisticMode]);
 
   const TABS: { id: Tab; emoji: string; label: string }[] = [
     { id: 'dashboard',   emoji: '📊', label: t.tab_dashboard   },
@@ -173,10 +185,10 @@ export default function App() {
         {/* Page content — анимация при смене вкладки */}
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 70 }}>
           <div key={tab} style={{ animation: 'page-in 0.22s ease-out' }}>
-            {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} optimisticMode={optimisticMode} setOptimisticMode={setOptimisticMode} />}
+            {tab === 'dashboard' && <Dashboard data={data} onUpdate={sync} optimisticMode={optimisticMode} setOptimisticMode={setOptMode} />}
             {tab === 'farm'      && <Farm      data={data} onUpdate={sync} />}
             {tab === 'market'      && <Market      data={data} onUpdate={sync} />}
-            {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} />}
+            {tab === 'syndicate'   && <Syndicate   data={data} onUpdate={sync} setOptimisticMode={setOptMode} />}
             {tab === 'leaderboard' && <Leaderboard />}
             {tab === 'company'     && <Company     data={data} />}
             {tab === 'guide'       && <Guide />}

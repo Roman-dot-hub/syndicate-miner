@@ -598,6 +598,34 @@ npm run lint                  # ESLint + Prettier (во всех пакетах)
 - `initData` считается валидной до **7 дней** (auth_date + 604 800 000 мс). Файл: `backend/src/auth/telegramAuth.ts`.
 - В dev-режиме: bypass через `X-Dev-User-Id` заголовок (без проверки подписи).
 
+### optimisticMode — мгновенное переключение режима майнинга
+
+`optimisticMode` живёт в `App.tsx` и передаётся в `BalanceBar`, `Dashboard`, `Syndicate`.
+
+**Архитектура:**
+```typescript
+// App.tsx
+const [optimisticMode, setOptimisticMode] = useState<'pool'|'solo'|null>(null);
+const optimisticSetAt = useRef(0);
+
+const setOptMode = useCallback((m: 'pool'|'solo'|null) => {
+  if (m !== null) optimisticSetAt.current = Date.now();
+  setOptimisticMode(m);
+}, []);
+
+// Сброс: при каждом свежем sync через ≥2с после установки
+useEffect(() => {
+  if (!optimisticMode || !data) return;
+  if (Date.now() - optimisticSetAt.current >= 2000) setOptimisticMode(null);
+}, [data, optimisticMode]);
+```
+
+**Где устанавливается:**
+- `Dashboard.tsx` — кнопка toggle_mode: `setOptMode(nextMode)`
+- `Syndicate.tsx` — join/create → `setOptMode('pool')`, leave → `setOptMode('solo')`
+
+**Почему timestamp, а не "совпадение с сервером":** схема `serverMode === optimisticMode → reset` ломается когда action упал с ошибкой (сервер не обновился, а optimisticMode застрял навсегда). С timestamp — гарантированный сброс через ≤8 секунд (sync каждые 6с + 2с задержка).
+
 ### Бета-режим (временные фичи — убрать перед продакшном)
 
 - **20 TON при регистрации**: в `registerNewPlayer()` в `sync.ts` — константа `BETA_START_TON = 20`. Помечена комментарием `⚠️ БЕТА`.

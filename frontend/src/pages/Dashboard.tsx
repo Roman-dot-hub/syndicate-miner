@@ -91,12 +91,6 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
 
   const displayMode = optimisticMode ?? user.miningMode;
 
-  // Сбрасываем оптимистик только когда сервер реально вернул новый режим
-  useEffect(() => {
-    if (optimisticMode && user.miningMode === optimisticMode) {
-      setOptMode(null);
-    }
-  }, [user.miningMode, optimisticMode]);
 
   const toggleMode = async () => {
     if (busy) return;

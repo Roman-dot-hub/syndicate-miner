@@ -11,7 +11,7 @@ import { fmt } from '../i18n';
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
-interface Props { data: SyncData; onUpdate: () => void }
+interface Props { data: SyncData; onUpdate: () => void; setOptimisticMode?: (m: 'pool' | 'solo' | null) => void }
 
 // Базовые цены (до применения igcRatio рынка). Мьютекс: boost_x1 ↔ boost_x2 взаимоисключающие.
 const BONUS_COSTS: Record<string, { igcCost: number; requiredLevel: number }> = {
@@ -40,7 +40,7 @@ function formatDate(iso: string | null): string {
 
 type View = 'main' | 'browse' | 'create' | 'members' | 'bonusShop' | 'management' | 'stats';
 
-export function Syndicate({ data, onUpdate }: Props) {
+export function Syndicate({ data, onUpdate, setOptimisticMode }: Props) {
   const { t } = useLang();
   const syn = data.syndicate;
   const { action } = useAction();
@@ -96,7 +96,7 @@ export function Syndicate({ data, onUpdate }: Props) {
     if (createName.trim().length < 3) { WebApp.showAlert(t.syn_min_name); return; }
     WebApp.showConfirm(
       fmt(t.syn_create_conf, { name: createName.trim() }),
-      (ok) => { if (ok) doAction('create_syndicate', { name: createName.trim() }); },
+      (ok) => { if (ok) { setOptimisticMode?.('pool'); doAction('create_syndicate', { name: createName.trim() }); } },
     );
   };
 
@@ -161,7 +161,7 @@ export function Syndicate({ data, onUpdate }: Props) {
                 <button
                   onClick={() => WebApp.showConfirm(
                     fmt(t.syn_join_confirm, { name: s.name }),
-                    (ok) => { if (ok) doAction('join_syndicate', { syndicateId: s.id }); },
+                    (ok) => { if (ok) { setOptimisticMode?.('pool'); doAction('join_syndicate', { syndicateId: s.id }); } },
                   )}
                   disabled={busy}
                   style={{ ...btnPrimary, padding: '6px 12px', fontSize: 12 }}
@@ -604,7 +604,7 @@ export function Syndicate({ data, onUpdate }: Props) {
         <button
           onClick={() => WebApp.showConfirm(
             t.syn_leave_confirm,
-            (ok) => { if (ok) doAction('leave_syndicate'); },
+            (ok) => { if (ok) { setOptimisticMode?.('solo'); doAction('leave_syndicate'); } },
           )}
           disabled={busy}
           style={{ ...btnSecondary, width: '100%', color: '#E74C3C' }}
