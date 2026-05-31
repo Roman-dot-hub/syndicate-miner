@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
-import type { SyncData } from '../types';
+import type { SyncData, TxLogEntry } from '../types';
 import { SEASON_EMOJI, GPU_SPECS } from '../types';
 import { FearGreedIndex } from '../components/FearGreedIndex';
 import { GpuIcon } from '../components/GpuIcon';
@@ -499,6 +499,11 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
         );
       })()}
 
+      {/* ── ЛОГ ТРАНЗАКЦИЙ ───────────────────────────────── */}
+      {data.txLog && data.txLog.length > 0 && (
+        <TxLogBlock txLog={data.txLog} />
+      )}
+
       {/* ── FEAR & GREED ─────────────────────────────────── */}
       <FearGreedIndex igc={igc} />
     </div>
@@ -555,6 +560,85 @@ function SeasonBar({ day }: { day: number }) {
           }} />
         );
       })}
+    </div>
+  );
+}
+
+// ── Лог транзакций ────────────────────────────────────────────
+const TX_META: Record<string, { icon: string; color: string; labelRu: string; labelEn: string }> = {
+  purchase:     { icon: '🛒', color: '#E74C3C', labelRu: 'Покупка GPU',    labelEn: 'GPU Purchase' },
+  buy_igc:      { icon: '💜', color: '#9B59B6', labelRu: 'Куплено IGC',    labelEn: 'Bought IGC' },
+  sell_igc:     { icon: '💚', color: '#00FF88', labelRu: 'Продано IGC',    labelEn: 'Sold IGC' },
+  stake_ton:    { icon: '🔒', color: '#0098EA', labelRu: 'Стейкинг TON',   labelEn: 'Staked TON' },
+  unstake_ton:  { icon: '🔓', color: '#00D4FF', labelRu: 'Вывод стейка',   labelEn: 'Unstaked TON' },
+  reward:       { icon: '⚡', color: '#F1C40F', labelRu: 'Награда',        labelEn: 'Reward' },
+  solo_reward:  { icon: '🎲', color: '#F39C12', labelRu: 'Соло-блок',      labelEn: 'Solo Block' },
+  refurbish:    { icon: '🔧', color: '#E67E22', labelRu: 'Ремонт GPU',     labelEn: 'GPU Repair' },
+  infra:        { icon: '🏗️', color: '#3498DB', labelRu: 'Апгрейд',        labelEn: 'Upgrade' },
+  withdraw:     { icon: '💸', color: '#E74C3C', labelRu: 'Вывод TON',      labelEn: 'Withdrawal' },
+};
+
+function TxLogBlock({ txLog }: { txLog: TxLogEntry[] }) {
+  const { lang } = useLang();
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? txLog : txLog.slice(0, 5);
+
+  function fmtTime(iso: string) {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const diffH  = diffMs / 3600000;
+    if (diffH < 1)  return `${Math.round(diffMs / 60000)}м`;
+    if (diffH < 24) return `${Math.round(diffH)}ч`;
+    return `${Math.round(diffH / 24)}д`;
+  }
+
+  return (
+    <div style={{ background: CYB, borderRadius: 14, border: `1px solid ${CYE}`, padding: '12px 14px' }}>
+      <div style={{ fontSize: 9, letterSpacing: 2, color: DIM, marginBottom: 10 }}>
+        {lang === 'ru' ? '📋 ИСТОРИЯ ОПЕРАЦИЙ' : '📋 TRANSACTION LOG'}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {visible.map((tx, i) => {
+          const meta  = TX_META[tx.type] ?? { icon: '•', color: 'rgba(255,255,255,0.4)', labelRu: tx.type, labelEn: tx.type };
+          const label = lang === 'ru' ? meta.labelRu : meta.labelEn;
+          return (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 8px', borderRadius: 8,
+              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
+            }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{meta.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: meta.color }}>{label}</div>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>
+                  {fmtTime(tx.createdAt)} {lang === 'ru' ? 'назад' : 'ago'}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
+                {tx.amountTon !== 0 && (
+                  <span style={{ color: tx.amountTon > 0 ? '#0098EA' : '#E74C3C', fontWeight: 700 }}>
+                    {tx.amountTon > 0 ? '+' : ''}{tx.amountTon.toFixed(3)} TON
+                  </span>
+                )}
+                {tx.amountIgc !== 0 && (
+                  <span style={{ color: tx.amountIgc > 0 ? '#9B59B6' : '#E74C3C', fontWeight: 700 }}>
+                    {tx.amountIgc > 0 ? '+' : ''}{Math.round(tx.amountIgc)} IGC
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {txLog.length > 5 && (
+        <button onClick={() => setExpanded(e => !e)} style={{
+          marginTop: 8, width: '100%', background: 'none', border: 'none',
+          color: 'rgba(0,212,255,0.5)', fontSize: 10, cursor: 'pointer', letterSpacing: 1,
+        }}>
+          {expanded
+            ? (lang === 'ru' ? '▲ СВЕРНУТЬ' : '▲ COLLAPSE')
+            : (lang === 'ru' ? `▼ ЕЩЁ ${txLog.length - 5}` : `▼ ${txLog.length - 5} MORE`)}
+        </button>
+      )}
     </div>
   );
 }

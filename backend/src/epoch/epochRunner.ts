@@ -471,13 +471,20 @@ export async function runEpoch(): Promise<EpochResult | null> {
          WHERE u.staked_ton > 0`,
       );
       const igcPerTonPerEpoch = STAKE_IGC_PER_TON_PER_DAY / EPOCHS_PER_DAY;
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
       for (const s of stakers) {
         const yieldIgc = parseFloat(s.staked_ton) * igcPerTonPerEpoch;
         if (yieldIgc <= 0) continue;
+        // Начисляем в users.igc_balance (farms не имеет этого поля)
         await pool.query(
-          `UPDATE farms SET igc_balance = igc_balance + $1 WHERE id = $2`,
-          [parseFloat(yieldIgc.toFixed(6)), s.farm_id],
+          `UPDATE users SET igc_balance = igc_balance + $1 WHERE id = $2`,
+          [parseFloat(yieldIgc.toFixed(6)), s.user_id],
         );
+        // Накапливаем суточный доход стейкинга в Redis (earn:stk:{userId}:{date})
+        try {
+          await redis.hincrbyfloat(`earn:stk:${s.user_id}:${today}`, 'igc', yieldIgc);
+          await redis.expire(`earn:stk:${s.user_id}:${today}`, 9 * 24 * 3600); // 9 дней TTL
+        } catch { /* Redis недоступен */ }
         totalStakingIgc += yieldIgc;
       }
       if (totalStakingIgc > 0) {

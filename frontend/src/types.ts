@@ -123,8 +123,16 @@ export interface ReferralEntry {
 export interface StakingData {
   stakedTon:           number;  // сколько TON застейкано
   dailyYieldIgc:       number;  // IGC в сутки при текущем стейке
+  stakingEarnedToday:  number;  // IGC накоплено за сегодня из стейкинга
   unstakeLimitTon:     number;  // 1% пула = максимум вывода в сутки (суммарно по всем)
   unstakeRemainingTon: number;  // сколько ещё можно вывести сегодня
+}
+
+export interface TxLogEntry {
+  type:      string;  // 'purchase'|'sell_igc'|'buy_igc'|'stake_ton'|'unstake_ton'|'reward'|'refurbish'|...
+  amountTon: number;
+  amountIgc: number;
+  createdAt: string;
 }
 
 export interface SyncData {
@@ -139,6 +147,7 @@ export interface SyncData {
   network?:   NetworkStats;
   earnings?:  PlayerEarnings;
   staking?:   StakingData;
+  txLog?:     TxLogEntry[];
   events:     Record<string, unknown>;
   syndicate?: SyndicateData | null;
   referrals?: ReferralEntry[];

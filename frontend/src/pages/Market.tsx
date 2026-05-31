@@ -352,26 +352,39 @@ function StakingSection({ data, onUpdate, pricePerIgc }: { data: SyncData; onUpd
 
       {/* Текущий стейк */}
       {stakedTon > 0 ? (
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 12,
-          padding: '10px', background: 'rgba(0,212,255,0.06)',
-          border: '1px solid rgba(0,212,255,0.2)', borderRadius: 10,
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.stk_staked_label}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#0098EA' }}>{stakedTon.toFixed(3)}</div>
-            <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>TON</div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 6,
+            padding: '10px', background: 'rgba(0,212,255,0.06)',
+            border: '1px solid rgba(0,212,255,0.2)', borderRadius: 10,
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.stk_staked_label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#0098EA' }}>{stakedTon.toFixed(3)}</div>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>TON</div>
+            </div>
+            <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.07)', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.stk_yield_label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#9B59B6' }}>+{dailyYieldIgc.toFixed(1)}</div>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>IGC/{t.stk_per_day}</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.stk_limit_label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: limitRem > 0 ? '#00FF88' : '#E74C3C' }}>{limitRem.toFixed(2)}</div>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>/ {limitTotal.toFixed(2)} TON</div>
+            </div>
           </div>
-          <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.07)', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.stk_yield_label}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#9B59B6' }}>+{dailyYieldIgc.toFixed(1)}</div>
-            <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>IGC</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>{t.stk_limit_label}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: limitRem > 0 ? '#00FF88' : '#E74C3C' }}>{limitRem.toFixed(2)}</div>
-            <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>/ {limitTotal.toFixed(2)} TON</div>
-          </div>
+          {/* Заработано сегодня */}
+          {(staking?.stakingEarnedToday ?? 0) > 0 && (
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '6px 10px', background: 'rgba(155,89,182,0.08)',
+              border: '1px solid rgba(155,89,182,0.2)', borderRadius: 8,
+            }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>💰 {t.stk_earned_today}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#9B59B6' }}>+{(staking?.stakingEarnedToday ?? 0).toFixed(2)} IGC</span>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 12, textAlign: 'center' }}>

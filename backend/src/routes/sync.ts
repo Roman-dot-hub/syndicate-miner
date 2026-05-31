@@ -182,6 +182,27 @@ export async function syncRoutes(app: FastifyInstance) {
       console.error('[sync] earnings query failed:', err?.message);
     }
 
+    // ── Лог транзакций (последние 30) ──────────────────────
+    let txLog: Array<{ type: string; amountTon: number; amountIgc: number; createdAt: string }> = [];
+    try {
+      const { rows: txRows } = await pool.query(
+        `SELECT type, amount_ton, amount_igc, created_at::text AS created_at
+         FROM transactions
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 30`,
+        [user.id],
+      );
+      txLog = txRows.map(r => ({
+        type:      r.type,
+        amountTon: parseFloat(r.amount_ton ?? '0'),
+        amountIgc: parseFloat(r.amount_igc ?? '0'),
+        createdAt: r.created_at,
+      }));
+    } catch (err: any) {
+      console.error('[sync] txlog query failed:', err?.message);
+    }
+
     // ── Рефералы игрока ──────────────────────
     let referrals: any[] = [];
     try {
@@ -338,19 +359,27 @@ export async function syncRoutes(app: FastifyInstance) {
           poolTon:    parseFloat(poolRow?.reserve_pool_ton ?? '0'),
           totalPaid:  parseFloat(poolRow?.total_paid_out ?? '0'),
         },
-        staking: (() => {
-          const stakedTon    = parseFloat(rawUser?.staked_ton ?? '0');
-          const poolSize     = parseFloat(poolRow?.reserve_pool_ton ?? '0');
-          const dailyLimit   = poolSize * STAKE_UNSTAKE_DAILY_LIMIT_PCT;
-          const isToday      = poolRow?.staking_daily_unstake_date
+        staking: await (async () => {
+          const stakedTon     = parseFloat(rawUser?.staked_ton ?? '0');
+          const poolSize      = parseFloat(poolRow?.reserve_pool_ton ?? '0');
+          const dailyLimit    = poolSize * STAKE_UNSTAKE_DAILY_LIMIT_PCT;
+          const isToday       = poolRow?.staking_daily_unstake_date
             ? new Date(poolRow.staking_daily_unstake_date).toDateString() === new Date().toDateString()
             : false;
-          const alreadyOut   = isToday ? parseFloat(poolRow?.staking_daily_unstaked ?? '0') : 0;
+          const alreadyOut    = isToday ? parseFloat(poolRow?.staking_daily_unstaked ?? '0') : 0;
           const dailyYieldIgc = stakedTon * STAKE_IGC_PER_TON_PER_DAY;
+          // Накопленный IGC за сегодня из стейкинга (Redis)
+          let stakingEarnedToday = 0;
+          try {
+            const today = new Date().toISOString().slice(0, 10);
+            const h = await redis.hgetall(`earn:stk:${user.id}:${today}`);
+            stakingEarnedToday = parseFloat(h?.igc ?? '0');
+          } catch { /* Redis недоступен */ }
           return {
             stakedTon,
-            dailyYieldIgc:      parseFloat(dailyYieldIgc.toFixed(4)),
-            unstakeLimitTon:    parseFloat(dailyLimit.toFixed(4)),
+            dailyYieldIgc:       parseFloat(dailyYieldIgc.toFixed(4)),
+            stakingEarnedToday:  parseFloat(stakingEarnedToday.toFixed(4)),
+            unstakeLimitTon:     parseFloat(dailyLimit.toFixed(4)),
             unstakeRemainingTon: parseFloat(Math.max(0, dailyLimit - alreadyOut).toFixed(4)),
           };
         })(),
@@ -363,6 +392,7 @@ export async function syncRoutes(app: FastifyInstance) {
           electricityMult: parseFloat(electricityMult.toFixed(3)),
         },
         earnings: earningsData,
+        txLog,
         tapBoost,
         network: {
           totalUsers:    parseInt(netStats?.total_users  ?? '0', 10),
