@@ -410,11 +410,6 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
       </div>
 
       {/* ── ИСТОРИЯ ЗАРАБОТКА ────────────────────────────── */}
-      {/* ── ЛОГ ТРАНЗАКЦИЙ ───────────────────────────────── */}
-      {data.txLog && data.txLog.length > 0 && (
-        <TxLogBlock txLog={data.txLog} />
-      )}
-
       {data.earnings && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
@@ -506,6 +501,11 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
 
       {/* ── FEAR & GREED ─────────────────────────────────── */}
       <FearGreedIndex igc={igc} />
+
+      {/* ── ЛОГ ТРАНЗАКЦИЙ ───────────────────────────────── */}
+      {data.txLog && data.txLog.length > 0 && (
+        <TxLogBlock txLog={data.txLog} />
+      )}
     </div>
   );
 }

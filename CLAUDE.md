@@ -1895,6 +1895,63 @@ UPDATE users SET igc_balance = GREATEST(0, igc_balance - $1)  -- $1 = igcCharged
 
 **Файлы:** `backend/src/db/client.ts` → `updateFarmIgc()`, `backend/src/epoch/epochRunner.ts` → `farmIgcUpdates.push(...)`.
 
+### Стейкинг IGC — начисление и динамическая ставка
+
+**Баг:** `UPDATE farms SET igc_balance` в epochRunner падал каждую эпоху — таблица `farms` не имеет поля `igc_balance`. IGC стейкерам не начислялся вообще.
+
+**Исправление:** `UPDATE users SET igc_balance = igc_balance + $1 WHERE id = $2` — прямо в таблицу `users`.
+
+**Динамическая ставка (Вариант A с зажимом):**
+```typescript
+// backend/src/epoch/constants.ts
+STAKE_IGC_BASE_PER_TON_PER_DAY = 5   // база при ratio=1
+STAKE_IGC_MIN_PER_TON_PER_DAY  = 2.5 // мин (ratio≥2)
+STAKE_IGC_MAX_PER_TON_PER_DAY  = 15  // макс (ratio≤0.33)
+
+// Формула в epochRunner + sync:
+igcPerTonPerDay = clamp(5 / ratio, 2.5, 15)
+```
+
+| ratio | IGC/TON/день | APY |
+|-------|-------------|-----|
+| 0.33 | 15 (макс) | ~54.7% |
+| 0.5 | 10 | ~36.5% |
+| 1.0 | 5 | ~18.25% |
+| 2.0 | 2.5 (мин) | ~9.1% |
+
+**Суточный учёт стейкинга:** Redis ключ `earn:stk:{userId}:{YYYY-MM-DD}` → поле `igc`, TTL 9 дней. Инкрементируется в epochRunner. Читается в `sync.ts` → `staking.stakingEarnedToday`.
+
+**Важно:** вычисление `stakingData` делается ДО `reply.send()` как обычные переменные — не async IIFE внутри объекта. Async IIFE внутри `reply.send({})` вызывал неполный ответ Fastify.
+
+### Лог транзакций (TxLogBlock)
+
+**Dashboard.tsx** — компонент `TxLogBlock` в самом низу страницы (после FearGreedIndex).
+
+- Показывает последние 30 транзакций из таблицы `transactions`
+- Показывается только если `data.txLog.length > 0`
+- Первые 5 видны сразу, остальные разворачиваются кнопкой "▼ ЕЩЁ N"
+- Иконки и цвета по типу: `TX_META` объект в конце Dashboard.tsx
+
+**Типы транзакций:**
+| type | иконка | цвет |
+|------|--------|------|
+| `purchase` | 🛒 | красный |
+| `buy_igc` | 💜 | фиолетовый |
+| `sell_igc` | 💚 | зелёный |
+| `stake_ton` | 🔒 | синий |
+| `unstake_ton` | 🔓 | голубой |
+| `reward` | ⚡ | жёлтый |
+| `solo_reward` | 🎲 | оранжевый |
+| `refurbish` | 🔧 | оранжевый |
+| `marketplace_sale` | 🤝 | зелёный |
+
+**Backend:** `GET /api/sync` → `txLog: TxLogEntry[]` (поле в SyncData). Запрос в `sync.ts`:
+```sql
+SELECT type, amount_ton, amount_igc, created_at::text
+FROM transactions WHERE user_id = $1
+ORDER BY created_at DESC LIMIT 30
+```
+
 ### ErrorBoundary + global error handler
 
 В `frontend/src/App.tsx` — React class ErrorBoundary обёртывает всё приложение. Показывает текст ошибки вместо чёрного экрана при ошибке рендера.
