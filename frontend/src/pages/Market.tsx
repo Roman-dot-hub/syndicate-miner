@@ -70,10 +70,12 @@ export function Market({ data, onUpdate }: Props) {
   const [buyAmt,  setBuyAmt]    = useState('');
   const [busyBuy, setBuyBusy]   = useState(false);
 
-  const sellIgc = parseFloat(sellAmt) || 0;
-  const sellTon = sellIgc * pricePerIgc;
-  const buyTon  = parseFloat(buyAmt) || 0;
-  const buyIgc  = buyTon / pricePerIgc;
+  const COMMISSION = 0.03; // 3% комиссия платформы (sell и buy)
+  const sellIgc     = parseFloat(sellAmt) || 0;
+  const sellGross   = sellIgc * pricePerIgc;
+  const sellTon     = sellGross * (1 - COMMISSION); // net после комиссии
+  const buyTon      = parseFloat(buyAmt) || 0;
+  const buyIgc      = (buyTon * (1 - COMMISSION)) / pricePerIgc; // IGC после вычета комиссии
 
   function ratioLabel(r: number): string {
     if (r >= 2.0) return t.mkt_crit_surplus;
@@ -89,7 +91,7 @@ export function Market({ data, onUpdate }: Props) {
     if (sellIgc > igcBalance) { WebApp.showAlert('Недостаточно IGC'); return; }
     setBusySell(true); // блокируем кнопку сразу, до диалога
     WebApp.showConfirm(
-      `Продать ${sellIgc.toFixed(0)} IGC за ${sellTon.toFixed(4)} TON?\n\nЦена: ${pricePerIgc.toFixed(6)} TON/IGC`,
+      `Продать ${sellIgc.toFixed(0)} IGC за ${sellTon.toFixed(4)} TON?\n\nЦена: ${pricePerIgc.toFixed(6)} TON/IGC\nКомиссия: 3% (${(sellGross * COMMISSION).toFixed(4)} TON)`,
       async (ok) => {
         if (!ok) { setBusySell(false); return; }
         try {
@@ -109,7 +111,7 @@ export function Market({ data, onUpdate }: Props) {
     if (buyTon > tonBalance) { WebApp.showAlert('Недостаточно TON'); return; }
     setBuyBusy(true); // блокируем кнопку сразу, до диалога
     WebApp.showConfirm(
-      `Купить ~${fmtNum(buyIgc, 0)} IGC за ${buyTon.toFixed(4)} TON?\n\nЦена: ${pricePerIgc.toFixed(6)} TON/IGC`,
+      `Купить ~${fmtNum(buyIgc, 0)} IGC за ${buyTon.toFixed(4)} TON?\n\nЦена: ${pricePerIgc.toFixed(6)} TON/IGC\nКомиссия: 3% (${(buyTon * COMMISSION).toFixed(4)} TON)`,
       async (ok) => {
         if (!ok) { setBuyBusy(false); return; }
         try {
@@ -202,8 +204,11 @@ export function Market({ data, onUpdate }: Props) {
           <button onClick={() => setSellAmt(String(Math.floor(igcBalance)))} style={maxBtn}>MAX</button>
         </div>
         {sellIgc >= 100 && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-            {t.mkt_receive} <span style={{ color: '#0098EA', fontWeight: 700 }}>{sellTon.toFixed(4)} TON</span>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.8 }}>
+            <div>{t.mkt_receive} <span style={{ color: '#0098EA', fontWeight: 700 }}>{sellTon.toFixed(4)} TON</span></div>
+            <div style={{ color: 'rgba(255,255,255,0.3)' }}>
+              {t.mkt_commission} <span style={{ color: '#E74C3C' }}>−{(sellGross * COMMISSION).toFixed(4)} TON (3%)</span>
+            </div>
           </div>
         )}
         <button
@@ -229,8 +234,11 @@ export function Market({ data, onUpdate }: Props) {
           <button onClick={() => setBuyAmt(tonBalance.toFixed(3))} style={maxBtn}>MAX</button>
         </div>
         {buyTon >= 0.001 && (
-          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-            {t.mkt_receive} <span style={{ color: '#9B59B6', fontWeight: 700 }}>~{fmtNum(buyIgc, 0)} IGC</span>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.8 }}>
+            <div>{t.mkt_receive} <span style={{ color: '#9B59B6', fontWeight: 700 }}>~{fmtNum(buyIgc, 0)} IGC</span></div>
+            <div style={{ color: 'rgba(255,255,255,0.3)' }}>
+              {t.mkt_commission} <span style={{ color: '#E74C3C' }}>−{(buyTon * COMMISSION).toFixed(4)} TON (3%)</span>
+            </div>
           </div>
         )}
         <button
