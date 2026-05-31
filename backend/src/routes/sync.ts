@@ -204,6 +204,33 @@ export async function syncRoutes(app: FastifyInstance) {
       console.error('[sync] txlog query failed:', err?.message);
     }
 
+    // ── Стейкинг (вычисляем до reply.send, чтобы не использовать async IIFE внутри объекта) ──
+    const stakedTon      = parseFloat((snapshot.user as any)?.staked_ton ?? '0');
+    const poolSize       = parseFloat(poolRow?.reserve_pool_ton ?? '0');
+    const stakeDailyLimit = poolSize * STAKE_UNSTAKE_DAILY_LIMIT_PCT;
+    const stakeIsToday   = poolRow?.staking_daily_unstake_date
+      ? new Date(poolRow.staking_daily_unstake_date).toDateString() === new Date().toDateString()
+      : false;
+    const stakeAlreadyOut = stakeIsToday ? parseFloat(poolRow?.staking_daily_unstaked ?? '0') : 0;
+    const igcRatioNow     = parseFloat(poolRow?.igc_ratio_smoothed ?? '1') || 1;
+    const igcPerTonPerDay = Math.min(
+      STAKE_IGC_MAX_PER_TON_PER_DAY,
+      Math.max(STAKE_IGC_MIN_PER_TON_PER_DAY, STAKE_IGC_BASE_PER_TON_PER_DAY / igcRatioNow),
+    );
+    let stakingEarnedToday = 0;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const h = await redis.hgetall(`earn:stk:${user.id}:${today}`);
+      stakingEarnedToday = parseFloat(h?.igc ?? '0');
+    } catch { /* Redis недоступен */ }
+    const stakingData = {
+      stakedTon,
+      dailyYieldIgc:       parseFloat((stakedTon * igcPerTonPerDay).toFixed(4)),
+      stakingEarnedToday:  parseFloat(stakingEarnedToday.toFixed(4)),
+      unstakeLimitTon:     parseFloat(stakeDailyLimit.toFixed(4)),
+      unstakeRemainingTon: parseFloat(Math.max(0, stakeDailyLimit - stakeAlreadyOut).toFixed(4)),
+    };
+
     // ── Рефералы игрока ──────────────────────
     let referrals: any[] = [];
     try {
@@ -360,35 +387,7 @@ export async function syncRoutes(app: FastifyInstance) {
           poolTon:    parseFloat(poolRow?.reserve_pool_ton ?? '0'),
           totalPaid:  parseFloat(poolRow?.total_paid_out ?? '0'),
         },
-        staking: await (async () => {
-          const stakedTon     = parseFloat(rawUser?.staked_ton ?? '0');
-          const poolSize      = parseFloat(poolRow?.reserve_pool_ton ?? '0');
-          const dailyLimit    = poolSize * STAKE_UNSTAKE_DAILY_LIMIT_PCT;
-          const isToday       = poolRow?.staking_daily_unstake_date
-            ? new Date(poolRow.staking_daily_unstake_date).toDateString() === new Date().toDateString()
-            : false;
-          const alreadyOut    = isToday ? parseFloat(poolRow?.staking_daily_unstaked ?? '0') : 0;
-          const igcRatioNow    = parseFloat(poolRow?.igc_ratio_smoothed ?? '1') || 1;
-          const igcPerTonPerDay = Math.min(
-            STAKE_IGC_MAX_PER_TON_PER_DAY,
-            Math.max(STAKE_IGC_MIN_PER_TON_PER_DAY, STAKE_IGC_BASE_PER_TON_PER_DAY / igcRatioNow),
-          );
-          const dailyYieldIgc = stakedTon * igcPerTonPerDay;
-          // Накопленный IGC за сегодня из стейкинга (Redis)
-          let stakingEarnedToday = 0;
-          try {
-            const today = new Date().toISOString().slice(0, 10);
-            const h = await redis.hgetall(`earn:stk:${user.id}:${today}`);
-            stakingEarnedToday = parseFloat(h?.igc ?? '0');
-          } catch { /* Redis недоступен */ }
-          return {
-            stakedTon,
-            dailyYieldIgc:       parseFloat(dailyYieldIgc.toFixed(4)),
-            stakingEarnedToday:  parseFloat(stakingEarnedToday.toFixed(4)),
-            unstakeLimitTon:     parseFloat(dailyLimit.toFixed(4)),
-            unstakeRemainingTon: parseFloat(Math.max(0, dailyLimit - alreadyOut).toFixed(4)),
-          };
-        })(),
+        staking: stakingData,
         igcSupply: {
           totalMinted:     parseFloat(poolRow?.total_igc_minted ?? '0'),
           totalBurned:     parseFloat(poolRow?.total_igc_burned  ?? '0'),

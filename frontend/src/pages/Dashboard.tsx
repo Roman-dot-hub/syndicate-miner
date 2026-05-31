@@ -410,6 +410,11 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
       </div>
 
       {/* ── ИСТОРИЯ ЗАРАБОТКА ────────────────────────────── */}
+      {/* ── ЛОГ ТРАНЗАКЦИЙ ───────────────────────────────── */}
+      {data.txLog && data.txLog.length > 0 && (
+        <TxLogBlock txLog={data.txLog} />
+      )}
+
       {data.earnings && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
@@ -499,11 +504,6 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
         );
       })()}
 
-      {/* ── ЛОГ ТРАНЗАКЦИЙ ───────────────────────────────── */}
-      {data.txLog && data.txLog.length > 0 && (
-        <TxLogBlock txLog={data.txLog} />
-      )}
-
       {/* ── FEAR & GREED ─────────────────────────────────── */}
       <FearGreedIndex igc={igc} />
     </div>
@@ -566,16 +566,18 @@ function SeasonBar({ day }: { day: number }) {
 
 // ── Лог транзакций ────────────────────────────────────────────
 const TX_META: Record<string, { icon: string; color: string; labelRu: string; labelEn: string }> = {
-  purchase:     { icon: '🛒', color: '#E74C3C', labelRu: 'Покупка GPU',    labelEn: 'GPU Purchase' },
-  buy_igc:      { icon: '💜', color: '#9B59B6', labelRu: 'Куплено IGC',    labelEn: 'Bought IGC' },
-  sell_igc:     { icon: '💚', color: '#00FF88', labelRu: 'Продано IGC',    labelEn: 'Sold IGC' },
-  stake_ton:    { icon: '🔒', color: '#0098EA', labelRu: 'Стейкинг TON',   labelEn: 'Staked TON' },
-  unstake_ton:  { icon: '🔓', color: '#00D4FF', labelRu: 'Вывод стейка',   labelEn: 'Unstaked TON' },
-  reward:       { icon: '⚡', color: '#F1C40F', labelRu: 'Награда',        labelEn: 'Reward' },
-  solo_reward:  { icon: '🎲', color: '#F39C12', labelRu: 'Соло-блок',      labelEn: 'Solo Block' },
-  refurbish:    { icon: '🔧', color: '#E67E22', labelRu: 'Ремонт GPU',     labelEn: 'GPU Repair' },
-  infra:        { icon: '🏗️', color: '#3498DB', labelRu: 'Апгрейд',        labelEn: 'Upgrade' },
-  withdraw:     { icon: '💸', color: '#E74C3C', labelRu: 'Вывод TON',      labelEn: 'Withdrawal' },
+  purchase:          { icon: '🛒', color: '#E74C3C', labelRu: 'Покупка GPU',     labelEn: 'GPU Purchase' },
+  buy_igc:           { icon: '💜', color: '#9B59B6', labelRu: 'Куплено IGC',     labelEn: 'Bought IGC' },
+  sell_igc:          { icon: '💚', color: '#00FF88', labelRu: 'Продано IGC',     labelEn: 'Sold IGC' },
+  stake_ton:         { icon: '🔒', color: '#0098EA', labelRu: 'Стейкинг TON',    labelEn: 'Staked TON' },
+  unstake_ton:       { icon: '🔓', color: '#00D4FF', labelRu: 'Вывод стейка',    labelEn: 'Unstaked TON' },
+  reward:            { icon: '⚡', color: '#F1C40F', labelRu: 'Награда',         labelEn: 'Reward' },
+  solo_reward:       { icon: '🎲', color: '#F39C12', labelRu: 'Соло-блок',       labelEn: 'Solo Block' },
+  refurbish:         { icon: '🔧', color: '#E67E22', labelRu: 'Ремонт GPU',      labelEn: 'GPU Repair' },
+  infra:             { icon: '🏗️', color: '#3498DB', labelRu: 'Апгрейд',         labelEn: 'Upgrade' },
+  withdraw:          { icon: '💸', color: '#E74C3C', labelRu: 'Вывод TON',       labelEn: 'Withdrawal' },
+  marketplace_sale:  { icon: '🤝', color: '#27AE60', labelRu: 'P2P сделка',      labelEn: 'P2P Deal' },
+  marketplace_buy:   { icon: '🛍️', color: '#8E44AD', labelRu: 'Покупка на P2P',  labelEn: 'P2P Purchase' },
 };
 
 function TxLogBlock({ txLog }: { txLog: TxLogEntry[] }) {
