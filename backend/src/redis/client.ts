@@ -17,7 +17,8 @@ console.log(`[Redis] Connecting to: ${maskedUrl}`);
 export const redis = new Redis(REDIS_URL, {
   // Команды сразу падают если нет соединения — catch в sync/action их ловит
   maxRetriesPerRequest: 0,
-  connectTimeout:       2000,  // 2с на установку соединения, не 10с
+  connectTimeout:       1500,  // 1.5с на установку TCP-соединения
+  commandTimeout:       1500,  // 1.5с на ответ команды (ping, get, set и т.д.)
   enableOfflineQueue:   false, // НЕ ставить в очередь — сразу reject → catch срабатывает мгновенно
   lazyConnect:          false,
   retryStrategy: (times) => {
