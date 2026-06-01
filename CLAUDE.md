@@ -1205,6 +1205,24 @@ UPDATE users SET igc_balance = igc_balance + 2000 WHERE tg_username = 'zaeeetc';
 
 SQL с вложенным `VALUES` в коррелированном подзапросе падал в PostgreSQL (тихий catch → пустой список рефералов). Переписан как `CASE WHEN` по тиру.
 
+### UV — скидка 10% на весь IGC-расход (не только электричество)
+
+**Было:** UV снижал только электрическую часть (`watt × 0.001 × 288 × 0.10`). Для RTX 3070 экономия была 5.76 IGC/день (2.7% от 216) — незаметно, т.к. техобслуживание составляет 73% расхода.
+
+**Стало:** UV снижает весь расход: `igcCostPerDay × 0.90`. RTX 3070: −21.6 IGC/день (10%).
+
+**Формула `gpuIgcCostPerEpoch` (electricityBill.ts):**
+```typescript
+const elec  = spec.watt * IGC_PER_WATT_PER_EPOCH * seasonMultiplier;
+const maint = spec.igcMaintenancePerEpoch ?? 0;
+const base  = elec + maint;
+return base * uvMult * ocMult;  // uvMult = 0.90 при UV
+```
+
+**Frontend:** GpuDetailModal.tsx и Farm.tsx теперь используют `spec.igcCostPerDay * 0.90` вместо вычитания только электрической части.
+
+Понятие **"техобслуживание"** (`igcMaintenancePerEpoch`) не показывается игроку отдельно — только общий расход IGC/день. Избегаем путаницы с "ремонтом" GPU.
+
 ### Гайд — полная переработка
 
 `frontend/src/pages/Guide.tsx` переписан с нуля. Добавлены разделы:

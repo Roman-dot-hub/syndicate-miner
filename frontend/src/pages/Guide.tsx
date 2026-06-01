@@ -932,27 +932,68 @@ export function Guide() {
 
       {/* Режимы GPU */}
       <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 14, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: CY, marginBottom: 8 }}>
-          ⚡ {ru ? 'Режимы работы GPU' : 'GPU Performance Modes'}
+        <div style={{ fontSize: 13, fontWeight: 700, color: CY, marginBottom: 10 }}>
+          ⚡ {ru ? 'Разгон и Андервольт' : 'Overclock & Undervolt'}
         </div>
-        {[
-          { emoji: '⚡', label: ru ? 'Разгон (OC)' : 'Overclock (OC)', color: CY, effects: [ru ? '+20% хешрейт' : '+20% hashrate', ru ? '+20% расход IGC' : '+20% IGC cost', ru ? '+15°C температура' : '+15°C temperature', ru ? '×2.5 скорость износа' : '×2.5 wear speed'] },
-          { emoji: '🔋', label: ru ? 'Андервольт (UV)' : 'Undervolt (UV)', color: GR, effects: [ru ? '−15% хешрейт' : '−15% hashrate', ru ? '−10% весь IGC-расход' : '−10% total IGC cost', ru ? '−5°C температура' : '−5°C temperature', ru ? '−30% скорость износа' : '−30% wear speed'] },
-        ].map(m => (
-          <div key={m.label} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>{m.emoji}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: m.color, marginBottom: 4 }}>{m.label}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {m.effects.map(e => (
-                  <span key={e} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: `${m.color}15`, border: `1px solid ${m.color}33`, color: m.color }}>{e}</span>
-                ))}
-              </div>
-            </div>
+
+        {/* OC */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 16 }}>⚡</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: CY }}>{ru ? 'Разгон (OC)' : 'Overclock (OC)'}</span>
           </div>
-        ))}
-        <div style={{ marginTop: 8, fontSize: 10, color: DIM }}>
-          {ru ? '⚠️ Разгон и Андервольт взаимно исключают друг друга' : '⚠️ Overclock and Undervolt are mutually exclusive'}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {[
+              { text: ru ? '+20% хешрейт' : '+20% hashrate', color: CY },
+              { text: ru ? '+20% IGC-расход' : '+20% IGC cost', color: RE },
+              { text: ru ? '+15°C температура' : '+15°C temp', color: RE },
+              { text: ru ? '×2.5 износ' : '×2.5 wear', color: RE },
+            ].map(b => (
+              <span key={b.text} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: `${b.color}15`, border: `1px solid ${b.color}33`, color: b.color }}>{b.text}</span>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
+            {ru
+              ? 'Включай разгон только когда это окупается — в Лето (дешёвое электричество, максимум наград) или если у тебя хорошее охлаждение. При разгоне карта изнашивается в 2.5× быстрее — с RX 580 до 50% здоровья за ~12 дней вместо 33. Перед включением убедись: Охлаждение Lv2+, достаточно IGC на ремонт.'
+              : 'Enable overclock only when it pays off — in Summer (cheap electricity, peak rewards) or with good cooling. OC speeds wear 2.5× — RX 580 hits 50% health in ~12 days instead of 33. Before enabling: make sure you have Cooling Lv2+, enough IGC for repairs.'}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 10, color: CY, background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 7, padding: '5px 8px' }}>
+            {ru
+              ? '💡 Лучше всего работает в Лето: электро −25%, награды +25%. Зимой OC убыточен — выключай.'
+              : '💡 Best in Summer: −25% electricity, +25% rewards. In Winter OC is unprofitable — disable it.'}
+          </div>
+        </div>
+
+        {/* UV */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 16 }}>🔋</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: GR }}>{ru ? 'Андервольт (UV)' : 'Undervolt (UV)'}</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {[
+              { text: ru ? '−15% хешрейт' : '−15% hashrate', color: RE },
+              { text: ru ? '−10% IGC-расход' : '−10% IGC cost', color: GR },
+              { text: ru ? '−5°C температура' : '−5°C temp', color: GR },
+              { text: ru ? '−30% износ' : '−30% wear', color: GR },
+            ].map(b => (
+              <span key={b.text} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: `${b.color}15`, border: `1px solid ${b.color}33`, color: b.color }}>{b.text}</span>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
+            {ru
+              ? 'Андервольт — режим бережной работы. Хешрейт падает на 15%, но GPU живёт на 30% дольше и тратит на 10% меньше IGC. Особенно полезен когда: не хватает IGC, карта сильно изношена, идёт Зима (дорогое электричество), нет денег на апгрейды охлаждения.'
+              : 'Undervolt is a gentle mode. Hashrate drops 15%, but GPU lasts 30% longer and uses 10% less IGC. Especially useful when: IGC is low, GPU is worn, it\'s Winter (expensive electricity), or you can\'t afford cooling upgrades.'}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 10, color: GR, background: 'rgba(0,255,136,0.06)', border: '1px solid rgba(0,255,136,0.2)', borderRadius: 7, padding: '5px 8px' }}>
+            {ru
+              ? '💡 UV — отличный выбор для ASIC S19 и RTX 4090: меньше IGC тратится, карта дольше служит до ремонта. Для дешёвых карт (RX 580) — обычно не нужен, они и без того экономичны.'
+              : '💡 UV is a great choice for ASIC S19 and RTX 4090: less IGC spent, longer time before repair. For cheap GPUs (RX 580) — usually not needed, they\'re already efficient.'}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, padding: '6px 10px', borderRadius: 7, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.2)', fontSize: 10, color: OR }}>
+          ⚠️ {ru ? 'Разгон и Андервольт взаимно исключают друг друга — включение одного сбрасывает второй.' : 'Overclock and Undervolt are mutually exclusive — enabling one disables the other.'}
         </div>
       </div>
 
