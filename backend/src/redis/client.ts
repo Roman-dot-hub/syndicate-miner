@@ -15,18 +15,19 @@ const maskedUrl = REDIS_URL.replace(/:([^@]+)@/, ':***@');
 console.log(`[Redis] Connecting to: ${maskedUrl}`);
 
 export const redis = new Redis(REDIS_URL, {
-  // 1 = команды быстро падают если нет соединения (catch в sync/epochRunner их ловит)
-  maxRetriesPerRequest: 1,
-  // Всегда пробуем переподключиться — с нарастающей задержкой до 10с
+  // Команды сразу падают если нет соединения — catch в sync/action их ловит
+  maxRetriesPerRequest: 0,
+  connectTimeout:       2000,  // 2с на установку соединения, не 10с
+  enableOfflineQueue:   false, // НЕ ставить в очередь — сразу reject → catch срабатывает мгновенно
+  lazyConnect:          false,
   retryStrategy: (times) => {
-    const delay = Math.min(times * 300, 10_000);
-    if (times % 10 === 0) {
-      console.warn(`[Redis] Попытка переподключения #${times}, следующая через ${delay}ms`);
+    // Переподключаемся фоново, но не блокируем запросы
+    const delay = Math.min(times * 500, 15_000);
+    if (times % 5 === 0) {
+      console.warn(`[Redis] Переподключение #${times}, через ${delay}ms`);
     }
     return delay;
   },
-  enableOfflineQueue: true,  // команды встают в очередь пока нет соединения
-  lazyConnect:        false,
 });
 
 redis.on('connect',     () => console.log('[Redis] ✓ Подключено'));
