@@ -47,8 +47,8 @@ function useCards(): UpgradeCard[] {
     },
     {
       emoji: '🌡️', color: CY, scope: 'farm',
-      title:    ru ? 'Охлаждение' : 'Cooling',
-      subtitle: ru ? 'Снижает скорость износа всех GPU' : 'Reduces wear rate of all GPUs',
+      title:    ru ? 'Жидкостное охлаждение фермы' : 'Farm Liquid Cooling',
+      subtitle: ru ? 'Снижает скорость износа всех GPU на ферме' : 'Reduces wear rate of all GPUs on the farm',
       levels: [
         { label: ru ? 'Нет'  : 'None', effect: ru ? '×1.8 к износу' : '×1.8 wear',  cost: ru ? 'стартовое' : 'default', note: '⚠️' },
         { label: 'Lv 1',              effect: ru ? '×1.3 к износу' : '×1.3 wear',  cost: '100 IGC' },
