@@ -35,7 +35,7 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
     const baseCost = gpu.overclocked
       ? spec.igcCostPerDay * 1.20
       : gpu.undervolted
-        ? spec.igcCostPerDay - spec.wattBackend * 0.001 * 288 * 0.10
+        ? spec.igcCostPerDay * 0.90
         : spec.igcCostPerDay;
     igcCostDay += baseCost * elecMult;
   }

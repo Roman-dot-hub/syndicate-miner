@@ -937,7 +937,7 @@ export function Guide() {
         </div>
         {[
           { emoji: '⚡', label: ru ? 'Разгон (OC)' : 'Overclock (OC)', color: CY, effects: [ru ? '+20% хешрейт' : '+20% hashrate', ru ? '+20% расход IGC' : '+20% IGC cost', ru ? '+15°C температура' : '+15°C temperature', ru ? '×2.5 скорость износа' : '×2.5 wear speed'] },
-          { emoji: '🔋', label: ru ? 'Андервольт (UV)' : 'Undervolt (UV)', color: GR, effects: [ru ? '−15% хешрейт' : '−15% hashrate', ru ? '−10% расход IGC' : '−10% IGC cost', ru ? '−5°C температура' : '−5°C temperature', ru ? '−30% скорость износа' : '−30% wear speed'] },
+          { emoji: '🔋', label: ru ? 'Андервольт (UV)' : 'Undervolt (UV)', color: GR, effects: [ru ? '−15% хешрейт' : '−15% hashrate', ru ? '−10% весь IGC-расход' : '−10% total IGC cost', ru ? '−5°C температура' : '−5°C temperature', ru ? '−30% скорость износа' : '−30% wear speed'] },
         ].map(m => (
           <div key={m.label} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <span style={{ fontSize: 18, flexShrink: 0 }}>{m.emoji}</span>

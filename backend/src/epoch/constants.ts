@@ -56,7 +56,7 @@ export const OVERCLOCK_COST_MULT      = 1.20; // ×1.20 ко ВСЕМ IGC-зат
 
 // ── АНДЕРВОЛЬТ ────────────────────────────────────────────
 export const UNDERVOLT_HASHRATE_MULT  = 0.85; // −15% хешрейта
-export const UNDERVOLT_WATT_MULT      = 0.90; // −10% расход электричества
+export const UNDERVOLT_WATT_MULT      = 0.90; // −10% от ВСЕГО IGC-расхода (электро + обслуживание)
 export const UNDERVOLT_WEAR_MULT      = 0.70; // −30% износ
 
 // ── ОХЛАЖДЕНИЕ (K_temp) ──────────────────────────────────

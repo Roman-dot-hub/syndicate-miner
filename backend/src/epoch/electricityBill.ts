@@ -17,13 +17,15 @@ export function gpuIgcCostPerEpoch(
   gpu:              { modelTier: number; overclocked: boolean; undervolted?: boolean },
   seasonMultiplier: number,
 ): number {
-  const spec    = GPU_SPECS[gpu.modelTier];
-  const wattMult = gpu.undervolted ? UNDERVOLT_WATT_MULT : 1.0;
-  const elec    = spec.watt * wattMult * IGC_PER_WATT_PER_EPOCH * seasonMultiplier;
-  const maint   = spec.igcMaintenancePerEpoch ?? 0;
-  const base    = elec + maint;
-  const ocMult  = gpu.overclocked ? OVERCLOCK_COST_MULT : 1.0;
-  return parseFloat((base * ocMult).toFixed(6));
+  const spec   = GPU_SPECS[gpu.modelTier];
+  const elec   = spec.watt * IGC_PER_WATT_PER_EPOCH * seasonMultiplier;
+  const maint  = spec.igcMaintenancePerEpoch ?? 0;
+  const base   = elec + maint;
+  // UV: −10% от ВСЕГО расхода (электро + обслуживание)
+  const uvMult = gpu.undervolted ? UNDERVOLT_WATT_MULT : 1.0;
+  // OC: ×1.20 ко всему (применяется после UV, взаимоисключающие)
+  const ocMult = gpu.overclocked ? OVERCLOCK_COST_MULT : 1.0;
+  return parseFloat((base * uvMult * ocMult).toFixed(6));
 }
 import { GPU, Farm } from './types';
 

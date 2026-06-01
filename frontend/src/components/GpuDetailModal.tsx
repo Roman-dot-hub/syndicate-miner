@@ -115,9 +115,9 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
   const undervoltMult = g.undervolted  ? 0.85 : 1.0;
   const effectiveHash = fmtH(spec.hashrate * overcMult * undervoltMult);
   const baseIgcCost = g.overclocked
-    ? spec.igcCostPerDay * 1.20
+    ? spec.igcCostPerDay * 1.20          // OC: +20% ко всему
     : g.undervolted
-      ? spec.igcCostPerDay - spec.wattBackend * 0.001 * 288 * 0.10
+      ? spec.igcCostPerDay * 0.90        // UV: −10% от всего расхода
       : spec.igcCostPerDay;
   // Применяем тарифный множитель (сезон × ratio-индексация)
   const rawDayCost    = baseIgcCost * electricityMult;
