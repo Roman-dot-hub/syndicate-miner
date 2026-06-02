@@ -372,7 +372,21 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
           icon="👥"
           main={`${data.network?.activeMiners ?? '—'}`}
           sub={t.stat_online_gpus}
-          extra={<span style={{ color: DIM, fontSize: 10 }}>{data.network?.totalUsers ?? '—'} {t.stat_online_players}</span>}
+          extra={
+            <div>
+              <div style={{ color: DIM, fontSize: 10 }}>{data.network?.totalUsers ?? '—'} {t.stat_online_players}</div>
+              {(data.network?.globalHashrate ?? 0) > 0 && (
+                <div style={{ color: CY, fontSize: 10, marginTop: 2 }}>
+                  🌐 {fmtH(data.network!.globalHashrate)} {t.stat_global_hash}
+                  {totalHashrate > 0 && (
+                    <span style={{ color: 'rgba(255,255,255,0.35)', marginLeft: 4 }}>
+                      ({((totalHashrate / data.network!.globalHashrate) * 100).toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          }
         />
       </div>
 
