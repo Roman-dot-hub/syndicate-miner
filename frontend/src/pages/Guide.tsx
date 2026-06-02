@@ -725,6 +725,57 @@ function SyndicateSection({ ru }: { ru: boolean }) {
   );
 }
 
+// ── Антимонопольное законодательство ─────────────────────
+function AntitrustSection({ ru }: { ru: boolean }) {
+  const phases = [
+    { phase: 1, player: '15%', syndicate: '25%', color: GR },
+    { phase: 2, player: '10%', syndicate: '20%', color: CY },
+    { phase: 3, player: '5%',  syndicate: '15%', color: YL },
+  ];
+
+  return (
+    <InfoBlock emoji="⚖️"
+      title={ru ? 'Антимонопольное законодательство' : 'Antitrust Law'}
+      color={YL}
+      subtitle={ru
+        ? 'Ограничивает монополию на пул наград — никто не может захватить слишком много'
+        : 'Prevents reward pool monopoly — no one can capture too large a share'}>
+
+      <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6, marginBottom: 10 }}>
+        {ru
+          ? 'Вступает в силу когда глобальный хешрейт сети превысит 200 GH/s. При превышении лимитов хешрейт игрока или синдиката автоматически урезается до максимально допустимого — карты продолжают работать, IGC добывается, но доля в TON-пуле ограничена.'
+          : 'Activates when global network hashrate exceeds 200 GH/s. When limits are exceeded, the player\'s or syndicate\'s hashrate is automatically capped — GPUs keep working, IGC is earned, but the TON pool share is limited.'}
+      </div>
+
+      {/* Таблица по фазам */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: DIM, padding: '4px 0' }}>{ru ? 'Фаза' : 'Phase'}</div>
+        <div style={{ fontSize: 9, fontWeight: 700, color: DIM, padding: '4px 0' }}>{ru ? 'Игрок макс.' : 'Player max'}</div>
+        <div style={{ fontSize: 9, fontWeight: 700, color: DIM, padding: '4px 0' }}>{ru ? 'Синдикат макс.' : 'Syndicate max'}</div>
+        {phases.map(p => (
+          <>
+            <div key={`p${p.phase}`} style={{ fontSize: 11, fontWeight: 700, color: p.color, padding: '4px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {ru ? `Фаза ${p.phase}` : `Phase ${p.phase}`}
+            </div>
+            <div key={`pl${p.phase}`} style={{ fontSize: 11, fontWeight: 700, color: p.color, padding: '4px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {p.player}
+            </div>
+            <div key={`s${p.phase}`} style={{ fontSize: 11, fontWeight: 700, color: p.color, padding: '4px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {p.syndicate}
+            </div>
+          </>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 10, color: YL, background: 'rgba(255,215,0,0.07)', border: '1px solid rgba(255,215,0,0.2)', borderRadius: 8, padding: '7px 10px', lineHeight: 1.6 }}>
+        {ru
+          ? '💡 Закон стимулирует игроков распределяться по разным синдикатам. Если твой синдикат слишком мощный — выгоднее перейти в меньший и получать полный хешрейт без ограничений.'
+          : '💡 The law encourages players to spread across different syndicates. If your syndicate is too powerful — it\'s more profitable to join a smaller one and earn full hashrate without limits.'}
+      </div>
+    </InfoBlock>
+  );
+}
+
 // ── Рефералы ─────────────────────────────────────────────
 function ReferralSection({ ru }: { ru: boolean }) {
   return (
@@ -919,6 +970,7 @@ export function Guide() {
       <SectionLabel text={ru ? 'ЭКОНОМИКА' : 'ECONOMY'} color={PU} />
       <IgcMarketSection ru={ru} />
       <SyndicateSection ru={ru} />
+      <AntitrustSection ru={ru} />
       <ReferralSection ru={ru} />
 
       {/* Апгрейды фермы */}

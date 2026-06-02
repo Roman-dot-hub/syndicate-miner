@@ -41,6 +41,9 @@ import {
   UPS_LEVELS,
   PROVIDER_LEVELS,
   FAN_LEVELS,
+  ANTITRUST_PLAYER_CAPS,
+  ANTITRUST_SYNDICATE_CAPS,
+  ANTITRUST_MIN_GLOBAL_HASHRATE,
 } from './constants';
 
 import { checkHalving, getActivePhase }     from './halvingChecker';
@@ -361,6 +364,46 @@ export async function runEpoch(): Promise<EpochResult | null> {
     // Обновляем кэш глобального хешрейта и множителя электричества в Redis
     try { await redis.set(REDIS_GLOBAL_H, globalHashrate.toFixed(4)); } catch { /* Redis недоступен */ }
     try { await redis.set(REDIS_ELEC_MULT, elecMultiplier.toFixed(4)); } catch { /* Redis недоступен */ }
+
+    // ── 5.5 Антимонопольное законодательство ───────────
+    const currentPhaseNow = poolStats.currentPhase ?? 1;
+    const playerCap       = ANTITRUST_PLAYER_CAPS[currentPhaseNow] ?? 0.05;
+    const syndicateCap    = ANTITRUST_SYNDICATE_CAPS[currentPhaseNow] ?? 0.15;
+    const antitrustActive = globalHashrate >= ANTITRUST_MIN_GLOBAL_HASHRATE;
+
+    if (antitrustActive) {
+      // Индивидуальный кап: урезаем хешрейт игрока если превышает X% глобального
+      const playerMaxH = globalHashrate * playerCap;
+      for (const snap of minerSnapshots) {
+        if (snap.hashrate > playerMaxH) {
+          snap.hashrate = playerMaxH;
+        }
+      }
+
+      // Синдикатный кап: считаем суммарный хешрейт каждого синдиката среди pool-майнеров
+      const poolSnaps = minerSnapshots.filter(s => s.mode === 'pool');
+      const poolTotalH = poolSnaps.reduce((s, m) => s + m.hashrate, 0);
+      if (poolTotalH > 0) {
+        // Группируем хешрейт по синдикатам
+        const synHashMap = new Map<string, number>(); // syndicateId → суммарный H
+        for (const snap of poolSnaps) {
+          const synData = userSyndicateMap.get(snap.userId);
+          if (!synData) continue;
+          synHashMap.set(synData.syndicateId, (synHashMap.get(synData.syndicateId) ?? 0) + snap.hashrate);
+        }
+        // Применяем кап: если синдикат превышает syndicateCap — пропорционально урезаем участников
+        const synMaxH = poolTotalH * syndicateCap;
+        for (const [synId, synH] of synHashMap) {
+          if (synH > synMaxH) {
+            const scale = synMaxH / synH;
+            for (const snap of poolSnaps) {
+              const synData = userSyndicateMap.get(snap.userId);
+              if (synData?.syndicateId === synId) snap.hashrate *= scale;
+            }
+          }
+        }
+      }
+    }
 
     // ── 6. Розыгрыш блока (Solo Lottery) ───────────────
     const lottery = runBlockLottery(minerSnapshots);

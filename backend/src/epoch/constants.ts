@@ -15,6 +15,25 @@ export const HALVING_PHASES = [
   { phase: 4 as const, dripRate: 0.005, maxPaidOut: Infinity },
 ];
 
+// ── АНТИМОНОПОЛЬНОЕ ЗАКОНОДАТЕЛЬСТВО ───────────────────
+// Индивидуальный кап доли хешрейта одного игрока
+export const ANTITRUST_PLAYER_CAPS: Record<number, number> = {
+  1: 0.15,  // Фаза 1: не более 15% глобального хешрейта
+  2: 0.10,  // Фаза 2: не более 10%
+  3: 0.05,  // Фаза 3+: не более 5%
+  4: 0.05,
+};
+// Минимальный глобальный хешрейт для активации индивидуального капа
+export const ANTITRUST_MIN_GLOBAL_HASHRATE = 200; // GH/s
+
+// Кап доли синдиката от суммарного хешрейта всех Pool-майнеров
+export const ANTITRUST_SYNDICATE_CAPS: Record<number, number> = {
+  1: 0.25,  // Фаза 1: не более 25%
+  2: 0.20,  // Фаза 2: не более 20%
+  3: 0.15,  // Фаза 3+: не более 15%
+  4: 0.15,
+};
+
 // ── РЕФЕРАЛЬНАЯ СИСТЕМА ─────────────────────────────────
 export const REFERRAL_L1_HASHRATE_BONUS = 0.05; // +5% от хешрейта L1
 export const REFERRAL_L2_HASHRATE_BONUS = 0.02; // +2% от хешрейта L2
