@@ -10,7 +10,7 @@ export function fmt(s: string, vars: Record<string, string | number>): string {
 
 const ru = {
   // ── Табы ──────────────────────────────────────────────────
-  tab_dashboard:   'Стата',
+  tab_dashboard:   'Дашборд',
   tab_farm:        'Ферма',
   tab_syndicate:   'Синдикат',
   tab_market:      'Маркет',
@@ -430,7 +430,7 @@ const ru = {
 };
 
 const en: typeof ru = {
-  tab_dashboard:   'Stats',
+  tab_dashboard:   'Dashboard',
   tab_farm:        'Farm',
   tab_syndicate:   'Syndicate',
   tab_market:      'Market',
