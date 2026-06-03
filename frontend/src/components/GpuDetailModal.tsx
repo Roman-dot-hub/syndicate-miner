@@ -3,7 +3,7 @@ import { InfoSheet, InfoBtn } from './InfoSheet';
 import type { UpgradeInfo } from './InfoSheet';
 import WebApp from '@twa-dev/sdk';
 import type { GPU, TapBoost } from '../types';
-import { GPU_SPECS, calcGpuTemp, calcEffectiveUptime, tempInfo, PASTE_LEVELS, FAN_LEVELS, LIQUID_COOLING_LEVELS } from '../types';
+import { GPU_SPECS, calcGpuTemp, calcEffectiveUptime, tempInfo, PASTE_LEVELS, FAN_LEVELS, LIQUID_COOLING_LEVELS, PROVIDER_LEVELS } from '../types';
 import { useAction } from '../hooks/useAction';
 import { useLang } from '../LangContext';
 import { fmt } from '../i18n';
@@ -119,8 +119,10 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
     : g.undervolted
       ? spec.igcCostPerDay * 0.90        // UV: −10% от всего расхода
       : spec.igcCostPerDay;
-  // Применяем тарифный множитель (сезон × ratio-индексация)
-  const rawDayCost    = baseIgcCost * electricityMult;
+  // Применяем тарифный множитель (сезон × ratio) и скидку провайдера
+  const providerDiscountPct = PROVIDER_LEVELS.find(l => l.level === farmProvider)?.igcDiscountPct ?? 0;
+  const providerMult  = 1 - providerDiscountPct / 100;
+  const rawDayCost    = baseIgcCost * electricityMult * providerMult;
   const effectiveCost = rawDayCost.toFixed(1);
   const daysLeft      = rawDayCost > 0 ? (farmIgc / rawDayCost).toFixed(1) : '∞';
 

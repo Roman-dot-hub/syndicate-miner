@@ -18,7 +18,7 @@ function fmtH(h: number): string {
   return `${(h * 1000).toFixed(0)} MH/s`;
 }
 
-function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0) {
+function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0, providerLevel = 0) {
   let totalHashrate = 0;
   let igcEarnDay    = 0;
   let igcCostDay    = 0;
@@ -37,7 +37,8 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
       : gpu.undervolted
         ? spec.igcCostPerDay * 0.90
         : spec.igcCostPerDay;
-    igcCostDay += baseCost * elecMult;
+    const providerDiscPct = PROVIDER_LEVELS.find(l => l.level === providerLevel)?.igcDiscountPct ?? 0;
+    igcCostDay += baseCost * elecMult * (1 - providerDiscPct / 100);
   }
 
   const dailyPoolTon = poolTon * dripRate;
@@ -108,7 +109,7 @@ export function Farm({ data, onUpdate }: Props) {
   const poolTon   = data.season.poolTon;
   const dripRate  = data.season.dripRate;
   const elecMult  = data.igcSupply?.electricityMult ?? 1;
-  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult);
+  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult, farm.providerLevel ?? 0);
 
   // Refresh modal GPU state when data updates
   const refreshedSelected = selectedGpu
