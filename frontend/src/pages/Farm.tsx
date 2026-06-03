@@ -222,6 +222,7 @@ export function Farm({ data, onUpdate }: Props) {
       <ServerRoom
         farm={farm}
         userTon={data.user.tonBalance}
+        userIgc={farm.igcBalance}
         onUpdate={onUpdate}
       />
 
@@ -546,23 +547,26 @@ function MixedUpgradeRow({ emoji, label, currentInfo, nextInfo, costIgc, costTon
 // ── Серверная — глобальные апгрейды, влияющие на все GPU ─────────────────────
 
 interface ServerRoomProps {
-  farm:     { serverRoomLevel: number; upsLevel: number; providerLevel: number };
+  farm:     { coolingLevel: number; serverRoomLevel: number; upsLevel: number; providerLevel: number };
   userTon:  number;
+  userIgc?: number;
   onUpdate: () => void;
 }
 
-function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
+function ServerRoom({ farm, userTon, userIgc = 0, onUpdate }: ServerRoomProps) {
   const { t, lang }       = useLang();
   const { action }        = useAction();
   const [busy, setBusy]   = useState<string | null>(null);
   const [open, setOpen]   = useState(false);
 
-  const do_ = async (type: string, costTon: number, confirmLabel: string) => {
+  const do_ = async (type: string, costTon: number, confirmLabel: string, costIgc = 0) => {
     if (busy) return;
-    setBusy(type); // блокируем сразу
+    setBusy(type);
+    const costStr = costTon > 0 ? `${costTon} TON` : `${costIgc} IGC`;
+    const balStr  = costTon > 0 ? `${userTon.toFixed(3)} TON` : `${Math.floor(userIgc)} IGC`;
     const ok = await new Promise<boolean>(res =>
       WebApp.showConfirm(
-        `${confirmLabel}\n\n${fmt(t.confirm_cost, { cost: `${costTon} TON` })}\n${fmt(t.confirm_balance, { bal: `${userTon.toFixed(3)} TON` })}\n\n${t.confirm_q}`,
+        `${confirmLabel}\n\n${fmt(t.confirm_cost, { cost: costStr })}\n${fmt(t.confirm_balance, { bal: balStr })}\n\n${t.confirm_q}`,
         res,
       ),
     );
@@ -578,9 +582,19 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
     }
   };
 
+  const coolLevel = farm.coolingLevel;
   const srLevel   = farm.serverRoomLevel;
   const upsLevel  = farm.upsLevel;
   const provLevel = farm.providerLevel;
+
+  // Охлаждение фермы: уровни и стоимости
+  const FARM_COOLING_LEVELS = [
+    { level: 1, kTemp: 1.3, label: 'Lv1', costIgc: 100, costTon: 0 },
+    { level: 2, kTemp: 1.0, label: 'Lv2', costIgc: 0,   costTon: 3  },
+    { level: 3, kTemp: 0.85,label: 'Lv3', costIgc: 0,   costTon: 15 },
+  ];
+  const coolCur  = FARM_COOLING_LEVELS.find(l => l.level === coolLevel) ?? null;
+  const coolNext = FARM_COOLING_LEVELS.find(l => l.level === coolLevel + 1);
 
   // level 0 = не куплено → cur = null (показываем "нет бонуса")
   const srCur   = SERVER_ROOM_LEVELS.find(l => l.level === srLevel)  ?? null;
@@ -622,6 +636,43 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
           display: 'flex', flexDirection: 'column', gap: 6,
           borderTop: '1px solid rgba(255,255,255,0.06)',
         }}>
+          {/* Охлаждение фермы — влияет на износ всех GPU */}
+          <InfraUpgradeRow
+            emoji="🌡️"
+            label={t.infra_cooling}
+            levelInfo={`Lv${coolLevel}/3`}
+            currentEffect={
+              coolLevel === 0
+                ? (lang === 'ru' ? '⚠️ ×1.8 износ — ПЕРЕГРЕВ' : '⚠️ ×1.8 wear — OVERHEAT')
+                : fmt(t.infra_cooling_fx, { n: coolCur?.kTemp ?? 1.0 })
+            }
+            nextEffect={coolNext ? `→ ×${coolNext.kTemp}` : null}
+            costTon={coolNext?.costTon && coolNext.costTon > 0 ? coolNext.costTon : null}
+            costIgc={coolNext?.costIgc && coolNext.costIgc > 0 ? coolNext.costIgc : undefined}
+            canAfford={coolNext
+              ? (coolNext.costTon > 0 ? userTon >= coolNext.costTon : userIgc >= (coolNext.costIgc ?? 0))
+              : false}
+            busy={busy === `cooling_${coolLevel + 1}`}
+            isMax={!coolNext}
+            onPress={() => do_(
+              `cooling_${coolLevel + 1}`,
+              coolNext!.costTon,
+              fmt(t.infra_cooling_confirm, { a: coolLevel, b: coolLevel + 1 }),
+              coolNext!.costIgc,
+            )}
+            info={{
+              emoji: '🌡️', title: t.infra_cooling, costUnit: coolNext?.costTon ? 'TON' : 'IGC',
+              description: lang === 'ru'
+                ? 'Снижает скорость износа ВСЕХ GPU фермы через множитель kTemp. БЕЗ охлаждения карты изнашиваются в 1.8× быстрее нормы!'
+                : 'Reduces wear rate of ALL farm GPUs via kTemp multiplier. WITHOUT cooling, GPUs wear 1.8× faster than normal!',
+              levels: [
+                { label: lang === 'ru' ? 'Нет' : 'None', effect: lang === 'ru' ? '×1.8 износ ⚠️' : '×1.8 wear ⚠️', current: coolLevel === 0 },
+                { label: 'Lv 1', effect: '×1.3', cost: '100 IGC', current: coolLevel === 1 },
+                { label: 'Lv 2', effect: '×1.0 (норма)', cost: '3 TON', current: coolLevel === 2 },
+                { label: 'Lv 3', effect: '×0.85 (бонус)', cost: '15 TON', current: coolLevel === 3 },
+              ],
+            }}
+          />
           <InfraUpgradeRow
             emoji="❄️"
             label={t.infra_sr}
@@ -683,10 +734,10 @@ function ServerRoom({ farm, userTon, onUpdate }: ServerRoomProps) {
   );
 }
 
-function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, costTon, canAfford, busy, isMax, onPress, info }: {
+function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, costTon, costIgc, canAfford, busy, isMax, onPress, info }: {
   emoji: string; label: string; levelInfo: string;
   currentEffect: string; nextEffect: string | null;
-  costTon: number | null; canAfford: boolean; busy: boolean; isMax: boolean;
+  costTon: number | null; costIgc?: number; canAfford: boolean; busy: boolean; isMax: boolean;
   onPress: () => void;
   info?: UpgradeInfo;
 }) {
@@ -732,7 +783,7 @@ function InfraUpgradeRow({ emoji, label, levelInfo, currentEffect, nextEffect, c
             whiteSpace: 'nowrap',
           }}
         >
-          {costTon} TON
+          {costTon && costTon > 0 ? `${costTon} TON` : `${costIgc} IGC`}
         </button>
       )}
     </div>
