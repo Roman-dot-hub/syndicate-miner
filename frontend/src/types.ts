@@ -212,10 +212,11 @@ export const FAN_LEVELS = [
 ] as const;
 
 // Жидкостное охлаждение GPU (per-GPU апгрейд, 3 уровня, за IGC)
+// level 1 = воздух (дефолт, не апгрейд) — не включён в список
 export const LIQUID_COOLING_LEVELS = [
-  { level: 1, tempReduction: 0,  costIgc: 0    }, // воздушное (стандарт)
-  { level: 2, tempReduction: 10, costIgc: 500  }, // жидкостное базовое
-  { level: 3, tempReduction: 20, costIgc: 1500 }, // жидкостное продвинутое
+  { level: 2, tempReduction: 10, costIgc: 500  }, // базовое жидкостное
+  { level: 3, tempReduction: 20, costIgc: 1500 }, // продвинутое жидкостное
+  { level: 4, tempReduction: 35, costIgc: 4500 }, // иммерсионное охлаждение
 ] as const;
 
 // Расчёт температуры чипа (display)

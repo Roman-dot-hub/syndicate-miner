@@ -103,9 +103,9 @@ function useCards(): UpgradeCard[] {
       title:    ru ? 'Жидкостное охлаждение' : 'Liquid Cooling',
       subtitle: ru ? 'Снижает температуру конкретного GPU. Чем ниже температура — тем медленнее износ' : 'Lowers temperature of one GPU. Lower temp = slower wear',
       levels: [
-        { label: ru ? 'Воздух (стандарт)' : 'Air (default)', effect: '0°C', cost: ru ? 'включено' : 'included' },
         { label: 'Lv 1', effect: '−10°C', cost: '500 IGC'  },
         { label: 'Lv 2', effect: '−20°C', cost: '1500 IGC' },
+        { label: ru ? 'Lv 3 Иммерсия' : 'Lv 3 Immersion', effect: '−35°C', cost: '4500 IGC' },
       ],
     },
     {

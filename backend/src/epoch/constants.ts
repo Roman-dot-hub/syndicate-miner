@@ -190,11 +190,12 @@ export const FAN_LEVELS: Array<{ level: number; uptimeBonus: number; costIgc: nu
   { level: 4, uptimeBonus: 16, costIgc: 4800 },
 ];
 
-// cooling_level (жидкостное охлаждение): снижает температуру конкретного GPU (°C)
+// cooling_level GPU: 1=воздух (дефолт, не апгрейд), 2–4 = платные уровни
+// level 1 не показывается как апгрейд — это стартовое состояние
 export const LIQUID_COOLING_LEVELS: Array<{ level: number; tempReduction: number; costIgc: number }> = [
-  { level: 1, tempReduction: 0,  costIgc: 0    }, // воздушное (стандарт)
-  { level: 2, tempReduction: 10, costIgc: 500  }, // жидкостное базовое
-  { level: 3, tempReduction: 20, costIgc: 1500 }, // жидкостное продвинутое
+  { level: 2, tempReduction: 10, costIgc: 500  }, // базовое жидкостное
+  { level: 3, tempReduction: 20, costIgc: 1500 }, // продвинутое жидкостное
+  { level: 4, tempReduction: 35, costIgc: 4500 }, // иммерсионное охлаждение
 ];
 
 // ── СИНДИКАТЫ ───────────────────────────────────────────

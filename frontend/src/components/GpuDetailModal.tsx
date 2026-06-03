@@ -432,25 +432,30 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
           {!isStored && !isNano && (
             <Section label={t.upgrades_section}>
               {(() => {
+                // cl=1 = воздух (дефолт), 2-4 = платные уровни
                 const cl = g.coolingLevel ?? 1;
-                const nextCool = LIQUID_COOLING_LEVELS[cl];
+                // Индекс в массиве: cl=1→нет, cl=2→idx0, cl=3→idx1, cl=4→idx2
+                const nextCool = cl >= 1 && cl <= 3 ? LIQUID_COOLING_LEVELS[cl - 1] : null;
                 const baseC = nextCool?.costIgc ?? 0;
+                const currentLvDisplay = cl <= 1
+                  ? (lang === 'ru' ? 'Нет охлаждения' : 'No cooling')
+                  : `Lv${cl - 1} (−${LIQUID_COOLING_LEVELS[cl - 2]?.tempReduction ?? 0}°C)`;
                 const infoLiquid: UpgradeInfo = {
                   emoji: '💧', title: t.upg_liquid, costUnit: 'IGC',
                   description: lang === 'ru'
                     ? 'Снижает температуру этого GPU. Чем ниже температура — тем медленнее износ.'
                     : 'Lowers this GPU\'s temperature. Lower temp = slower wear.',
                   levels: [
-                    { label: lang === 'ru' ? 'Воздух (стандарт)' : 'Air (default)', effect: '0°C', cost: '—', current: cl === 1 },
                     { label: 'Lv 1', effect: '−10°C', cost: '500 IGC',  current: cl === 2 },
                     { label: 'Lv 2', effect: '−20°C', cost: '1500 IGC', current: cl === 3 },
+                    { label: lang === 'ru' ? 'Lv 3 Иммерсия' : 'Lv 3 Immersion', effect: '−35°C', cost: '4500 IGC', current: cl === 4 },
                   ],
                 };
                 return (
                   <UpgradeRow
                     emoji="💧" label={t.upg_liquid}
-                    currentLevel={cl} maxLevel={LIQUID_COOLING_LEVELS.length}
-                    currentEffect={`−${LIQUID_COOLING_LEVELS[cl - 1]?.tempReduction ?? 0}°C`}
+                    currentLevel={Math.max(0, cl - 1)} maxLevel={LIQUID_COOLING_LEVELS.length}
+                    currentEffect={currentLvDisplay}
                     nextEffect={nextCool ? `→ −${nextCool.tempReduction}°C` : null}
                     cost={nextCool ? `${adjIgc(baseC)} IGC${ratioLabel(baseC)}` : null}
                     canAfford={adjIgc(baseC) <= farmIgc}
