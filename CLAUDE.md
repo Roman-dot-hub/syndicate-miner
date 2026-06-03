@@ -1158,6 +1158,71 @@ function calcTemp(tier, coolingLevel, overclocked, undervolted) {
 
 ---
 
+## Изменения (сессия 2026-06-03)
+
+### Жидкостное охлаждение GPU — убрано воздушное (level 1)
+
+**Файлы:** `backend/src/epoch/constants.ts`, `frontend/src/types.ts`, `frontend/src/components/GpuDetailModal.tsx`, `frontend/src/pages/Guide.tsx`
+
+Уровень 1 (воздушное охлаждение, бесплатно) убран из списка апгрейдов. Теперь 3 платных уровня:
+- Lv1 → −10°C, 500 IGC (базовое жидкостное)
+- Lv2 → −20°C, 1500 IGC (продвинутое жидкостное)
+- Lv3 → −35°C, 4500 IGC (иммерсионное охлаждение) ← новый уровень
+
+`cooling_level = 1` в DB — дефолт (без апгрейда), не отображается как уровень для покупки. `LIQUID_COOLING_LEVELS` начинается с `level: 2`. Текущее состояние без охлаждения показывается как "Нет охлаждения" (не "Воздух").
+
+### Провайдер — скидка теперь применяется в UI
+
+**Файл:** `frontend/src/components/GpuDetailModal.tsx`, `frontend/src/pages/Farm.tsx`
+
+**Баг:** `farmProvider` проп принимался в GpuDetailModal, но не применялся к расчёту `rawDayCost`. `calcFarmStats` в Farm.tsx тоже не знал о провайдере. Бэкенд честно списывал меньше, но UI показывал полную цену.
+
+**Исправление:**
+- `GpuDetailModal`: `rawDayCost = baseIgcCost × electricityMult × (1 − igcDiscountPct/100)`
+- `Farm.tsx calcFarmStats`: добавлен параметр `providerLevel`, скидка применяется per-GPU
+- `PROVIDER_LEVELS` импортирован в `GpuDetailModal.tsx`
+
+Скидки: Lv1 −20%, Lv2 −40%, Lv3 −60%, Lv4 −80% от стоимости электричества.
+
+### Расход/день — добавлен амортизированный ремонт
+
+**Файлы:** `frontend/src/types.ts`, `frontend/src/components/GpuDetailModal.tsx`, `frontend/src/pages/Farm.tsx`
+
+РАСХОД/ДЕНЬ теперь = электричество + техобслуживание + **амортизированный ремонт**.
+
+**Формула ремонта/день:**
+```
+wearPerDay = baseWearPerEpoch × kTemp × kLoad × kUndervolt × 288
+repairPerDay = wearPerDay × BASE_REFURBISH_COST(3) × TIER_MULT[tier]
+```
+
+Где:
+- `kTemp = WEAR_COOLING_KTEMP[farmCoolingLevel]` — `{0:1.8, 1:1.3, 2:1.0, 3:0.85}`
+- `kLoad = 2.5` при OC, иначе 1.0
+- `kUndervolt = 0.70` при UV, иначе 1.0
+
+**Добавлено в types.ts:** `baseWearPerEpoch` в `GPU_SPECS`, константы `WEAR_COOLING_KTEMP / WEAR_OVERCLOCK_MULT / WEAR_UNDERVOLT_MULT`.
+
+**GpuDetailModal:** новый проп `farmCooling: number` (передаётся из `farm.coolingLevel`).
+
+**calcFarmStats (Farm.tsx):** новый параметр `coolingLevel`, суммирует `repairPerDay` для каждой активной карты.
+
+Пример RTX 3070 при lv2 охлаждения фермы: ~216 (elec+maint) + ~17.6 (ремонт) = ~233.6 IGC/день.
+
+### Farm Cooling — добавлена кнопка покупки в UI
+
+**Файлы:** `frontend/src/pages/Farm.tsx`, `frontend/src/i18n.ts`
+
+`cooling_level` фермы существовал в DB и влиял на износ (COOLING_KTEMP), но кнопки покупки в UI не было. Добавлена строка `InfraUpgradeRow` для Farm Cooling (🌡️) первым в секции инфраструктуры:
+- Lv1: 100 IGC (IGC-цена), Lv2: 3 TON, Lv3: 15 TON
+- Показывает предупреждение `⚠️ ×1.8 износ — ПЕРЕГРЕВ` при level=0
+- `ServerRoom` компонент получил проп `userIgc` для IGC-покупок
+- `InfraUpgradeRow` расширен пропом `costIgc`
+
+i18n ключи: `infra_cooling`, `infra_cooling_fx`, `infra_cooling_confirm` (ru + en).
+
+---
+
 ## Изменения (сессия 2026-06-02)
 
 ### Антимонопольное законодательство
