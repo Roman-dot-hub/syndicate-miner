@@ -3,7 +3,7 @@ import { InfoSheet, InfoBtn } from './InfoSheet';
 import type { UpgradeInfo } from './InfoSheet';
 import WebApp from '@twa-dev/sdk';
 import type { GPU, TapBoost } from '../types';
-import { GPU_SPECS, calcGpuTemp, calcEffectiveUptime, tempInfo, PASTE_LEVELS, FAN_LEVELS, LIQUID_COOLING_LEVELS, PROVIDER_LEVELS } from '../types';
+import { GPU_SPECS, calcGpuTemp, calcEffectiveUptime, tempInfo, PASTE_LEVELS, FAN_LEVELS, LIQUID_COOLING_LEVELS, PROVIDER_LEVELS, WEAR_COOLING_KTEMP, WEAR_OVERCLOCK_MULT, WEAR_UNDERVOLT_MULT } from '../types';
 import { useAction } from '../hooks/useAction';
 import { useLang } from '../LangContext';
 import { fmt } from '../i18n';
@@ -50,6 +50,7 @@ interface Props {
   farmServerRoom:  number;
   farmUps:         number;
   farmProvider:    number;
+  farmCooling:     number;
   igcRatio:        number;
   electricityMult: number;
   tapBoost?:       TapBoost;
@@ -57,7 +58,7 @@ interface Props {
   onUpdate:        () => void;
 }
 
-export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, farmUps, farmProvider, igcRatio, electricityMult, tapBoost, onClose, onUpdate }: Props) {
+export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, farmUps, farmProvider, farmCooling, igcRatio, electricityMult, tapBoost, onClose, onUpdate }: Props) {
   const { t, lang } = useLang();
   const { action } = useAction();
   const [busy, setBusy] = useState(false);
@@ -122,9 +123,16 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
   // Применяем тарифный множитель (сезон × ratio) и скидку провайдера
   const providerDiscountPct = PROVIDER_LEVELS.find(l => l.level === farmProvider)?.igcDiscountPct ?? 0;
   const providerMult  = 1 - providerDiscountPct / 100;
-  const rawDayCost    = baseIgcCost * electricityMult * providerMult;
-  const effectiveCost = rawDayCost.toFixed(1);
-  const daysLeft      = rawDayCost > 0 ? (farmIgc / rawDayCost).toFixed(1) : '∞';
+  const elecDayCost   = baseIgcCost * electricityMult * providerMult;
+  // Амортизированный расход на ремонт: износ/день × стоимость ремонта за 1%
+  const kTemp          = WEAR_COOLING_KTEMP[farmCooling] ?? WEAR_COOLING_KTEMP[0];
+  const kLoad          = g.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;
+  const kUndervolt     = g.undervolted ? WEAR_UNDERVOLT_MULT : 1.0;
+  const wearPerDay     = spec.baseWearPerEpoch * kTemp * kLoad * kUndervolt * 288;
+  const repairPerDay   = wearPerDay * BASE_REFURBISH_COST * (TIER_REFURBISH_MULT[tier] ?? 0);
+  const rawDayCost     = elecDayCost + repairPerDay;
+  const effectiveCost  = rawDayCost.toFixed(1);
+  const daysLeft       = rawDayCost > 0 ? (farmIgc / rawDayCost).toFixed(1) : '∞';
 
   // Метка тарифа для отображения
   const multPct   = Math.round((electricityMult - 1) * 100);

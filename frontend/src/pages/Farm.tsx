@@ -3,7 +3,7 @@ import { InfoSheet, InfoBtn } from '../components/InfoSheet';
 import type { UpgradeInfo } from '../components/InfoSheet';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData, TapBoost, GPU } from '../types';
-import { GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS } from '../types';
+import { GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS, WEAR_COOLING_KTEMP, WEAR_OVERCLOCK_MULT, WEAR_UNDERVOLT_MULT } from '../types';
 import { useAction } from '../hooks/useAction';
 import { GpuCard }       from '../components/GpuCard';
 import { GpuDetailModal } from '../components/GpuDetailModal';
@@ -18,7 +18,10 @@ function fmtH(h: number): string {
   return `${(h * 1000).toFixed(0)} MH/s`;
 }
 
-function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0, providerLevel = 0) {
+const FARM_BASE_REFURBISH_COST = 3;
+const FARM_TIER_REPAIR_MULT: Record<number, number> = { 0:0, 1:1.0, 2:1.8, 3:3.5, 4:7.0, 5:20.0, 6:50.0 };
+
+function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0, providerLevel = 0, coolingLevel = 0) {
   let totalHashrate = 0;
   let igcEarnDay    = 0;
   let igcCostDay    = 0;
@@ -39,6 +42,10 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
         : spec.igcCostPerDay;
     const providerDiscPct = PROVIDER_LEVELS.find(l => l.level === providerLevel)?.igcDiscountPct ?? 0;
     igcCostDay += baseCost * elecMult * (1 - providerDiscPct / 100);
+    const kTemp = WEAR_COOLING_KTEMP[coolingLevel] ?? WEAR_COOLING_KTEMP[0];
+    const kLoad = gpu.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;
+    const kUv   = gpu.undervolted ? WEAR_UNDERVOLT_MULT : 1.0;
+    igcCostDay += spec.baseWearPerEpoch * kTemp * kLoad * kUv * 288 * FARM_BASE_REFURBISH_COST * (FARM_TIER_REPAIR_MULT[gpu.modelTier] ?? 0);
   }
 
   const dailyPoolTon = poolTon * dripRate;
@@ -109,7 +116,7 @@ export function Farm({ data, onUpdate }: Props) {
   const poolTon   = data.season.poolTon;
   const dripRate  = data.season.dripRate;
   const elecMult  = data.igcSupply?.electricityMult ?? 1;
-  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult, farm.providerLevel ?? 0);
+  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult, farm.providerLevel ?? 0, farm.coolingLevel ?? 0);
 
   // Refresh modal GPU state when data updates
   const refreshedSelected = selectedGpu
@@ -336,6 +343,7 @@ export function Farm({ data, onUpdate }: Props) {
           farmServerRoom={farm.serverRoomLevel}
           farmUps={farm.upsLevel}
           farmProvider={farm.providerLevel}
+          farmCooling={farm.coolingLevel}
           igcRatio={data.igcSupply?.ratio ?? data.igc?.ratio ?? 1}
           electricityMult={data.igcSupply?.electricityMult ?? 1}
           tapBoost={mergedBoost}

@@ -160,20 +160,32 @@ export interface SyncData {
 // wattBackend — реальные ватты из бэкенда (для расчёта оверклока +40%)
 // tempLoad    — тепловыделение чипа в °C (Спринт 1, только display)
 // baseUptime  — базовая стабильность в % (Спринт 1, только display; Спринт 2 — в экономику)
+// baseWearPerEpoch — износ за эпоху при нейтральных условиях (зеркало backend)
 export const GPU_SPECS: Record<number, {
   name: string; emoji: string; hashrate: number; watt: number;
   priceTon: number; availablePhase: number;
   igcPerDay: number; igcCostPerDay: number; wattBackend: number;
-  tempLoad: number; baseUptime: number;
+  tempLoad: number; baseUptime: number; baseWearPerEpoch: number;
 }> = {
-  0: { name: 'USB Nano',    emoji: '🔌', hashrate: 0.1,  watt: 5,    priceTon: 0,   availablePhase: 1, igcPerDay: 1.44,   igcCostPerDay: 0,      wattBackend: 0,    tempLoad: 15, baseUptime: 95 },
-  1: { name: 'RX 580',      emoji: '🖥️', hashrate: 3,    watt: 150,  priceTon: 1.5, availablePhase: 1, igcPerDay: 43.2,   igcCostPerDay: 14.4,   wattBackend: 50,   tempLoad: 30, baseUptime: 90 },
-  2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88 },
-  3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86 },
-  4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84 },
-  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82 },
-  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80 },
+  0: { name: 'USB Nano',    emoji: '🔌', hashrate: 0.1,  watt: 5,    priceTon: 0,   availablePhase: 1, igcPerDay: 1.44,   igcCostPerDay: 0,      wattBackend: 0,    tempLoad: 15, baseUptime: 95, baseWearPerEpoch: 0      },
+  1: { name: 'RX 580',      emoji: '🖥️', hashrate: 3,    watt: 150,  priceTon: 1.5, availablePhase: 1, igcPerDay: 43.2,   igcCostPerDay: 14.4,   wattBackend: 50,   tempLoad: 30, baseUptime: 90, baseWearPerEpoch: 0.0052 },
+  2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88, baseWearPerEpoch: 0.0058 },
+  3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86, baseWearPerEpoch: 0.0058 },
+  4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84, baseWearPerEpoch: 0.0056 },
+  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82, baseWearPerEpoch: 0.0058 },
+  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80, baseWearPerEpoch: 0.0040 },
 };
+
+// Коэффициент kTemp для износа (зеркало backend COOLING_KTEMP)
+// cooling_level фермы: 0=нет охлаждения, 1-3=купленные уровни
+export const WEAR_COOLING_KTEMP: Record<number, number> = {
+  0: 1.8,
+  1: 1.3,
+  2: 1.0,
+  3: 0.85,
+};
+export const WEAR_OVERCLOCK_MULT  = 2.5;
+export const WEAR_UNDERVOLT_MULT  = 0.70;
 
 // ── Таблицы апгрейдов (зеркало backend constants.ts) ─────
 
