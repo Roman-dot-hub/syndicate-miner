@@ -58,7 +58,7 @@ interface Props {
   onUpdate:        () => void;
 }
 
-export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, farmUps, farmProvider, farmCooling, igcRatio, electricityMult, tapBoost, onClose, onUpdate }: Props) {
+export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom: _farmServerRoom, farmUps, farmProvider, farmCooling, igcRatio, electricityMult, tapBoost, onClose, onUpdate }: Props) {
   const { t, lang } = useLang();
   const { action } = useAction();
   const [busy, setBusy] = useState(false);
@@ -93,7 +93,7 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
   const tier = gpu.modelTier ?? (gpu as any).model_tier ?? 0;
   const spec = GPU_SPECS[tier] ?? GPU_SPECS[0];
 
-  const gpuTemp         = calcGpuTemp(tier, g.coolingLevel ?? 1, g.overclocked, g.undervolted, g.pasteLevel ?? 1, farmServerRoom);
+  const gpuTemp         = calcGpuTemp(tier, g.coolingLevel ?? 1, g.overclocked, g.undervolted, g.pasteLevel ?? 1);
   const tempMeta        = tempInfo(gpuTemp);
   const effectiveUptime = calcEffectiveUptime(tier, farmUps, farmProvider, g.fanLevel ?? 1);
 
@@ -128,7 +128,11 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
   const kTemp          = WEAR_COOLING_KTEMP[farmCooling] ?? WEAR_COOLING_KTEMP[0];
   const kLoad          = g.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;
   const kUndervolt     = g.undervolted ? WEAR_UNDERVOLT_MULT : 1.0;
-  const wearPerDay     = spec.baseWearPerEpoch * kTemp * kLoad * kUndervolt * 288;
+  const pasteDef       = PASTE_LEVELS.find(l => l.level === (g.pasteLevel ?? 0));
+  const kPaste         = pasteDef ? 1 - pasteDef.wearReduction : 1.0;
+  const liquidDef      = LIQUID_COOLING_LEVELS.find(l => l.level === (g.coolingLevel ?? 1));
+  const kLiquid        = liquidDef ? 1 - liquidDef.wearReduction : 1.0;
+  const wearPerDay     = spec.baseWearPerEpoch * kTemp * kLoad * kUndervolt * kPaste * kLiquid * 288;
   const repairPerDay   = wearPerDay * BASE_REFURBISH_COST * (TIER_REFURBISH_MULT[tier] ?? 0);
   const rawDayCost     = elecDayCost + repairPerDay;
   const effectiveCost  = rawDayCost.toFixed(1);
@@ -453,12 +457,12 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
                 const infoLiquid: UpgradeInfo = {
                   emoji: '💧', title: t.upg_liquid, costUnit: 'IGC',
                   description: lang === 'ru'
-                    ? 'Снижает температуру этого GPU. Чем ниже температура — тем медленнее износ.'
-                    : 'Lowers this GPU\'s temperature. Lower temp = slower wear.',
+                    ? 'Снижает износ этого GPU и немного снижает температуру. Чем выше уровень — тем реже ремонт.'
+                    : 'Reduces wear on this GPU and lowers temperature. Higher level = less frequent repairs.',
                   levels: [
-                    { label: 'Lv 1', effect: '−10°C', cost: '500 IGC',  current: cl === 2 },
-                    { label: 'Lv 2', effect: '−20°C', cost: '1500 IGC', current: cl === 3 },
-                    { label: lang === 'ru' ? 'Lv 3 Иммерсия' : 'Lv 3 Immersion', effect: '−35°C', cost: '4500 IGC', current: cl === 4 },
+                    { label: 'Lv 1', effect: lang === 'ru' ? '−20% износ, −10°C' : '−20% wear, −10°C', cost: '600 IGC',  current: cl === 2 },
+                    { label: 'Lv 2', effect: lang === 'ru' ? '−35% износ, −20°C' : '−35% wear, −20°C', cost: '2000 IGC', current: cl === 3 },
+                    { label: lang === 'ru' ? 'Lv 3 Иммерсия' : 'Lv 3 Immersion', effect: lang === 'ru' ? '−55% износ, −35°C' : '−55% wear, −35°C', cost: '6000 IGC', current: cl === 4 },
                   ],
                 };
                 return (
@@ -466,7 +470,7 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
                     emoji="💧" label={t.upg_liquid}
                     currentLevel={Math.max(0, cl - 1)} maxLevel={LIQUID_COOLING_LEVELS.length}
                     currentEffect={currentLvDisplay}
-                    nextEffect={nextCool ? `→ −${nextCool.tempReduction}°C` : null}
+                    nextEffect={nextCool ? `→ −${nextCool.wearReduction * 100}% износ` : null}
                     cost={nextCool ? `${adjIgc(baseC)} IGC${ratioLabel(baseC)}` : null}
                     canAfford={adjIgc(baseC) <= farmIgc}
                     busy={busy} onPress={() => do_('upgrade_liquid_cooling')}
@@ -481,10 +485,11 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
                 const infoPaste: UpgradeInfo = {
                   emoji: '🧴', title: t.upg_paste, costUnit: 'IGC',
                   description: lang === 'ru'
-                    ? 'Снижает температуру GPU. Разовая замена, действует постоянно.'
-                    : 'Lowers GPU temperature. One-time upgrade, permanent effect.',
+                    ? 'Снижает износ GPU. Разовая замена, действует постоянно.'
+                    : 'Reduces GPU wear. One-time upgrade, permanent effect.',
                   levels: PASTE_LEVELS.map((lv, i) => ({
-                    label: `Lv ${lv.level}`, effect: `−${lv.tempReduction}°C`,
+                    label: `Lv ${lv.level}`,
+                    effect: lang === 'ru' ? `−${lv.wearReduction * 100}% износ` : `−${lv.wearReduction * 100}% wear`,
                     cost: `${lv.costIgc} IGC`, current: pl === i + 1,
                   })),
                 };
@@ -492,8 +497,8 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom, fa
                   <UpgradeRow
                     emoji="🧴" label={t.upg_paste}
                     currentLevel={pl} maxLevel={PASTE_LEVELS.length}
-                    currentEffect={`−${PASTE_LEVELS[pl - 1]?.tempReduction ?? 0}°C`}
-                    nextEffect={nextPaste ? `→ −${nextPaste.tempReduction}°C` : null}
+                    currentEffect={pl > 0 ? (lang === 'ru' ? `−${(PASTE_LEVELS[pl-1]?.wearReduction ?? 0)*100}% износ` : `−${(PASTE_LEVELS[pl-1]?.wearReduction ?? 0)*100}% wear`) : (lang === 'ru' ? 'Нет пасты' : 'No paste')}
+                    nextEffect={nextPaste ? (lang === 'ru' ? `→ −${nextPaste.wearReduction * 100}% износ` : `→ −${nextPaste.wearReduction * 100}% wear`) : null}
                     cost={nextPaste ? `${adjIgc(baseP)} IGC${ratioLabel(baseP)}` : null}
                     canAfford={adjIgc(baseP) <= farmIgc}
                     busy={busy} onPress={() => do_('upgrade_paste')}

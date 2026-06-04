@@ -3,7 +3,7 @@ import { InfoSheet, InfoBtn } from '../components/InfoSheet';
 import type { UpgradeInfo } from '../components/InfoSheet';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData, TapBoost, GPU } from '../types';
-import { GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS, WEAR_COOLING_KTEMP, WEAR_OVERCLOCK_MULT, WEAR_UNDERVOLT_MULT } from '../types';
+import { GPU_SPECS, SERVER_ROOM_LEVELS, UPS_LEVELS, PROVIDER_LEVELS, PASTE_LEVELS, LIQUID_COOLING_LEVELS, WEAR_COOLING_KTEMP, WEAR_OVERCLOCK_MULT, WEAR_UNDERVOLT_MULT } from '../types';
 import { useAction } from '../hooks/useAction';
 import { GpuCard }       from '../components/GpuCard';
 import { GpuDetailModal } from '../components/GpuDetailModal';
@@ -21,10 +21,12 @@ function fmtH(h: number): string {
 const FARM_BASE_REFURBISH_COST = 3;
 const FARM_TIER_REPAIR_MULT: Record<number, number> = { 0:0, 1:1.0, 2:1.8, 3:3.5, 4:7.0, 5:20.0, 6:50.0 };
 
-function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0, providerLevel = 0, coolingLevel = 0) {
+function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: number, elecMult = 1.0, providerLevel = 0, coolingLevel = 0, serverRoomLevel = 0) {
   let totalHashrate = 0;
   let igcEarnDay    = 0;
   let igcCostDay    = 0;
+
+  const serverRoomBonus = SERVER_ROOM_LEVELS.find(l => l.level === serverRoomLevel)?.hashrateBonus ?? 0;
 
   for (const gpu of gpus) {
     if (gpu.status !== 'active') continue;
@@ -32,8 +34,8 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
     const overcMult = gpu.overclocked ? 1.20 : 1.0;
     const uvMult    = gpu.undervolted  ? 0.85 : 1.0;
 
-    totalHashrate += spec.hashrate * overcMult * uvMult;
-    igcEarnDay    += spec.igcPerDay * overcMult * uvMult;
+    totalHashrate += spec.hashrate * overcMult * uvMult * (1 + serverRoomBonus);
+    igcEarnDay    += spec.igcPerDay * overcMult * uvMult * (1 + serverRoomBonus);
 
     const baseCost = gpu.overclocked
       ? spec.igcCostPerDay * 1.20
@@ -42,10 +44,12 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
         : spec.igcCostPerDay;
     const providerDiscPct = PROVIDER_LEVELS.find(l => l.level === providerLevel)?.igcDiscountPct ?? 0;
     igcCostDay += baseCost * elecMult * (1 - providerDiscPct / 100);
-    const kTemp = WEAR_COOLING_KTEMP[coolingLevel] ?? WEAR_COOLING_KTEMP[0];
-    const kLoad = gpu.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;
-    const kUv   = gpu.undervolted ? WEAR_UNDERVOLT_MULT : 1.0;
-    igcCostDay += spec.baseWearPerEpoch * kTemp * kLoad * kUv * 288 * FARM_BASE_REFURBISH_COST * (FARM_TIER_REPAIR_MULT[gpu.modelTier] ?? 0);
+    const kTemp   = WEAR_COOLING_KTEMP[coolingLevel] ?? WEAR_COOLING_KTEMP[0];
+    const kLoad   = gpu.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;
+    const kUv     = gpu.undervolted ? WEAR_UNDERVOLT_MULT : 1.0;
+    const kPaste  = 1 - (PASTE_LEVELS.find(l => l.level === (gpu.pasteLevel ?? 0))?.wearReduction ?? 0);
+    const kLiquid = 1 - (LIQUID_COOLING_LEVELS.find(l => l.level === (gpu.coolingLevel ?? 1))?.wearReduction ?? 0);
+    igcCostDay += spec.baseWearPerEpoch * kTemp * kLoad * kUv * kPaste * kLiquid * 288 * FARM_BASE_REFURBISH_COST * (FARM_TIER_REPAIR_MULT[gpu.modelTier] ?? 0);
   }
 
   const dailyPoolTon = poolTon * dripRate;
@@ -116,7 +120,7 @@ export function Farm({ data, onUpdate }: Props) {
   const poolTon   = data.season.poolTon;
   const dripRate  = data.season.dripRate;
   const elecMult  = data.igcSupply?.electricityMult ?? 1;
-  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult, farm.providerLevel ?? 0, farm.coolingLevel ?? 0);
+  const stats     = calcFarmStats(activeGpus, poolTon, dripRate, globalH, elecMult, farm.providerLevel ?? 0, farm.coolingLevel ?? 0, farm.serverRoomLevel ?? 0);
 
   // Refresh modal GPU state when data updates
   const refreshedSelected = selectedGpu
@@ -686,8 +690,8 @@ function ServerRoom({ farm, userTon, userIgc = 0, onUpdate }: ServerRoomProps) {
             emoji="❄️"
             label={t.infra_sr}
             levelInfo={`Lv${srLevel}/${SERVER_ROOM_LEVELS.length}`}
-            currentEffect={srCur && srCur.tempReduction > 0 ? fmt(t.infra_temp_fx, { n: srCur.tempReduction }) : t.infra_no_bonus}
-            nextEffect={srNext ? `→ −${srNext.tempReduction}°C` : null}
+            currentEffect={srCur && srCur.hashrateBonus > 0 ? `+${Math.round(srCur.hashrateBonus * 100)}% hashrate` : t.infra_no_bonus}
+            nextEffect={srNext ? `→ +${Math.round(srNext.hashrateBonus * 100)}% hashrate` : null}
             costTon={srNext?.costTon ?? null}
             canAfford={srNext ? userTon >= srNext.costTon : false}
             busy={busy === 'upgrade_server_room'}
@@ -695,8 +699,8 @@ function ServerRoom({ farm, userTon, userIgc = 0, onUpdate }: ServerRoomProps) {
             onPress={() => do_('upgrade_server_room', srNext!.costTon, fmt(t.infra_sr_confirm, { a: srLevel, b: srLevel + 1 }))}
             info={{
               emoji: '❄️', title: t.infra_sr, costUnit: 'TON',
-              description: lang === 'ru' ? 'Снижает базовую температуру всей фермы. Чем холоднее — тем медленнее изнашиваются все GPU.' : 'Lowers base temperature of the whole farm. Cooler = slower wear on all GPUs.',
-              levels: SERVER_ROOM_LEVELS.map((lv, i) => ({ label: `Lv ${lv.level}`, effect: `−${lv.tempReduction}°C`, cost: `${lv.costTon} TON`, current: srLevel === i + 1 })),
+              description: lang === 'ru' ? 'Профессиональные стойки и кабель-менеджмент — бонус хешрейта всех GPU фермы.' : 'Pro racks and cable management — hashrate bonus for all farm GPUs.',
+              levels: SERVER_ROOM_LEVELS.map((lv, i) => ({ label: `Lv ${lv.level}`, effect: `+${Math.round(lv.hashrateBonus * 100)}% hashrate`, cost: `${lv.costTon} TON`, current: srLevel === i + 1 })),
             }}
           />
           <InfraUpgradeRow

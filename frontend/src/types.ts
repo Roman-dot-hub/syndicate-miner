@@ -168,12 +168,12 @@ export const GPU_SPECS: Record<number, {
   tempLoad: number; baseUptime: number; baseWearPerEpoch: number;
 }> = {
   0: { name: 'USB Nano',    emoji: '🔌', hashrate: 0.1,  watt: 5,    priceTon: 0,   availablePhase: 1, igcPerDay: 1.44,   igcCostPerDay: 0,      wattBackend: 0,    tempLoad: 15, baseUptime: 95, baseWearPerEpoch: 0      },
-  1: { name: 'RX 580',      emoji: '🖥️', hashrate: 3,    watt: 150,  priceTon: 1.5, availablePhase: 1, igcPerDay: 43.2,   igcCostPerDay: 14.4,   wattBackend: 50,   tempLoad: 30, baseUptime: 90, baseWearPerEpoch: 0.0052 },
-  2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88, baseWearPerEpoch: 0.0058 },
-  3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86, baseWearPerEpoch: 0.0058 },
-  4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84, baseWearPerEpoch: 0.0056 },
-  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82, baseWearPerEpoch: 0.0058 },
-  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80, baseWearPerEpoch: 0.0040 },
+  1: { name: 'RX 580',      emoji: '🖥️', hashrate: 3,    watt: 150,  priceTon: 1.5, availablePhase: 1, igcPerDay: 43.2,   igcCostPerDay: 14.4,   wattBackend: 50,   tempLoad: 30, baseUptime: 90, baseWearPerEpoch: 0.0030 },
+  2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88, baseWearPerEpoch: 0.0040 },
+  3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86, baseWearPerEpoch: 0.0050 },
+  4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84, baseWearPerEpoch: 0.0070 },
+  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82, baseWearPerEpoch: 0.0100 },
+  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80, baseWearPerEpoch: 0.0030 },
 };
 
 // Коэффициент kTemp для износа (зеркало backend COOLING_KTEMP)
@@ -191,9 +191,9 @@ export const WEAR_UNDERVOLT_MULT  = 0.70;
 
 // 0 = не куплено, 1 = первый купленный апгрейд
 export const SERVER_ROOM_LEVELS = [
-  { level: 1, tempReduction: 5,  costTon: 0.5 },
-  { level: 2, tempReduction: 12, costTon: 1.5 },
-  { level: 3, tempReduction: 22, costTon: 4.0 },
+  { level: 1, hashrateBonus: 0.03, costTon: 0.5 },
+  { level: 2, hashrateBonus: 0.07, costTon: 1.5 },
+  { level: 3, hashrateBonus: 0.12, costTon: 4.0 },
 ] as const;
 
 export const UPS_LEVELS = [
@@ -203,17 +203,18 @@ export const UPS_LEVELS = [
 ] as const;
 
 export const PROVIDER_LEVELS = [
-  { level: 1, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
-  { level: 2, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
-  { level: 3, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
-  { level: 4, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
+  { level: 1, uptimeBonus: 2, igcDiscountPct: 15, costTon: 0.2 },
+  { level: 2, uptimeBonus: 4, igcDiscountPct: 30, costTon: 0.6 },
+  { level: 3, uptimeBonus: 6, igcDiscountPct: 45, costTon: 1.5 },
+  { level: 4, uptimeBonus: 8, igcDiscountPct: 60, costTon: 4.0 },
 ] as const;
 
 // level = номер покупки (1 = первый апгрейд), 0 = не куплено (базовое состояние)
+// wearReduction — снижение износа per-GPU (механика); tempReduction — для отображения температуры
 export const PASTE_LEVELS = [
-  { level: 1, tempReduction: 5,  costIgc: 200  },
-  { level: 2, tempReduction: 10, costIgc: 600  },
-  { level: 3, tempReduction: 15, costIgc: 1500 },
+  { level: 1, wearReduction: 0.15, tempReduction: 3, costIgc: 150  },
+  { level: 2, wearReduction: 0.25, tempReduction: 5, costIgc: 500  },
+  { level: 3, wearReduction: 0.35, tempReduction: 8, costIgc: 1200 },
 ] as const;
 
 export const FAN_LEVELS = [
@@ -224,11 +225,12 @@ export const FAN_LEVELS = [
 ] as const;
 
 // Жидкостное охлаждение GPU (per-GPU апгрейд, 3 уровня, за IGC)
-// level 1 = воздух (дефолт, не апгрейд) — не включён в список
+// level 1 = нет охлаждения (дефолт) — не включён в список
+// wearReduction — снижение износа per-GPU (механика); tempReduction — для отображения температуры
 export const LIQUID_COOLING_LEVELS = [
-  { level: 2, tempReduction: 10, costIgc: 500  }, // базовое жидкостное
-  { level: 3, tempReduction: 20, costIgc: 1500 }, // продвинутое жидкостное
-  { level: 4, tempReduction: 35, costIgc: 4500 }, // иммерсионное охлаждение
+  { level: 2, wearReduction: 0.20, tempReduction: 10, costIgc: 600  }, // базовое жидкостное
+  { level: 3, wearReduction: 0.35, tempReduction: 20, costIgc: 2000 }, // продвинутое жидкостное
+  { level: 4, wearReduction: 0.55, tempReduction: 35, costIgc: 6000 }, // иммерсионное охлаждение
 ] as const;
 
 // Расчёт температуры чипа (display)
@@ -238,15 +240,13 @@ export function calcGpuTemp(
   gpuCoolingLevel: number,   // GPU cooling_level (жидкостное охлаждение, 1–3)
   overclocked: boolean,
   undervolted: boolean,
-  pasteLevel      = 1,
-  serverRoomLevel = 1,
+  pasteLevel = 1,
 ): number {
   const T_BASE    = 35;
   const spec      = GPU_SPECS[tier] ?? GPU_SPECS[0];
   const T_COOLING = LIQUID_COOLING_LEVELS.find(l => l.level === gpuCoolingLevel)?.tempReduction ?? 0;
-  const T_ROOM    = SERVER_ROOM_LEVELS.find(l => l.level === serverRoomLevel)?.tempReduction ?? 0;
   const T_PASTE   = PASTE_LEVELS.find(l => l.level === pasteLevel)?.tempReduction ?? 0;
-  return T_BASE - T_ROOM + spec.tempLoad
+  return T_BASE + spec.tempLoad
     + (overclocked ? 15 : 0)
     - (undervolted ? 5  : 0)
     - T_COOLING

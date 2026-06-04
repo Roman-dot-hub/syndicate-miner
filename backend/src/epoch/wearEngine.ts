@@ -11,6 +11,8 @@ import {
   UNDERVOLT_HASHRATE_MULT,
   COOLING_KTEMP,
   BREAKAGE_PROBABILITY_FACTOR,
+  PASTE_LEVELS,
+  LIQUID_COOLING_LEVELS,
 } from './constants';
 import { GPU } from './types';
 
@@ -32,15 +34,23 @@ export interface WearResult {
 export function calculateWear(gpu: GPU, farmCoolingLevel: number): WearResult {
   const spec = GPU_SPECS[gpu.modelTier];
 
-  // K_temp — штраф за охлаждение помещения
+  // K_temp — штраф за охлаждение помещения (farm cooling_level)
   const kTemp = COOLING_KTEMP[farmCoolingLevel] ?? COOLING_KTEMP[0];
 
   // K_load — штраф за разгон / бонус андервольта
-  const kLoad    = gpu.overclocked  ? OVERCLOCK_WEAR_PENALTY : 1.0;
-  const kUndervolt = gpu.undervolted ? UNDERVOLT_WEAR_MULT    : 1.0;
+  const kLoad      = gpu.overclocked  ? OVERCLOCK_WEAR_PENALTY : 1.0;
+  const kUndervolt = gpu.undervolted  ? UNDERVOLT_WEAR_MULT    : 1.0;
+
+  // K_paste — снижение износа от термопасты (per-GPU)
+  const pasteDef  = PASTE_LEVELS.find(l => l.level === (gpu.pasteLevel ?? 0));
+  const kPaste    = pasteDef ? 1 - pasteDef.wearReduction : 1.0;
+
+  // K_liquid — снижение износа от жидкостного охлаждения (per-GPU)
+  const liquidDef  = LIQUID_COOLING_LEVELS.find(l => l.level === (gpu.coolingLevel ?? 1));
+  const kLiquid    = liquidDef ? 1 - liquidDef.wearReduction : 1.0;
 
   // Фактический износ за эпоху (%)
-  const wearApplied = spec.baseWearPerEpoch * kTemp * kLoad * kUndervolt;
+  const wearApplied = spec.baseWearPerEpoch * kTemp * kLoad * kUndervolt * kPaste * kLiquid;
 
   // Новое здоровье
   const newHealth = Math.max(0, gpu.health - wearApplied);

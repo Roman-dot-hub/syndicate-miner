@@ -41,6 +41,7 @@ import {
   UPS_LEVELS,
   PROVIDER_LEVELS,
   FAN_LEVELS,
+  SERVER_ROOM_LEVELS,
   ANTITRUST_PLAYER_CAPS,
   ANTITRUST_SYNDICATE_CAPS,
   ANTITRUST_MIN_GLOBAL_HASHRATE,
@@ -308,6 +309,12 @@ export async function runEpoch(): Promise<EpochResult | null> {
         );
         farmHashrate += gpuH * (effectiveUptimePct / 100);
       }
+
+      // Применяем бонус серверной комнаты (хешрейт всей фермы)
+      const serverRoomDef = farm.serverRoomLevel > 0
+        ? (SERVER_ROOM_LEVELS.find(l => l.level === farm.serverRoomLevel) ?? null)
+        : null;
+      if (serverRoomDef) farmHashrate *= (1 + serverRoomDef.hashrateBonus);
 
       if (farmHashrate === 0) continue;
 

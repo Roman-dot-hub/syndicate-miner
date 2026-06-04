@@ -59,13 +59,13 @@ export const GPU_SPECS: Record<number, {
   availablePhase:          number;  // минимальная фаза для покупки
 }> = {
   // tier  H(GH/s)  W      wear/ep    maint/ep  asic   phase
-  0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // USB Nano
-  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0052, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // RX 580 — ~33д до 50%
-  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // GTX 1660S — ~30д до 50%
-  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // RTX 3070 — ~30д до 50%
-  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0056, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // RTX 4090 — ~31д до 50%
-  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0058, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 2 }, // ASIC S19 — ~30д до 50%
-  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0040, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // X1 — ~43д до 50%
+  0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // USB Nano — нет износа
+  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0030, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // RX 580 — ~46д до 50%, надёжная бюджетка
+  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0040, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // GTX 1660S — ~35д до 50%
+  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0050, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // RTX 3070 — ~28д до 50%
+  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0070, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // RTX 4090 — ~20д до 50%, производительность = износ
+  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0100, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 2 }, // ASIC S19 — ~14д до 50%, промышленный
+  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0030, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // Quantum X1 — ~46д до 50%, точная квантовая механика
 };
 
 // ── РАЗГОН ───────────────────────────────────────────────
@@ -152,11 +152,11 @@ export const GPU_BASE_UPTIME: Record<number, number> = {
 
 // ── АПГРЕЙДЫ СЕРВЕРНОЙ (глобальные, за TON) ──────────────
 // 0 = не куплено, 1 = первый купленный апгрейд
-// server_room_level: снижает T_ambient для всей фермы
-export const SERVER_ROOM_LEVELS: Array<{ level: number; tempReduction: number; costTon: number }> = [
-  { level: 1, tempReduction: 5,  costTon: 0.5 },
-  { level: 2, tempReduction: 12, costTon: 1.5 },
-  { level: 3, tempReduction: 22, costTon: 4.0 },
+// server_room_level: бонус хешрейта всех GPU фермы (профессиональные стойки, кабель-менеджмент)
+export const SERVER_ROOM_LEVELS: Array<{ level: number; hashrateBonus: number; costTon: number }> = [
+  { level: 1, hashrateBonus: 0.03, costTon: 0.5 },
+  { level: 2, hashrateBonus: 0.07, costTon: 1.5 },
+  { level: 3, hashrateBonus: 0.12, costTon: 4.0 },
 ];
 
 // ups_level: глобальный бонус к uptime всех GPU фермы (%)
@@ -168,18 +168,19 @@ export const UPS_LEVELS: Array<{ level: number; uptimeBonus: number; costTon: nu
 
 // provider_level: глобальный uptime + скидка на электричество IGC (%)
 export const PROVIDER_LEVELS: Array<{ level: number; uptimeBonus: number; igcDiscountPct: number; costTon: number }> = [
-  { level: 1, uptimeBonus: 2, igcDiscountPct: 20, costTon: 0.2 },
-  { level: 2, uptimeBonus: 4, igcDiscountPct: 40, costTon: 0.6 },
-  { level: 3, uptimeBonus: 6, igcDiscountPct: 60, costTon: 1.5 },
-  { level: 4, uptimeBonus: 8, igcDiscountPct: 80, costTon: 4.0 },
+  { level: 1, uptimeBonus: 2, igcDiscountPct: 15, costTon: 0.2 },
+  { level: 2, uptimeBonus: 4, igcDiscountPct: 30, costTon: 0.6 },
+  { level: 3, uptimeBonus: 6, igcDiscountPct: 45, costTon: 1.5 },
+  { level: 4, uptimeBonus: 8, igcDiscountPct: 60, costTon: 4.0 },
 ];
 
 // ── ПОУЗЛОВЫЕ АПГРЕЙДЫ GPU (за IGC) ─────────────────────
 // paste_level: 0 = не куплено (базовое), 1–3 = купленные апгрейды
-export const PASTE_LEVELS: Array<{ level: number; tempReduction: number; costIgc: number }> = [
-  { level: 1, tempReduction: 5,  costIgc: 200  },
-  { level: 2, tempReduction: 10, costIgc: 600  },
-  { level: 3, tempReduction: 15, costIgc: 1500 },
+// wearReduction: множитель снижения износа per-GPU (применяется в wearEngine как kPaste = 1 - wearReduction)
+export const PASTE_LEVELS: Array<{ level: number; wearReduction: number; tempReduction: number; costIgc: number }> = [
+  { level: 1, wearReduction: 0.15, tempReduction: 3, costIgc: 150  },
+  { level: 2, wearReduction: 0.25, tempReduction: 5, costIgc: 500  },
+  { level: 3, wearReduction: 0.35, tempReduction: 8, costIgc: 1200 },
 ];
 
 // fan_level: 0 = не куплено (базовое), 1–4 = купленные апгрейды
@@ -190,12 +191,13 @@ export const FAN_LEVELS: Array<{ level: number; uptimeBonus: number; costIgc: nu
   { level: 4, uptimeBonus: 16, costIgc: 4800 },
 ];
 
-// cooling_level GPU: 1=воздух (дефолт, не апгрейд), 2–4 = платные уровни
-// level 1 не показывается как апгрейд — это стартовое состояние
-export const LIQUID_COOLING_LEVELS: Array<{ level: number; tempReduction: number; costIgc: number }> = [
-  { level: 2, tempReduction: 10, costIgc: 500  }, // базовое жидкостное
-  { level: 3, tempReduction: 20, costIgc: 1500 }, // продвинутое жидкостное
-  { level: 4, tempReduction: 35, costIgc: 4500 }, // иммерсионное охлаждение
+// cooling_level GPU: 1=нет охлаждения (дефолт), 2–4 = платные уровни
+// wearReduction: множитель снижения износа per-GPU (kLiquid = 1 - wearReduction)
+// tempReduction: оставлено для отображения температуры (косметика)
+export const LIQUID_COOLING_LEVELS: Array<{ level: number; wearReduction: number; tempReduction: number; costIgc: number }> = [
+  { level: 2, wearReduction: 0.20, tempReduction: 10, costIgc: 600  }, // базовое жидкостное
+  { level: 3, wearReduction: 0.35, tempReduction: 20, costIgc: 2000 }, // продвинутое жидкостное
+  { level: 4, wearReduction: 0.55, tempReduction: 35, costIgc: 6000 }, // иммерсионное охлаждение
 ];
 
 // ── СИНДИКАТЫ ───────────────────────────────────────────
