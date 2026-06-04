@@ -19,7 +19,7 @@ const BONUS_COSTS: Record<string, { igcCost: number; requiredLevel: number }> = 
   boost_x2:      { igcCost: 500,   requiredLevel: 10 },
   shield_break:  { igcCost: 800,   requiredLevel: 20 },
   season_shield: { igcCost: 2_000, requiredLevel: 30 },
-  igc_boost:     { igcCost: 1_500, requiredLevel: 40 },
+  igc_boost:     { igcCost: 400,   requiredLevel: 40 },
   domination:    { igcCost: 3_000, requiredLevel: 50 },
 };
 

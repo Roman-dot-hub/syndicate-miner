@@ -290,7 +290,7 @@ const ru = {
   bonus_boost_x2:      { name: '+20% Хешрейт',    desc: '4 часа для всего синдиката',      icon: '🚀' },
   bonus_shield_break:  { name: 'Щит поломок',     desc: '24ч — карты не ломаются',         icon: '🛡️' },
   bonus_season_shield: { name: 'Иммунитет зимы',  desc: '48ч — нет зимних штрафов',       icon: '❄️' },
-  bonus_igc_boost:     { name: 'IGC Форсаж',       desc: '2ч — все участники +50% IGC',     icon: '⚡' },
+  bonus_igc_boost:     { name: 'IGC Форсаж',       desc: '2ч — все участники ×2 IGC',       icon: '⚡' },
   bonus_domination:    { name: '+50% Хешрейт',    desc: '1ч — для всего синдиката',        icon: '👑' },
 
   // ── Имена сезонов ─────────────────────────────────────────
@@ -701,7 +701,7 @@ const en: typeof ru = {
   bonus_boost_x2:      { name: '+20% Hashrate',    desc: '4 hours for entire syndicate',   icon: '🚀' },
   bonus_shield_break:  { name: 'Breakdown Shield', desc: '24h — cards don\'t break',       icon: '🛡️' },
   bonus_season_shield: { name: 'Winter Immunity',  desc: '48h — no winter penalties',      icon: '❄️' },
-  bonus_igc_boost:     { name: 'IGC Overdrive',     desc: '2h — all members +50% IGC',     icon: '⚡' },
+  bonus_igc_boost:     { name: 'IGC Overdrive',     desc: '2h — all members ×2 IGC',       icon: '⚡' },
   bonus_domination:    { name: '+50% Hashrate',    desc: '1h — for entire syndicate',      icon: '👑' },
 
   season_spring: '🌸 Spring',

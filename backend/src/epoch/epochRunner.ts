@@ -362,7 +362,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       // igc_boost: +50% IGC для участников синдиката с активным бустом
       const userSynBonuses = synData ? activeSynBonuses.get(synData.syndicateId) : null;
-      const igcMult    = userSynBonuses?.has('igc_boost') ? 1.5 : 1.0;
+      const igcMult    = userSynBonuses?.has('igc_boost') ? 2.0 : 1.0;
       const igcEarned  = calculateIgcEarned(totalUserH) * igcMult;
       igcPerEpoch.set(user.id, igcEarned);
       totalIgcProduced += igcEarned;
