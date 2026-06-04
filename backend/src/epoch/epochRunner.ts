@@ -222,7 +222,13 @@ export async function runEpoch(): Promise<EpochResult | null> {
         : null;
       const providerDiscount = providerDef ? 1 - (providerDef.igcDiscountPct / 100) : 1;
       const providerUptime   = providerDef?.uptimeBonus ?? 0;
-      const elec = processElectricityBill(farm, farmGpus, elecMultiplier * providerDiscount);
+      // season_shield: в зимний период (elecMultiplier > 1) отменяет штраф — клэмпим до нейтрали
+      const farmSynInfo    = userSyndicateMap.get(farm.userId);
+      const farmSynBonuses = farmSynInfo ? activeSynBonuses.get(farmSynInfo.syndicateId) : null;
+      const effectiveElecMult = (farmSynBonuses?.has('season_shield') && elecMultiplier > 1)
+        ? 1.0
+        : elecMultiplier;
+      const elec = processElectricityBill(farm, farmGpus, effectiveElecMult * providerDiscount);
       totalIgcConsumed += elec.igcCharged;
       farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcCharged });
       elec.offlineGpuIds.forEach(id => offlineGpuSets.add(id));
@@ -354,7 +360,10 @@ export async function runEpoch(): Promise<EpochResult | null> {
       globalHashrate  += totalUserH;
       activeMinerCount++;
 
-      const igcEarned = calculateIgcEarned(totalUserH);
+      // igc_boost: +50% IGC для участников синдиката с активным бустом
+      const userSynBonuses = synData ? activeSynBonuses.get(synData.syndicateId) : null;
+      const igcMult    = userSynBonuses?.has('igc_boost') ? 1.5 : 1.0;
+      const igcEarned  = calculateIgcEarned(totalUserH) * igcMult;
       igcPerEpoch.set(user.id, igcEarned);
       totalIgcProduced += igcEarned;
 

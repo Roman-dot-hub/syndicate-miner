@@ -19,7 +19,7 @@ const BONUS_COSTS: Record<string, { igcCost: number; requiredLevel: number }> = 
   boost_x2:      { igcCost: 500,   requiredLevel: 10 },
   shield_break:  { igcCost: 800,   requiredLevel: 20 },
   season_shield: { igcCost: 2_000, requiredLevel: 30 },
-  double_reward: { igcCost: 1_500, requiredLevel: 40 },
+  igc_boost:     { igcCost: 1_500, requiredLevel: 40 },
   domination:    { igcCost: 3_000, requiredLevel: 50 },
 };
 
@@ -57,7 +57,7 @@ export function Syndicate({ data, onUpdate, setOptimisticMode }: Props) {
     boost_x2:      t.bonus_boost_x2,
     shield_break:  t.bonus_shield_break,
     season_shield: t.bonus_season_shield,
-    double_reward: t.bonus_double_reward,
+    igc_boost:     t.bonus_igc_boost,
     domination:    t.bonus_domination,
   };
 

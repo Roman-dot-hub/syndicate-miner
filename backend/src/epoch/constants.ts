@@ -237,6 +237,6 @@ export const SYNDICATE_BONUS_DEFS: Record<string, {
   boost_x2:      { igcCost: 500,   requiredLevel: 10, durationSec: 14_400  }, // +20% hash 4ч    (mutex с boost_x1)
   shield_break:  { igcCost: 800,   requiredLevel: 20, durationSec: 86_400  }, // защита от поломок 24ч
   season_shield: { igcCost: 2_000, requiredLevel: 30, durationSec: 172_800 }, // иммунитет к зиме 48ч (было: 600 IGC, 7д)
-  double_reward: { igcCost: 1_500, requiredLevel: 40, durationSec: 3_600   }, // ×2 награда соло 1ч
+  igc_boost:     { igcCost: 1_500, requiredLevel: 40, durationSec: 7_200   }, // +50% IGC всем участникам 2ч
   domination:    { igcCost: 3_000, requiredLevel: 50, durationSec: 3_600   }, // +50% hash всем 1ч
 };
