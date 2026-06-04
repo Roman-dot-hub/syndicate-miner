@@ -1158,6 +1158,117 @@ function calcTemp(tier, coolingLevel, overclocked, undervolted) {
 
 ---
 
+## Изменения (сессия 2026-06-04)
+
+### Ребалансировка апгрейдов — реальная механика износа, серверная → хешрейт
+
+**Файлы:** `backend/src/epoch/constants.ts`, `backend/src/epoch/wearEngine.ts`, `backend/src/epoch/epochRunner.ts`, `frontend/src/types.ts`, `frontend/src/components/GpuDetailModal.tsx`, `frontend/src/pages/Farm.tsx`, `frontend/src/pages/Guide.tsx`
+
+#### GPU wear rates — дифференцированы по тирам
+
+| Тир | Было | Стало | Логика |
+|-----|------|-------|--------|
+| T1 RX 580 | 0.0052 | **0.003** | Надёжная бюджетка |
+| T2 GTX 1660S | 0.0058 | **0.004** | |
+| T3 RTX 3070 | 0.0058 | **0.005** | |
+| T4 RTX 4090 | 0.0056 | **0.007** | Высокая производительность = износ |
+| T5 ASIC S19 | 0.0058 | **0.010** | Промышленный, суровые условия |
+| T6 Quantum X1 | 0.0040 | **0.003** | Квантовая точность, долговечность |
+
+#### Термопаста — теперь снижает износ (не только температуру)
+
+`wearReduction` добавлен в `PASTE_LEVELS`. `kPaste` применяется в `wearEngine.calculateWear()`.
+
+| Ур. | Эффект (было) | Эффект (стало) | Цена (было→стало) |
+|-----|--------------|----------------|-------------------|
+| 1 | −5°C косметика | **−15% износ** | 200→**150 IGC** |
+| 2 | −10°C | **−25% износ** | 600→**500 IGC** |
+| 3 | −15°C | **−35% износ** | 1500→**1200 IGC** |
+
+#### Жидкостное охлаждение per-GPU — теперь снижает износ
+
+`wearReduction` добавлен в `LIQUID_COOLING_LEVELS`. `kLiquid` применяется в `wearEngine.calculateWear()`. `tempReduction` оставлен для отображения температуры.
+
+| Ур. | Износ (стало) | Темп. | Цена (было→стало) |
+|-----|--------------|-------|-------------------|
+| 1 | **−20% износ** | −10°C | 500→**600 IGC** |
+| 2 | **−35% износ** | −20°C | 1500→**2000 IGC** |
+| 3 Иммерсия | **−55% износ** | −35°C | 4500→**6000 IGC** |
+
+Комбо паста Lv3 + жидкое Lv3 = **−71% износ** (0.65 × 0.45).
+
+#### Серверная комната — хешрейт-бонус вместо косметики
+
+`SERVER_ROOM_LEVELS`: поле `tempReduction` заменено на `hashrateBonus`. В `epochRunner.ts` бонус применяется к `farmHashrate` после расчёта GPU-цикла. `calcGpuTemp()` больше не учитывает серверную комнату.
+
+| Ур. | Было | Стало | Цена |
+|-----|------|-------|------|
+| 1 | −5°C | **+3% хешрейт всех GPU** | 0.5 TON |
+| 2 | −12°C | **+7%** | 1.5 TON |
+| 3 | −22°C | **+12%** | 4.0 TON |
+
+#### Провайдер Lv4 нерфнут
+
+`igcDiscountPct`: 20/40/60/**80%** → 15/30/45/**60%**.
+
+#### wearEngine — новые множители
+
+```typescript
+// kPaste — из PASTE_LEVELS[pasteLevel].wearReduction
+// kLiquid — из LIQUID_COOLING_LEVELS[coolingLevel].wearReduction
+wearApplied = baseWearPerEpoch × kTemp × kLoad × kUndervolt × kPaste × kLiquid
+```
+
+`calcFarmStats` в `Farm.tsx` учитывает `kPaste`, `kLiquid`, `serverRoomBonus` и `coolingLevel`.
+
+#### Расход/день в GpuDetailModal
+
+`repairPerDay` теперь включает `kPaste` и `kLiquid`. `farmCooling: number` — новый проп.
+
+### Синдикатные бонусы — переработка и реализация
+
+**Файлы:** `backend/src/epoch/constants.ts`, `backend/src/epoch/epochRunner.ts`, `frontend/src/pages/Syndicate.tsx`, `frontend/src/i18n.ts`
+
+#### double_reward удалён → igc_boost
+
+`double_reward` (×2 solo-награда) был не реализован и не имел смысла для pool-майнеров. Заменён:
+
+**`igc_boost`** — IGC Форсаж:
+- Эффект: **×2 IGC** для всех участников синдиката
+- Длительность: 2 часа (7200 сек = 24 эпохи)
+- Стоимость из казны: **400 IGC** (level 40+)
+- Реализация: `calculateIgcEarned(totalUserH) * igcMult` где `igcMult = 2.0`
+- ROI для RTX4090 ×14: +756 IGC бонуса vs 400 IGC стоимости = **+356 IGC**
+
+#### season_shield — реализован + нерфнут
+
+Был определён в константах, но не применялся. Теперь в `epochRunner.ts`:
+
+```typescript
+const effectiveElecMult = (farmSynBonuses?.has('season_shield') && elecMultiplier > 1)
+  ? 1.0  // зимний штраф отменён
+  : elecMultiplier;
+```
+
+Длительность: **48ч → 24ч** (48ч позволяло покрывать слишком большую часть зимы).
+
+#### Итоговая таблица бонусов синдиката
+
+| Бонус | Эффект | Длит. | Цена | Ур. | Реализован |
+|-------|--------|-------|------|-----|-----------|
+| boost_x1 | +10% хешрейт | 2ч | 200 IGC | 1 | ✅ |
+| boost_x2 | +20% хешрейт | 4ч | 500 IGC | 10 | ✅ |
+| shield_break | Карты не ломаются | 24ч | 800 IGC | 20 | ✅ |
+| season_shield | Нет зимнего штрафа | 24ч | 2000 IGC | 30 | ✅ |
+| igc_boost | ×2 IGC всем | 2ч | 400 IGC | 40 | ✅ |
+| domination | +50% хешрейт | 1ч | 3000 IGC | 50 | ✅ |
+
+### soloLottery — архитектура для справки
+
+`double_reward` удалён в т.ч. потому что pool-майнеры не участвуют в solo-лотерее индивидуально. В `soloLottery.ts`: pool-майнеры суммируются в единый лот `'POOL'`; solo-майнеры — отдельные участники. `soloWinnerId` — только solo-игрок, pool-майнеры никогда им не становятся.
+
+---
+
 ## Изменения (сессия 2026-06-03)
 
 ### Жидкостное охлаждение GPU — убрано воздушное (level 1)
