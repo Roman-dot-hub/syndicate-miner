@@ -115,15 +115,16 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom: _f
   const overcMult     = g.overclocked ? 1.20 : 1.0;
   const undervoltMult = g.undervolted  ? 0.85 : 1.0;
   const effectiveHash = fmtH(spec.hashrate * overcMult * undervoltMult);
-  const baseIgcCost = g.overclocked
-    ? spec.igcCostPerDay * 1.20          // OC: +20% ко всему
-    : g.undervolted
-      ? spec.igcCostPerDay * 0.90        // UV: −10% от всего расхода
-      : spec.igcCostPerDay;
-  // Применяем тарифный множитель (сезон × ratio) и скидку провайдера
+  const ocUvMult = g.overclocked ? 1.20 : g.undervolted ? 0.90 : 1.0;
+  // Разделяем электричество и обслуживание:
+  // electricityMult и скидка провайдера применяются ТОЛЬКО к электричеству (как в бэкенде).
+  // Обслуживание (maintenance) фиксировано — не зависит от сезона и провайдера.
   const providerDiscountPct = PROVIDER_LEVELS.find(l => l.level === farmProvider)?.igcDiscountPct ?? 0;
-  const providerMult  = 1 - providerDiscountPct / 100;
-  const elecDayCost   = baseIgcCost * electricityMult * providerMult;
+  const providerMult   = 1 - providerDiscountPct / 100;
+  const dailyElecBase  = spec.wattBackend * 0.288; // IGC_PER_WATT(0.001) × EPOCHS_PER_DAY(288)
+  const dailyMaint     = spec.igcCostPerDay - dailyElecBase;
+  const elecDayCost    = (dailyElecBase * ocUvMult * electricityMult * providerMult)
+                       + (dailyMaint    * ocUvMult);
   // Амортизированный расход на ремонт: износ/день × стоимость ремонта за 1%
   const kTemp          = WEAR_COOLING_KTEMP[farmCooling] ?? WEAR_COOLING_KTEMP[0];
   const kLoad          = g.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;

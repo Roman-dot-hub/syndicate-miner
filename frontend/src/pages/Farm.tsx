@@ -37,13 +37,13 @@ function calcFarmStats(gpus: GPU[], poolTon: number, dripRate: number, globalH: 
     totalHashrate += spec.hashrate * overcMult * uvMult * (1 + serverRoomBonus);
     igcEarnDay    += spec.igcPerDay * overcMult * uvMult * (1 + serverRoomBonus);
 
-    const baseCost = gpu.overclocked
-      ? spec.igcCostPerDay * 1.20
-      : gpu.undervolted
-        ? spec.igcCostPerDay * 0.90
-        : spec.igcCostPerDay;
+    const ocUvMult       = gpu.overclocked ? 1.20 : gpu.undervolted ? 0.90 : 1.0;
     const providerDiscPct = PROVIDER_LEVELS.find(l => l.level === providerLevel)?.igcDiscountPct ?? 0;
-    igcCostDay += baseCost * elecMult * (1 - providerDiscPct / 100);
+    const provMult        = 1 - providerDiscPct / 100;
+    const dailyElecBase  = spec.wattBackend * 0.288;
+    const dailyMaint     = spec.igcCostPerDay - dailyElecBase;
+    igcCostDay += (dailyElecBase * ocUvMult * elecMult * provMult)
+                + (dailyMaint    * ocUvMult);
     const kTemp   = WEAR_COOLING_KTEMP[coolingLevel] ?? WEAR_COOLING_KTEMP[0];
     const kLoad   = gpu.overclocked ? WEAR_OVERCLOCK_MULT : 1.0;
     const kUv     = gpu.undervolted ? WEAR_UNDERVOLT_MULT : 1.0;
