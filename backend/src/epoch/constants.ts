@@ -60,12 +60,12 @@ export const GPU_SPECS: Record<number, {
 }> = {
   // tier  H(GH/s)  W      wear/ep    maint/ep  asic   phase
   0: { hashrate: 0.1,  watt: 0,    baseWearPerEpoch: 0,      igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // USB Nano — нет износа
-  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0030, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // RX 580 — ~46д до 50%, надёжная бюджетка
-  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0040, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // GTX 1660S — ~35д до 50%
-  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0050, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // RTX 3070 — ~28д до 50%
-  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0070, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // RTX 4090 — ~20д до 50%, производительность = износ
-  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0100, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 2 }, // ASIC S19 — ~14д до 50%, промышленный
-  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0030, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // Quantum X1 — ~46д до 50%, точная квантовая механика
+  1: { hashrate: 3,    watt: 50,   baseWearPerEpoch: 0.0060, igcMaintenancePerEpoch: 0,    isAsic: false, availablePhase: 1 }, // RX 580 — ~29д до 50%
+  2: { hashrate: 6,    watt: 100,  baseWearPerEpoch: 0.0080, igcMaintenancePerEpoch: 0.05, isAsic: false, availablePhase: 1 }, // GTX 1660S — ~22д до 50%
+  3: { hashrate: 15,   watt: 200,  baseWearPerEpoch: 0.0100, igcMaintenancePerEpoch: 0.55, isAsic: false, availablePhase: 1 }, // RTX 3070 — ~17д до 50%
+  4: { hashrate: 45,   watt: 350,  baseWearPerEpoch: 0.0140, igcMaintenancePerEpoch: 2.0,  isAsic: false, availablePhase: 1 }, // RTX 4090 — ~12д до 50%
+  5: { hashrate: 110,  watt: 1200, baseWearPerEpoch: 0.0200, igcMaintenancePerEpoch: 5.0,  isAsic: true,  availablePhase: 2 }, // ASIC S19 — ~9д до 50%, промышленный
+  6: { hashrate: 250,  watt: 500,  baseWearPerEpoch: 0.0060, igcMaintenancePerEpoch: 12.0, isAsic: true,  availablePhase: 2 }, // Quantum X1 — ~29д до 50%
 };
 
 // ── РАЗГОН ───────────────────────────────────────────────
@@ -102,7 +102,7 @@ export const REDIS_ELEC_MULT        = 'epoch:elec_mult'; // текущий ит�
 // ── ПОЛОМКИ ──────────────────────────────────────────────
 // P_fail = ((100-health)/100)³ / BREAKAGE_PROBABILITY_FACTOR
 // При health=50%: ~1 поломка в 8 дней (vs каждые 40 мин без фактора)
-export const BREAKAGE_PROBABILITY_FACTOR = 864; // EPOCHS_PER_DAY × 3
+export const BREAKAGE_PROBABILITY_FACTOR = 96;  // при health=50% ~31% шанс поломки в день
 
 // ── ТАП-ТУ-КУЛ ───────────────────────────────────────────
 export const TAP_BOOST_HASHRATE    = 0.15; // +15% хешрейта
@@ -185,7 +185,7 @@ export const PASTE_LEVELS: Array<{ level: number; wearReduction: number; tempRed
 
 // fan_level: 0 = не куплено (базовое), 1–4 = купленные апгрейды
 export const FAN_LEVELS: Array<{ level: number; uptimeBonus: number; costIgc: number }> = [
-  { level: 1, uptimeBonus: 4,  costIgc: 250  },
+  { level: 1, uptimeBonus: 4,  costIgc: 100  },
   { level: 2, uptimeBonus: 8,  costIgc: 750  },
   { level: 3, uptimeBonus: 12, costIgc: 1900 },
   { level: 4, uptimeBonus: 16, costIgc: 4800 },

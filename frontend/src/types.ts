@@ -168,12 +168,12 @@ export const GPU_SPECS: Record<number, {
   tempLoad: number; baseUptime: number; baseWearPerEpoch: number;
 }> = {
   0: { name: 'USB Nano',    emoji: '🔌', hashrate: 0.1,  watt: 5,    priceTon: 0,   availablePhase: 1, igcPerDay: 1.44,   igcCostPerDay: 0,      wattBackend: 0,    tempLoad: 15, baseUptime: 95, baseWearPerEpoch: 0      },
-  1: { name: 'RX 580',      emoji: '🖥️', hashrate: 3,    watt: 150,  priceTon: 1.5, availablePhase: 1, igcPerDay: 43.2,   igcCostPerDay: 14.4,   wattBackend: 50,   tempLoad: 30, baseUptime: 90, baseWearPerEpoch: 0.0030 },
-  2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88, baseWearPerEpoch: 0.0040 },
-  3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86, baseWearPerEpoch: 0.0050 },
-  4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84, baseWearPerEpoch: 0.0070 },
-  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82, baseWearPerEpoch: 0.0100 },
-  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80, baseWearPerEpoch: 0.0030 },
+  1: { name: 'RX 580',      emoji: '🖥️', hashrate: 3,    watt: 150,  priceTon: 1.5, availablePhase: 1, igcPerDay: 43.2,   igcCostPerDay: 14.4,   wattBackend: 50,   tempLoad: 30, baseUptime: 90, baseWearPerEpoch: 0.0060 },
+  2: { name: 'GTX 1660 S',  emoji: '💻', hashrate: 6,    watt: 125,  priceTon: 2.5, availablePhase: 1, igcPerDay: 86.4,   igcCostPerDay: 43.2,   wattBackend: 100,  tempLoad: 35, baseUptime: 88, baseWearPerEpoch: 0.0080 },
+  3: { name: 'RTX 3070',    emoji: '🖥️', hashrate: 15,   watt: 220,  priceTon: 8,   availablePhase: 1, igcPerDay: 216.0,  igcCostPerDay: 216.0,  wattBackend: 200,  tempLoad: 42, baseUptime: 86, baseWearPerEpoch: 0.0100 },
+  4: { name: 'RTX 4090',    emoji: '🚀', hashrate: 45,   watt: 450,  priceTon: 25,  availablePhase: 1, igcPerDay: 648.0,  igcCostPerDay: 676.8,  wattBackend: 350,  tempLoad: 55, baseUptime: 84, baseWearPerEpoch: 0.0140 },
+  5: { name: 'ASIC S19',    emoji: '⚡', hashrate: 110,  watt: 3250, priceTon: 55,  availablePhase: 2, igcPerDay: 1584.0, igcCostPerDay: 1785.6, wattBackend: 1200, tempLoad: 65, baseUptime: 82, baseWearPerEpoch: 0.0200 },
+  6: { name: 'Quantum X1',  emoji: '🔮', hashrate: 250,  watt: 6000, priceTon: 140, availablePhase: 2, igcPerDay: 3600.0, igcCostPerDay: 3600.0, wattBackend: 500,  tempLoad: 75, baseUptime: 80, baseWearPerEpoch: 0.0060 },
 };
 
 // Коэффициент kTemp для износа (зеркало backend COOLING_KTEMP)
@@ -218,7 +218,7 @@ export const PASTE_LEVELS = [
 ] as const;
 
 export const FAN_LEVELS = [
-  { level: 1, uptimeBonus: 4,  costIgc: 250  },
+  { level: 1, uptimeBonus: 4,  costIgc: 100  },
   { level: 2, uptimeBonus: 8,  costIgc: 750  },
   { level: 3, uptimeBonus: 12, costIgc: 1900 },
   { level: 4, uptimeBonus: 16, costIgc: 4800 },

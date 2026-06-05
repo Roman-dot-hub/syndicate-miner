@@ -123,7 +123,7 @@ function useCards(): UpgradeCard[] {
       title:    ru ? 'Вентилятор' : 'Fan',
       subtitle: ru ? 'Повышает uptime одного GPU — больше времени в работе' : 'Boosts uptime of one GPU — more time mining',
       levels: [
-        { label: 'Lv 1', effect: '+4% uptime',  cost: '250 IGC'  },
+        { label: 'Lv 1', effect: '+4% uptime',  cost: '100 IGC'  },
         { label: 'Lv 2', effect: '+8% uptime',  cost: '750 IGC'  },
         { label: 'Lv 3', effect: '+12% uptime', cost: '1900 IGC' },
         { label: 'Lv 4', effect: '+16% uptime', cost: '4800 IGC' },
