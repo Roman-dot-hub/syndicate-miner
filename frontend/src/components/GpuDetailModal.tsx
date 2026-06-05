@@ -511,25 +511,44 @@ export function GpuDetailModal({ gpu, farmIgc, farmWorkbench, farmServerRoom: _f
                 const fl = g.fanLevel ?? 0;
                 const nextFan = FAN_LEVELS[fl];
                 const baseF = nextFan?.costIgc ?? 0;
+                // Проверяем реальный прирост uptime с учётом капа 99%
+                const currentUptime = calcEffectiveUptime(tier, farmUps, farmProvider, fl);
+                const nextUptime    = nextFan ? calcEffectiveUptime(tier, farmUps, farmProvider, nextFan.level) : 0;
+                const uptimeGain    = nextFan ? nextUptime - currentUptime : 0;
+                const uptimeCapped  = nextFan !== undefined && uptimeGain === 0;
                 const infoFan: UpgradeInfo = {
                   emoji: '🌀', title: t.upg_fan, costUnit: 'IGC',
                   description: lang === 'ru'
                     ? 'Повышает uptime этого GPU — больше часов в работе, больше TON.'
                     : 'Boosts this GPU\'s uptime — more hours mining, more TON.',
-                  levels: FAN_LEVELS.map((lv, i) => ({
-                    label: `Lv ${lv.level}`, effect: `+${lv.uptimeBonus}% uptime`,
-                    cost: `${lv.costIgc} IGC`, current: fl === i + 1,
-                  })),
+                  levels: FAN_LEVELS.map((lv, i) => {
+                    const lvUptime  = calcEffectiveUptime(tier, farmUps, farmProvider, lv.level);
+                    const prevUptime = i === 0
+                      ? calcEffectiveUptime(tier, farmUps, farmProvider, 0)
+                      : calcEffectiveUptime(tier, farmUps, farmProvider, FAN_LEVELS[i - 1].level);
+                    const gain = lvUptime - prevUptime;
+                    const cappedLabel = gain === 0
+                      ? (lang === 'ru' ? ' — uptime на максимуме' : ' — uptime maxed')
+                      : ` → ${lvUptime}%`;
+                    return {
+                      label: `Lv ${lv.level}`,
+                      effect: gain > 0 ? `+${gain}% uptime${cappedLabel}` : `uptime ${lvUptime}% (max)`,
+                      cost: `${lv.costIgc} IGC`,
+                      current: fl === i + 1,
+                    };
+                  }),
                 };
                 return (
                   <UpgradeRow
                     emoji="🌀" label={t.upg_fan}
                     currentLevel={fl} maxLevel={FAN_LEVELS.length}
-                    currentEffect={`${FAN_LEVELS[fl - 1]?.uptimeBonus ?? 0}% uptime`}
-                    nextEffect={nextFan ? `→ +${nextFan.uptimeBonus}%` : null}
-                    cost={nextFan ? `${adjIgc(baseF)} IGC${ratioLabel(baseF)}` : null}
-                    canAfford={adjIgc(baseF) <= farmIgc}
-                    busy={busy} onPress={() => do_('upgrade_fan')}
+                    currentEffect={`${currentUptime}% uptime`}
+                    nextEffect={uptimeCapped
+                      ? (lang === 'ru' ? '⚠️ Uptime на максимуме' : '⚠️ Uptime maxed')
+                      : nextFan ? `→ ${nextUptime}% (+${uptimeGain}%)` : null}
+                    cost={(!uptimeCapped && nextFan) ? `${adjIgc(baseF)} IGC${ratioLabel(baseF)}` : null}
+                    canAfford={!uptimeCapped && adjIgc(baseF) <= farmIgc}
+                    busy={busy} onPress={() => { if (!uptimeCapped) do_('upgrade_fan'); }}
                     info={infoFan}
                   />
                 );
