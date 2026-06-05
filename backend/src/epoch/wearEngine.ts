@@ -55,9 +55,15 @@ export function calculateWear(gpu: GPU, farmCoolingLevel: number): WearResult {
   // Новое здоровье
   const newHealth = Math.max(0, gpu.health - wearApplied);
 
-  // Шанс критической поломки: P_fail = ((100 - health) / 100)³ / BREAKAGE_PROBABILITY_FACTOR
-  // Делитель 864 (= 288 эпох × 3) нормирует вероятность:
-  // при health=50% ожидаемая поломка раз в ~8 дней вместо каждых 40 минут.
+  // Если здоровье упало до 0 — карта сломана детерминированно.
+  // Без этого GPU зависала бы на 0% здоровьем (active, 0 хешрейт, платит электро)
+  // ~3 дня до случайного срабатывания pFail.
+  if (newHealth <= 0) {
+    return { gpuId: gpu.id, newHealth: 0, wearApplied: parseFloat(wearApplied.toFixed(4)), broken: true, kTemp, kLoad };
+  }
+
+  // Шанс случайной критической поломки: P_fail = ((100 - health) / 100)³ / BREAKAGE_PROBABILITY_FACTOR
+  // Делитель 864 (= 288 эпох × 3). При health=50% ожидаемая поломка раз в ~24 дня.
   const pFail  = Math.pow((100 - newHealth) / 100, 3) / BREAKAGE_PROBABILITY_FACTOR;
   const broken = Math.random() < pFail;
 
