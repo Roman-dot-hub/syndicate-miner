@@ -227,6 +227,26 @@ export const SYNDICATE_LEVEL_MILESTONES: Record<number, {
   50: { hashrateBonus: 0.35, wearReduction: 0.30, maxMembers: 16 },
 };
 
+// ── СЛУЧАЙНЫЕ СОБЫТИЯ: ПЕРЕНАПРЯЖЕНИЕ + ПЕРЕБОИ ──────────
+// Максимальный тир GPU, который ОСТАЁТСЯ онлайн при power_outage по уровню ИБП.
+// tier > UPS_OUTAGE_MAX_TIER → уходит в offline
+// -1 = ничто не защищено (вся ферма стоит)
+export const UPS_OUTAGE_MAX_TIER: Record<number, number> = {
+  0: -1, // нет ИБП → все GPU offline (включая USB Nano)
+  1:  2, // ИБП Lv1 → T0 (0W) + T1 (50W) + T2 (100W) выживают
+  2:  3, // ИБП Lv2 → + T3 (200W)
+  3:  4, // ИБП Lv3 → + T4 (350W)
+         // Lv4/Lv5 — будущие уровни для T5/T6 (Phase 2+)
+};
+
+// Перенапряжение: урон здоровью (% пункты, пол 30%)
+export const OVERVOLTAGE_DAMAGE_PCT: Record<number, number> = {
+  0: 15, // нет ИБП → −15%
+  1: 10, // ИБП Lv1 → −10%
+  2:  5, // ИБП Lv2 → −5%
+         // Lv3+ → 0% (полная защита)
+};
+
 // Покупаемые временные бонусы синдиката (из казны)
 export const SYNDICATE_BONUS_DEFS: Record<string, {
   igcCost:       number;

@@ -599,11 +599,14 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
       {/* ── АКТИВНЫЕ СОБЫТИЯ ФЕРМЫ ───────────────────────── */}
       {data.events && Object.keys(data.events).length > 0 && (() => {
         const EVENT_META: Record<string, { icon: string; labelRu: string; labelEn: string; color: string }> = {
-          lucky_miner:         { icon: '⚡', labelRu: 'Удача майнера — +50% IGC!',           labelEn: 'Lucky Miner — +50% IGC!',         color: '#FFD700' },
-          heat_wave:           { icon: '🌡️', labelRu: 'Волна жары — +30% к электро',         labelEn: 'Heat Wave — +30% electricity',     color: '#FF6B35' },
-          power_surge:         { icon: '🔋', labelRu: 'Скачок напряжения — −25% электро!',   labelEn: 'Power Surge — −25% electricity!',  color: '#00FF88' },
-          emergency_burn:      { icon: '🔥', labelRu: 'Кризис IGC — повышенный расход',      labelEn: 'IGC Crisis — high electricity',    color: '#FF3355' },
-          electricity_discount:{ icon: '💡', labelRu: 'Скидка на электричество!',            labelEn: 'Electricity discount!',            color: '#00D4FF' },
+          lucky_miner:         { icon: '⚡', labelRu: 'Удача майнера — +50% IGC!',             labelEn: 'Lucky Miner — +50% IGC!',            color: '#FFD700' },
+          heat_wave:           { icon: '🌡️', labelRu: 'Волна жары — +30% к электро',           labelEn: 'Heat Wave — +30% electricity',        color: '#FF6B35' },
+          power_dip:           { icon: '💡', labelRu: 'Просадка напряжения — −25% электро!',   labelEn: 'Voltage Dip — −25% electricity!',     color: '#00FF88' },
+          power_surge:         { icon: '💡', labelRu: 'Просадка напряжения — −25% электро!',   labelEn: 'Voltage Dip — −25% electricity!',     color: '#00FF88' }, // legacy alias
+          overvoltage:         { icon: '⚡', labelRu: 'Перенапряжение — урон здоровью GPU!',   labelEn: 'Overvoltage — GPU health damage!',    color: '#FF3355' },
+          power_outage:        { icon: '🔌', labelRu: 'Перебои в сети — GPU отключены!',       labelEn: 'Power Outage — GPUs went offline!',   color: '#FF6B00' },
+          emergency_burn:      { icon: '🔥', labelRu: 'Кризис IGC — повышенный расход',        labelEn: 'IGC Crisis — high electricity',       color: '#FF3355' },
+          electricity_discount:{ icon: '💡', labelRu: 'Скидка на электричество!',              labelEn: 'Electricity discount!',               color: '#00D4FF' },
         };
         const ru = lang === 'ru';
         return (

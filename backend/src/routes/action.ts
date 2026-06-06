@@ -229,6 +229,24 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, message: 'GPU перезапущена' });
       }
 
+      // ── Перезапуск всей фермы (после перебоев в электроснабжении) ──────────
+      case 'restart_farm': {
+        const { rows: [farmRow] } = await pool.query(
+          `SELECT id FROM farms WHERE user_id = $1`,
+          [user.id],
+        );
+        if (!farmRow) return reply.code(404).send({ error: 'Ферма не найдена' });
+
+        const result = await pool.query(
+          `UPDATE gpus SET status = 'active' WHERE farm_id = $1 AND status = 'offline'`,
+          [farmRow.id],
+        );
+        const restarted = result.rowCount ?? 0;
+        if (restarted === 0) return reply.code(400).send({ error: 'Нет offline GPU для перезапуска' });
+        console.log(`[Action] restart_farm: user ${user.id} перезапустил ${restarted} GPU`);
+        return reply.send({ ok: true, restarted });
+      }
+
       // ── Разгон / выключение разгона ────────
       case 'overclock':
       case 'toggle_overclock': {

@@ -173,47 +173,127 @@ export async function runEpoch(): Promise<EpochResult | null> {
     console.log(`[Epoch] ⚡ elecMult: сезон=${(2.2 - seasonMod).toFixed(3)} ratio=${igcRatio.toFixed(3)} ratioMult=${ratioMult.toFixed(3)} → итого=${elecMultiplier.toFixed(3)}`);
 
     // ── 3а. Случайные события фермы (генератор) ─────────
-    // lucky_miner: ровно раз в сутки в случайное время (Redis-флаг lucky_gen:{date})
-    // heat_wave / power_surge: ~раз в 2 дня (1/576 за эпоху)
+    // lucky_miner : раз в сутки, окно 1 час (Redis-флаг lucky_gen:{date})
+    // power_dip   : ~раз в 2 дня (+, −25% электро, 2 ч)
+    // heat_wave   : ~раз в 2 дня (−, +30% электро, 6 ч)
+    // overvoltage : ~раз в 3 дня (−, мгновенный урон здоровью, с UPS-защитой)
+    // power_outage: ~раз в 4 дня (−, GPU уходят в offline до ручного рестарта)
+    // overvoltage + power_outage — взаимоисключение: не более одного негативного события в сутки
+    // UPSERT-подход: ON CONFLICT ... WHERE active_until <= NOW() гарантирует атомарность
     try {
-      // lucky_miner — раз в сутки, окно сбора 4 часа
       const today = new Date().toISOString().slice(0, 10);
+
+      // ── lucky_miner — раз в сутки ────────────────────
       const luckyGenKey = `lucky_gen:${today}`;
       const luckyAlreadyGen = await redis.exists(luckyGenKey).catch(() => 1);
       if (!luckyAlreadyGen && Math.random() < 1 / 288) {
-        const { rows: existing } = await pool.query(
-          `SELECT 1 FROM system_events WHERE type = 'lucky_miner' AND active_until > NOW() LIMIT 1`,
-        );
-        if (existing.length === 0) {
-          await pool.query(
-            `INSERT INTO system_events (type, payload, active_until) VALUES ('lucky_miner', '{}', NOW() + INTERVAL '1 hour')`,
-          );
-          await redis.set(luckyGenKey, '1', 'EX', 86400);
-          console.log(`[Epoch] ⚡ lucky_miner: событие создано, окно 4 часа`);
+        const result = await pool.query(`
+          INSERT INTO system_events (type, payload, active_until)
+          VALUES ('lucky_miner', '{}', NOW() + INTERVAL '1 hour')
+          ON CONFLICT (type) DO UPDATE
+            SET payload = '{}', active_until = NOW() + INTERVAL '1 hour', created_at = NOW()
+          WHERE system_events.active_until <= NOW()
+        `);
+        if ((result.rowCount ?? 0) > 0) {
+          try { await redis.set(luckyGenKey, '1', 'EX', 86400); } catch { /* Redis недоступен */ }
+          console.log(`[Epoch] ⚡ lucky_miner: событие создано, окно 1 час`);
         }
       }
 
-      // heat_wave и power_surge — автоматические глобальные события
-      const AUTO_EVENTS = [
-        { type: 'heat_wave',   intervalSec: 6 * 3600, payload: { boost_electricity: 1.3  }, label: '🌡️ Волна жары' },
-        { type: 'power_surge', intervalSec: 2 * 3600, payload: { boost_electricity: 0.75 }, label: '🔋 Скачок напряжения' },
-      ] as const;
-      for (const ev of AUTO_EVENTS) {
-        if (Math.random() < 1 / 576) {
-          const { rows: existing } = await pool.query(
-            `SELECT 1 FROM system_events WHERE type = $1 AND active_until > NOW() LIMIT 1`,
-            [ev.type],
-          );
-          if (existing.length === 0) {
-            await pool.query(
-              `INSERT INTO system_events (type, payload, active_until) VALUES ($1, $2, NOW() + INTERVAL '${ev.intervalSec} seconds')`,
-              [ev.type, JSON.stringify(ev.payload)],
-            );
-            console.log(`[Epoch] 🎲 ${ev.label} активна`);
-          }
+      // ── power_dip: просадка напряжения (~раз в 2 дня) ──
+      if (Math.random() < 1 / 576) {
+        const result = await pool.query(`
+          INSERT INTO system_events (type, payload, active_until)
+          VALUES ('power_dip', '{"boost_electricity":0.75}', NOW() + INTERVAL '2 hours')
+          ON CONFLICT (type) DO UPDATE
+            SET payload = '{"boost_electricity":0.75}', active_until = NOW() + INTERVAL '2 hours', created_at = NOW()
+          WHERE system_events.active_until <= NOW()
+        `);
+        if ((result.rowCount ?? 0) > 0) {
+          console.log(`[Epoch] 💡 power_dip: Просадка напряжения активна (−25% электро, 2 ч)`);
         }
       }
-    } catch { /* Не критично */ }
+
+      // ── heat_wave: волна жары (~раз в 2 дня) ────────
+      if (Math.random() < 1 / 576) {
+        const result = await pool.query(`
+          INSERT INTO system_events (type, payload, active_until)
+          VALUES ('heat_wave', '{"boost_electricity":1.3}', NOW() + INTERVAL '6 hours')
+          ON CONFLICT (type) DO UPDATE
+            SET payload = '{"boost_electricity":1.3}', active_until = NOW() + INTERVAL '6 hours', created_at = NOW()
+          WHERE system_events.active_until <= NOW()
+        `);
+        if ((result.rowCount ?? 0) > 0) {
+          console.log(`[Epoch] 🌡️ heat_wave: Волна жары активна (+30% электро, 6 ч)`);
+        }
+      }
+
+      // ── НЕГАТИВНЫЕ СОБЫТИЯ — взаимоисключение (DB-mutex, не Redis) ──
+      // Проверяем, было ли уже негативное событие сегодня (по created_at в БД)
+      const { rows: negFired } = await pool.query(`
+        SELECT 1 FROM system_events
+        WHERE type IN ('overvoltage', 'power_outage')
+          AND created_at >= CURRENT_DATE
+        LIMIT 1
+      `);
+      if (negFired.length === 0) {
+
+        // overvoltage: мгновенный урон здоровью GPU (~раз в 3 дня)
+        if (Math.random() < 1 / 864) {
+          const upd = await pool.query(`
+            UPDATE gpus g
+            SET health = GREATEST(
+              g.health - CASE f.ups_level
+                WHEN 0 THEN 15
+                WHEN 1 THEN 10
+                WHEN 2 THEN 5
+                ELSE 0
+              END,
+              30
+            )
+            FROM farms f
+            WHERE g.farm_id = f.id
+              AND g.status = 'active'
+              AND f.ups_level < 3
+          `);
+          await pool.query(`
+            INSERT INTO system_events (type, payload, active_until)
+            VALUES ('overvoltage', '{}', NOW() + INTERVAL '1 hour')
+            ON CONFLICT (type) DO UPDATE
+              SET payload = '{}', active_until = NOW() + INTERVAL '1 hour', created_at = NOW()
+          `);
+          console.log(`[Epoch] ⚡ overvoltage: Перенапряжение! ${upd.rowCount ?? 0} GPU получили урон. ИБП Lv3 защищён.`);
+        }
+
+        // power_outage: GPUs уходят в offline до ручного перезапуска (~раз в 4 дня)
+        // Срабатывает только если overvoltage НЕ сработал (else if)
+        else if (Math.random() < 1 / 1152) {
+          const upd = await pool.query(`
+            UPDATE gpus g
+            SET status = 'offline'
+            FROM farms f
+            WHERE g.farm_id = f.id
+              AND g.status = 'active'
+              AND g.model_tier > CASE f.ups_level
+                WHEN 0 THEN -1
+                WHEN 1 THEN  2
+                WHEN 2 THEN  3
+                WHEN 3 THEN  4
+                ELSE 999
+              END
+          `);
+          await pool.query(`
+            INSERT INTO system_events (type, payload, active_until)
+            VALUES ('power_outage', '{}', NOW() + INTERVAL '1 hour')
+            ON CONFLICT (type) DO UPDATE
+              SET payload = '{}', active_until = NOW() + INTERVAL '1 hour', created_at = NOW()
+          `);
+          console.log(`[Epoch] 🔌 power_outage: Перебои в электроснабжении! ${upd.rowCount ?? 0} GPU ушли в offline.`);
+        }
+      }
+    } catch (e) {
+      console.warn('[Epoch] Ошибка генератора событий:', e);
+    }
 
     // ── 3б. Читаем активные системные события ───────────
     // lucky_miner теперь клеймится вручную — персональный бонус в Redis lucky_active:{userId}
@@ -224,7 +304,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
         elecMultiplier *= ev.payload.boost_electricity;
         console.log(`[Epoch] ⚡ ${ev.type} → elec ×${ev.payload.boost_electricity}`);
       }
-      if ((ev.type === 'electricity_discount' || ev.type === 'power_surge') && ev.payload?.boost_electricity) {
+      if ((ev.type === 'electricity_discount' || ev.type === 'power_surge' || ev.type === 'power_dip') && ev.payload?.boost_electricity) {
         elecMultiplier *= ev.payload.boost_electricity;
         console.log(`[Epoch] 💡 ${ev.type} → elec ×${ev.payload.boost_electricity}`);
       }

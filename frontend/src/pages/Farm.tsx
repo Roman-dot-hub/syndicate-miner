@@ -71,6 +71,7 @@ interface Props {
 
 export function Farm({ data, onUpdate }: Props) {
   const { t } = useLang();
+  const { action } = useAction();
   const [boostEndTime, setBoostEndTime] = useState(() => {
     const stored = localStorage.getItem('adBoost_endTime');
     return stored ? parseInt(stored, 10) : 0;
@@ -78,6 +79,7 @@ export function Farm({ data, onUpdate }: Props) {
   const [selectedGpu, setSelectedGpu]   = useState<GPU | null>(null);
   const [showStorage,  setShowStorage]  = useState(false);
   const [showGpuShop,  setShowGpuShop]  = useState(false);
+  const [restarting,   setRestarting]   = useState(false);
 
   const serverBoost = data.tapBoost;
   const mergedBoost: TapBoost = {
@@ -100,6 +102,15 @@ export function Farm({ data, onUpdate }: Props) {
     });
   };
 
+  const handleRestartFarm = async () => {
+    setRestarting(true);
+    try {
+      await action('restart_farm');
+      onUpdate();
+    } catch { /* ошибка — просто сбрасываем флаг */ }
+    finally { setRestarting(false); }
+  };
+
   const rawFarm = data.farm as any;
   const farm = {
     ...data.farm,
@@ -112,9 +123,10 @@ export function Farm({ data, onUpdate }: Props) {
     workbenchLevel:  rawFarm.workbenchLevel  ?? rawFarm.workbench_level  ?? 0,
   };
 
-  const activeGpus = data.gpus.filter(g => g.status !== 'stored');
-  const storedGpus = data.storedGpus ?? data.gpus.filter(g => g.status === 'stored');
-  const freeSlots  = Math.max(0, farm.maxSlots - activeGpus.length);
+  const activeGpus  = data.gpus.filter(g => g.status !== 'stored');
+  const offlineGpus = activeGpus.filter(g => g.status === 'offline');
+  const storedGpus  = data.storedGpus ?? data.gpus.filter(g => g.status === 'stored');
+  const freeSlots   = Math.max(0, farm.maxSlots - activeGpus.length);
 
   const globalH   = data.network?.globalHashrate ?? 0;
   const poolTon   = data.season.poolTon;
@@ -245,6 +257,36 @@ export function Farm({ data, onUpdate }: Props) {
         boostEndTime={boostEndTime}
         onBoostActivate={handleBoostActivate}
       />
+
+      {/* ── Баннер перебоев в сети + кнопка рестарта ── */}
+      {offlineGpus.length > 0 && (
+        <div style={{
+          background: 'rgba(255,107,0,0.10)',
+          border: '1px solid rgba(255,107,0,0.35)',
+          borderRadius: 14, padding: '12px 16px',
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#FF6B00', marginBottom: 4 }}>
+            {fmt(t.farm_outage_banner, { n: offlineGpus.length })}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 10 }}>
+            {t.farm_outage_hint}
+          </div>
+          <button
+            onClick={handleRestartFarm}
+            disabled={restarting}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 10,
+              cursor: restarting ? 'default' : 'pointer',
+              fontWeight: 700, fontSize: 13,
+              background: restarting ? 'rgba(255,107,0,0.12)' : 'rgba(255,107,0,0.25)',
+              border: '1px solid rgba(255,107,0,0.5)',
+              color: restarting ? 'rgba(255,107,0,0.5)' : '#FF6B00',
+            }}
+          >
+            {restarting ? '...' : t.farm_restart_farm}
+          </button>
+        </div>
+      )}
 
       {/* Active GPUs */}
       <div>
