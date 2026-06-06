@@ -1156,7 +1156,6 @@ export function Guide() {
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: RE, marginBottom: 2 }}>
                 {ru ? 'Перенапряжение' : 'Overvoltage'}
-                <span style={{ fontSize: 9, fontWeight: 400, color: DIM, marginLeft: 6 }}>~{ru ? 'раз в 3 дня' : 'every 3 days'}</span>
               </div>
               <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
                 {ru
@@ -1187,7 +1186,6 @@ export function Guide() {
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: OR, marginBottom: 2 }}>
                 {ru ? 'Перебои в электроснабжении' : 'Power Outage'}
-                <span style={{ fontSize: 9, fontWeight: 400, color: DIM, marginLeft: 6 }}>~{ru ? 'раз в 4 дня' : 'every 4 days'}</span>
               </div>
               <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
                 {ru
