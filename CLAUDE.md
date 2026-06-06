@@ -1158,6 +1158,80 @@ function calcTemp(tier, coolingLevel, overclocked, undervolted) {
 
 ---
 
+## Изменения (сессия 2026-06-06)
+
+### Баг: хешрейт отображался по-разному на трёх экранах
+
+**Файлы:** `frontend/src/pages/Dashboard.tsx`, `backend/src/routes/leaderboard.ts`
+
+| Что учитывал | Dashboard | Ферма | Лидерборд |
+|---|---|---|---|
+| OC ×1.20 | ✅ | ✅ | ✅ |
+| UV ×0.85 | ✅ | ✅ | ❌ → **исправлено** |
+| Server Room +3-12% | ❌ → **исправлено** | ✅ | ❌ → **исправлено** |
+
+Dashboard: добавлен `srBonus` из `SERVER_ROOM_LEVELS`.
+Leaderboard SQL: добавлены `* CASE WHEN g.undervolted THEN 0.85 ELSE 1.0 END` и `* CASE f.server_room_level WHEN 1 THEN 1.03 ... END`, добавлен `LEFT JOIN farms f ON f.user_id = u.id`.
+
+Uptime и деградация по здоровью намеренно не отображаются (показывается "raw hashrate").
+
+### Безопасность: RLS включён на всех таблицах Supabase
+
+**Проект:** `xzyhrfvrywkctgcsxuvm`
+
+Supabase прислал критическое предупреждение — все 18 таблиц были публично доступны через REST API (anon-ключ). Применена миграция `enable_rls_all_tables`:
+
+```sql
+ALTER TABLE public.users               ENABLE ROW LEVEL SECURITY;
+-- ... (все 18 таблиц)
+ALTER TABLE public._migrations         ENABLE ROW LEVEL SECURITY;
+```
+
+Политики не добавлялись — доступ через anon/REST API полностью заблокирован. Бэкенд подключается через прямой SQL pooler (суперпользователь), который обходит RLS — игровые операции не затронуты.
+
+Затронутые таблицы: `users, farms, gpus, transactions, user_daily_earnings, epoch_log, pool_stats, system_events, marketplace, referrals, syndicates, syndicate_members, syndicate_bonuses, syndicate_votes, withdrawal_queue, igc_monitor_log, igc_buyback_orders, _migrations`.
+
+### Улучшения геймплея: уведомления, визуальные предупреждения, случайные события
+
+#### Этап 1 — Telegram-уведомления (`backend/src/epoch/epochRunner.ts`)
+
+- **💥 GPU сломалась** — мгновенный `sendTgMessage` при `finalBroken=true` (имя карты + призыв зайти)
+- **⚠️ Критический износ** — уведомление при первом пересечении health < 30% (Redis rate-limit 24ч на GPU через ключ `health_warn:{gpu.id}`)
+- Низкий IGC уже работал ✅
+
+#### Этап 2 — Визуальные предупреждения (`frontend/src/components/GpuCard.tsx`, `App.tsx`, `i18n.ts`)
+
+- **health 30-50%** → оранжевая рамка/фон + строка "⚠️ НУЖЕН РЕМОНТ"
+- **health < 30%** → красный пульс (gpu-broken animation) + "⚠️ СЛОМАЕТСЯ СКОРО"
+- **Бейдж на вкладке Ферма** (App.tsx) — красное число = сломанные + критические GPU, видно из любого раздела. Скрывается когда сама вкладка активна.
+- i18n: добавлены ключи `health_critical`, `health_warning` (ru+en)
+
+#### Этап 5 — Случайные события фермы (`backend/src/epoch/epochRunner.ts`, `frontend/src/pages/Dashboard.tsx`)
+
+**Генератор в epochRunner** (перед чтением sysEvents):
+- Каждый тип событий: вероятность `1/576` за эпоху (~раз в 2 дня)
+- Не создаёт дубли если событие уже активно (`SELECT 1 FROM system_events WHERE type=$1 AND active_until > NOW()`)
+
+**Новые типы событий:**
+
+| Тип | Эффект | Длительность | Приоритет |
+|-----|--------|-------------|-----------|
+| `lucky_miner` | IGC × 1.5 для всех | 30 мин | `igcMult *= activeIgcMultiplier` |
+| `heat_wave` | elecMultiplier × 1.3 | 6 часов | как `emergency_burn` |
+| `power_surge` | elecMultiplier × 0.75 | 2 часа | как `electricity_discount` |
+
+`activeIgcMultiplier` — новая переменная в epochRunner, стекается с `igc_boost` синдиката: `igcMult = (synBoost ? 2.0 : 1.0) * activeIgcMultiplier`.
+
+**Dashboard.tsx** — баннер активного события с иконкой, цветом и описанием (выводится над Fear & Greed).
+
+#### Гайд (`frontend/src/pages/Guide.tsx`)
+
+Добавлена секция "УВЕДОМЛЕНИЯ И СОБЫТИЯ":
+- **"Здоровье GPU и поломки"** — пороги 60/30/0%, описание бейджа и бот-уведомлений
+- **"Случайные события фермы"** — описание всех 3 событий с тактическими советами
+
+---
+
 ## Изменения (сессия 2026-06-05)
 
 ### Баг: provider/electricityMult применялись к обслуживанию (maintenance)
