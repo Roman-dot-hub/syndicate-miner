@@ -1158,6 +1158,117 @@ function calcTemp(tier, coolingLevel, overclocked, undervolted) {
 
 ---
 
+## Изменения (сессия 2026-06-07)
+
+### Lucky Miner — финальная механика (доработка из предыдущей сессии)
+
+**Файлы:** `backend/src/epoch/epochRunner.ts`, `backend/src/routes/action.ts`, `backend/src/routes/sync.ts`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/types.ts`
+
+- Окно сбора: **4 ч → 1 час** (чтобы игроки проверяли чаще)
+- Убрана механика продления (extend_lucky_miner action + Redis-ключи `lucky_extended:*` + поле `canExtend` в sync)
+- После клейма: только таймер обратного отсчёта, никаких дополнительных кнопок
+- Генерация: раз в сутки через Redis-ключ `lucky_gen:{date}`, вероятность `1/288` за эпоху
+
+### Случайные события — Перенапряжение + Перебои (с UPS-защитой)
+
+**Файлы:** `backend/src/epoch/constants.ts`, `backend/src/epoch/epochRunner.ts`, `backend/src/routes/action.ts`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/pages/Farm.tsx`, `frontend/src/i18n.ts`, `frontend/src/pages/Guide.tsx`
+
+#### Переименование
+
+`power_surge` → **`power_dip`** (просадка напряжения, −25% электро, 2 ч). Тип `power_surge` оставлен как legacy-alias в epochRunner и Dashboard для обратной совместимости с уже существующими активными событиями в БД.
+
+#### Новые негативные события
+
+**`overvoltage`** (Перенапряжение, ~раз в 3 дня):
+- Мгновенный урон здоровью всех активных GPU, применяется одним SQL UPDATE
+- Пол: здоровье не упадёт ниже 30% (`GREATEST(health - X, 30)`)
+- ИБП-защита:
+
+| ИБП | Урон |
+|-----|------|
+| Нет | −15% |
+| Lv1 | −10% |
+| Lv2 | −5%  |
+| Lv3 | 0% (полная защита) |
+
+**`power_outage`** (Перебои в электроснабжении, ~раз в 4 дня):
+- GPU уходят в `status='offline'` **навсегда** до ручного перезапуска
+- Без Telegram-уведомления — преимущество ИБП должно оставаться честным
+- ИБП-защита (максимальный тир, остающийся онлайн):
+
+| ИБП | Выживают |
+|-----|----------|
+| Нет | только T0 (USB Nano, 0W)... нет, вся ферма |
+| Lv1 | T0, T1, T2 (≤100W) |
+| Lv2 | + T3 (≤200W) |
+| Lv3 | + T4 (≤350W) |
+
+SQL:
+```sql
+-- overvoltage damage
+UPDATE gpus g SET health = GREATEST(g.health - CASE f.ups_level
+  WHEN 0 THEN 15 WHEN 1 THEN 10 WHEN 2 THEN 5 ELSE 0 END, 30)
+FROM farms f WHERE g.farm_id = f.id AND g.status = 'active' AND f.ups_level < 3
+
+-- power_outage offline
+UPDATE gpus g SET status = 'offline'
+FROM farms f WHERE g.farm_id = f.id AND g.status = 'active'
+  AND g.model_tier > CASE f.ups_level
+    WHEN 0 THEN -1 WHEN 1 THEN 2 WHEN 2 THEN 3 WHEN 3 THEN 4 ELSE 999 END
+```
+
+#### Технические решения
+
+**DB-mutex вместо Redis** (Redis сломан в prod):
+```sql
+SELECT 1 FROM system_events
+WHERE type IN ('overvoltage', 'power_outage') AND created_at >= CURRENT_DATE LIMIT 1
+```
+Не более одного негативного события в сутки. Взаимоисключение реализовано через `else if` в генераторе + проверку `created_at`.
+
+**UPSERT вместо INSERT** — атомарная операция, race condition невозможен:
+```sql
+INSERT INTO system_events (type, payload, active_until)
+VALUES ($1, $2, NOW() + INTERVAL ...)
+ON CONFLICT (type) DO UPDATE
+  SET payload = EXCLUDED.payload, active_until = EXCLUDED.active_until, created_at = NOW()
+WHERE system_events.active_until <= NOW()
+-- rowCount = 0 → событие ещё активно, пропускаем
+-- rowCount = 1 → событие зафиксировано, применяем эффект
+```
+
+Применено ко всем событиям генератора: `lucky_miner`, `power_dip`, `heat_wave`, `overvoltage`, `power_outage`.
+
+#### action: restart_farm
+
+```typescript
+case 'restart_farm':
+  UPDATE gpus SET status = 'active' WHERE farm_id = $farmId AND status = 'offline'
+  → { ok: true, restarted: N }
+```
+
+Перезапускает все offline-GPU фермы одним запросом, без проверки IGC (карты ушли в offline из-за события, не из-за нехватки IGC). Следующая эпоха сама закроет карты если IGC не хватит.
+
+#### Константы (`backend/src/epoch/constants.ts`)
+
+```typescript
+export const UPS_OUTAGE_MAX_TIER: Record<number, number> = {
+  0: -1, 1: 2, 2: 3, 3: 4,   // Lv4/Lv5 — будущие уровни для T5/T6 (Phase 2+)
+};
+export const OVERVOLTAGE_DAMAGE_PCT: Record<number, number> = {
+  0: 15, 1: 10, 2: 5,          // Lv3+ → 0% (полная защита)
+};
+```
+
+#### Фронтенд
+
+- **Dashboard.tsx** `EVENT_META`: добавлены `power_dip`, `overvoltage` (красный), `power_outage` (оранжевый); `power_surge` оставлен как legacy
+- **Farm.tsx**: оранжевый баннер `🔌 Перебои в сети — N GPU отключено` + кнопка `⚡ Перезапустить ферму` (через `useAction`, с loading-state) — отображается когда `offlineGpus.length > 0`
+- **i18n.ts**: `farm_outage_banner`, `farm_outage_hint`, `farm_restart_farm` (ru + en)
+- **Guide.tsx**: секция событий разбита на «✅ Позитивные» / «⚠️ Негативные — ИБП защищает»; для overvoltage и power_outage — таблицы урона/защиты по уровням; частота появления намеренно скрыта
+
+---
+
 ## Изменения (сессия 2026-06-06)
 
 ### Баг: хешрейт отображался по-разному на трёх экранах
@@ -1216,9 +1327,11 @@ ALTER TABLE public._migrations         ENABLE ROW LEVEL SECURITY;
 
 | Тип | Эффект | Длительность | Приоритет |
 |-----|--------|-------------|-----------|
-| `lucky_miner` | IGC × 1.5 для всех | 30 мин | `igcMult *= activeIgcMultiplier` |
+| `lucky_miner` | IGC × 1.5 для всех | 1 час (окно сбора) | `igcMult *= activeIgcMultiplier` |
 | `heat_wave` | elecMultiplier × 1.3 | 6 часов | как `emergency_burn` |
 | `power_surge` | elecMultiplier × 0.75 | 2 часа | как `electricity_discount` |
+
+> ⚠️ В сессии 2026-06-07 `power_surge` переименован в `power_dip`; добавлены `overvoltage` и `power_outage`. Детали — в разделе выше.
 
 `activeIgcMultiplier` — новая переменная в epochRunner, стекается с `igc_boost` синдиката: `igcMult = (synBoost ? 2.0 : 1.0) * activeIgcMultiplier`.
 
