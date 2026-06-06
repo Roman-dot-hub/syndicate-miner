@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
 import type { SyncData, TxLogEntry } from '../types';
-import { SEASON_EMOJI, GPU_SPECS } from '../types';
+import { SEASON_EMOJI, GPU_SPECS, SERVER_ROOM_LEVELS } from '../types';
 import { FearGreedIndex } from '../components/FearGreedIndex';
 import { GpuIcon } from '../components/GpuIcon';
 import { useAction } from '../hooks/useAction';
@@ -76,10 +76,13 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
   const setOptMode = setOptimisticMode ?? (() => {});
 
   const activeGpus = data.gpus.filter(g => g.status === 'active');
+  const rawFarm = data.farm as any;
+  const srLevel = rawFarm?.serverRoomLevel ?? rawFarm?.server_room_level ?? 0;
+  const srBonus = SERVER_ROOM_LEVELS.find(l => l.level === srLevel)?.hashrateBonus ?? 0;
   const totalHashrate = activeGpus.reduce((s, g) => {
     const spec = GPU_SPECS[g.modelTier] ?? GPU_SPECS[0];
     const mult = (g.overclocked ? 1.20 : 1.0) * (g.undervolted ? 0.85 : 1.0);
-    return s + spec.hashrate * mult;
+    return s + spec.hashrate * mult * (1 + srBonus);
   }, 0);
 
   const globalH    = data.network?.globalHashrate ?? 0;
