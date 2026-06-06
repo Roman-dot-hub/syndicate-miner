@@ -186,7 +186,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
         );
         if (existing.length === 0) {
           await pool.query(
-            `INSERT INTO system_events (type, payload, active_until) VALUES ('lucky_miner', '{}', NOW() + INTERVAL '4 hours')`,
+            `INSERT INTO system_events (type, payload, active_until) VALUES ('lucky_miner', '{}', NOW() + INTERVAL '1 hour')`,
           );
           await redis.set(luckyGenKey, '1', 'EX', 86400);
           console.log(`[Epoch] ⚡ lucky_miner: событие создано, окно 4 часа`);

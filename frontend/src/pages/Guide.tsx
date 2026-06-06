@@ -1117,7 +1117,7 @@ export function Guide() {
           </div>
         </div>
         {[
-          { icon: '⚡', name: ru ? 'Удача майнера' : 'Lucky Miner',     color: YL,      desc: ru ? '+50% IGC на 30 минут для всех игроков. Самое прибыльное событие — заходи и майни!' : '+50% IGC for 30 minutes for all players. Best event — log in and mine!' },
+          { icon: '⚡', name: ru ? 'Удача майнера' : 'Lucky Miner',     color: YL,      desc: ru ? 'Раз в сутки в случайное время появляется на 1 час. Нажми ЗАБРАТЬ на Дашборде — получишь +50% IGC на 1 час лично. Кто не зашёл — упустил. Следи за уведомлениями!' : 'Appears once a day at a random time for 1 hour. Hit CLAIM on Dashboard — get +50% IGC for 1 hour personally. Miss it and it\'s gone. Watch your notifications!' },
           { icon: '🌡️', name: ru ? 'Волна жары' : 'Heat Wave',          color: OR,      desc: ru ? '+30% к стоимости электричества на 6 часов. Season Shield синдиката защищает от этого.' : '+30% to electricity cost for 6 hours. Syndicate Season Shield protects from this.' },
           { icon: '🔋', name: ru ? 'Скачок напряжения' : 'Power Surge',  color: GR,      desc: ru ? '−25% к электричеству на 2 часа. Выгодно — включай разгон если есть!' : '−25% electricity for 2 hours. Profitable — enable OC if you have it!' },
         ].map((ev, i) => (

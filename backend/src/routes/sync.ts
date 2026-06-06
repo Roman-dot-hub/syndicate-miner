@@ -260,8 +260,8 @@ export async function syncRoutes(app: FastifyInstance) {
     );
 
     // ── Персональный бонус Удача майнера ─────
-    let luckyBonus: { eventActive: boolean; claimed: boolean; bonusSecondsLeft: number; canExtend: boolean; eventEndsIn: number } = {
-      eventActive: false, claimed: false, bonusSecondsLeft: 0, canExtend: false, eventEndsIn: 0,
+    let luckyBonus: { eventActive: boolean; claimed: boolean; bonusSecondsLeft: number; eventEndsIn: number } = {
+      eventActive: false, claimed: false, bonusSecondsLeft: 0, eventEndsIn: 0,
     };
     try {
       const luckyEvent = events.find((e: any) => e.type === 'lucky_miner');
@@ -271,11 +271,6 @@ export async function syncRoutes(app: FastifyInstance) {
         const bonusTtl = await redis.ttl(`lucky_active:${user.id}`);
         luckyBonus.claimed = bonusTtl > 0;
         luckyBonus.bonusSecondsLeft = bonusTtl > 0 ? bonusTtl : 0;
-        if (luckyBonus.claimed) {
-          const today = new Date().toISOString().slice(0, 10);
-          const alreadyExtended = await redis.exists(`lucky_extended:${user.id}:${today}`);
-          luckyBonus.canExtend = !alreadyExtended;
-        }
       }
     } catch { /* Redis недоступен */ }
 

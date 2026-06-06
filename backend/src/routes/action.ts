@@ -1274,21 +1274,6 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, bonusSeconds: 3600 });
       }
 
-      // ── Продление бонуса Удача майнера ──────────────────
-      case 'extend_lucky_miner': {
-        const today = new Date().toISOString().slice(0, 10);
-        const extKey = `lucky_extended:${user.id}:${today}`;
-        const alreadyExtended = await redis.exists(extKey);
-        if (alreadyExtended) return reply.code(400).send({ error: 'Продление уже использовано сегодня' });
-        const ttl = await redis.ttl(`lucky_active:${user.id}`);
-        if (ttl <= 0) return reply.code(400).send({ error: 'Бонус не активен — сначала заберите его' });
-        const newTtl = ttl + 3600;
-        await redis.expire(`lucky_active:${user.id}`, newTtl);
-        await redis.set(extKey, '1', 'EX', 86400);
-        console.log(`[Lucky] ➕ ${user.id} продлил бонус (+1ч, итого ${Math.round(newTtl / 60)}м)`);
-        return reply.send({ ok: true, bonusSeconds: newTtl });
-      }
-
       // ── Покупка инфраструктуры (прямой вызов) ─
       default: {
         // Фронтенд может слать тип апгрейда напрямую: 'farm_level_2', 'cooling_1' и т.д.
