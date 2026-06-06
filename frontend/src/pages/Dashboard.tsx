@@ -516,6 +516,92 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
         );
       })()}
 
+      {/* ── УДАЧА МАЙНЕРА ────────────────────────────────── */}
+      {data.luckyBonus?.eventActive && (() => {
+        const lb = data.luckyBonus!;
+        const ru = lang === 'ru';
+        const fmtMin = (sec: number) => `${Math.floor(sec / 60)}м`;
+        if (lb.claimed) {
+          return (
+            <div style={{
+              borderRadius: 14, padding: '12px 14px', marginBottom: 8,
+              background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.35)',
+              boxShadow: '0 0 16px rgba(255,215,0,0.15)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 24 }}>⚡</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#FFD700' }}>
+                      {ru ? 'Удача майнера активна!' : 'Lucky Miner active!'}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>
+                      +50% IGC · {ru ? 'осталось' : 'left'} {fmtMin(lb.bonusSecondsLeft)}
+                    </div>
+                  </div>
+                </div>
+                {lb.canExtend && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const r = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-init-data': (window as any).Telegram?.WebApp?.initData ?? '' }, body: JSON.stringify({ type: 'extend_lucky_miner' }) });
+                        if (r.ok) onUpdate();
+                      } catch {}
+                    }}
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(255,215,0,0.5)',
+                      background: 'rgba(255,215,0,0.15)', color: '#FFD700',
+                      fontSize: 10, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                    }}
+                  >
+                    ➕ {ru ? '+1 час' : '+1 hour'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div style={{
+            borderRadius: 14, padding: '12px 14px', marginBottom: 8,
+            background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.4)',
+            boxShadow: '0 0 20px rgba(255,215,0,0.1)',
+            animation: 'gpu-active 2.5s ease-in-out infinite',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 24 }}>⚡</span>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#FFD700' }}>
+                    {ru ? 'Удача майнера!' : 'Lucky Miner!'}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>
+                    {ru ? `+50% IGC на 1 час · закроется через ${fmtMin(lb.eventEndsIn)}` : `+50% IGC for 1 hour · closes in ${fmtMin(lb.eventEndsIn)}`}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const r = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-init-data': (window as any).Telegram?.WebApp?.initData ?? '' }, body: JSON.stringify({ type: 'claim_lucky_miner' }) });
+                    if (r.ok) onUpdate();
+                  } catch {}
+                }}
+                style={{
+                  padding: '8px 16px', borderRadius: 10,
+                  background: 'linear-gradient(135deg, #FFD700, #FFA500)',
+                  border: 'none', color: '#000', fontSize: 11, fontWeight: 800,
+                  cursor: 'pointer', flexShrink: 0,
+                  boxShadow: '0 0 12px rgba(255,215,0,0.5)',
+                }}
+              >
+                {ru ? 'ЗАБРАТЬ' : 'CLAIM'}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── АКТИВНЫЕ СОБЫТИЯ ФЕРМЫ ───────────────────────── */}
       {data.events && Object.keys(data.events).length > 0 && (() => {
         const EVENT_META: Record<string, { icon: string; labelRu: string; labelEn: string; color: string }> = {

@@ -1261,6 +1261,34 @@ export async function actionRoutes(app: FastifyInstance) {
         return reply.send({ ok: true, unstakedTon: amount });
       }
 
+      // ── Сбор бонуса Удача майнера ────────────────────────
+      case 'claim_lucky_miner': {
+        const { rows: [ev] } = await pool.query(
+          `SELECT id, active_until FROM system_events WHERE type = 'lucky_miner' AND active_until > NOW() LIMIT 1`,
+        );
+        if (!ev) return reply.code(400).send({ error: 'Нет активного события Удача майнера' });
+        const alreadyActive = await redis.exists(`lucky_active:${user.id}`);
+        if (alreadyActive) return reply.code(400).send({ error: 'Бонус уже активен' });
+        await redis.set(`lucky_active:${user.id}`, '1', 'EX', 3600);
+        console.log(`[Lucky] ⚡ ${user.id} забрал бонус (+50% IGC на 1ч)`);
+        return reply.send({ ok: true, bonusSeconds: 3600 });
+      }
+
+      // ── Продление бонуса Удача майнера ──────────────────
+      case 'extend_lucky_miner': {
+        const today = new Date().toISOString().slice(0, 10);
+        const extKey = `lucky_extended:${user.id}:${today}`;
+        const alreadyExtended = await redis.exists(extKey);
+        if (alreadyExtended) return reply.code(400).send({ error: 'Продление уже использовано сегодня' });
+        const ttl = await redis.ttl(`lucky_active:${user.id}`);
+        if (ttl <= 0) return reply.code(400).send({ error: 'Бонус не активен — сначала заберите его' });
+        const newTtl = ttl + 3600;
+        await redis.expire(`lucky_active:${user.id}`, newTtl);
+        await redis.set(extKey, '1', 'EX', 86400);
+        console.log(`[Lucky] ➕ ${user.id} продлил бонус (+1ч, итого ${Math.round(newTtl / 60)}м)`);
+        return reply.send({ ok: true, bonusSeconds: newTtl });
+      }
+
       // ── Покупка инфраструктуры (прямой вызов) ─
       default: {
         // Фронтенд может слать тип апгрейда напрямую: 'farm_level_2', 'cooling_1' и т.д.

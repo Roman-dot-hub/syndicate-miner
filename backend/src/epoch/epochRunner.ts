@@ -173,15 +173,32 @@ export async function runEpoch(): Promise<EpochResult | null> {
     console.log(`[Epoch] ⚡ elecMult: сезон=${(2.2 - seasonMod).toFixed(3)} ratio=${igcRatio.toFixed(3)} ratioMult=${ratioMult.toFixed(3)} → итого=${elecMultiplier.toFixed(3)}`);
 
     // ── 3а. Случайные события фермы (генератор) ─────────
-    // Каждый тип: ~1 раз в 2 дня (вероятность 1/576 за эпоху)
-    // Не создаём если уже активно событие того же типа
-    const RANDOM_EVENTS = [
-      { type: 'lucky_miner', intervalSec: 30 * 60,    payload: { igc_multiplier: 1.5 },       label: '⚡ Удача майнера: +50% IGC' },
-      { type: 'heat_wave',   intervalSec: 6 * 3600,   payload: { boost_electricity: 1.3 },    label: '🌡️ Волна жары: +30% к электро' },
-      { type: 'power_surge', intervalSec: 2 * 3600,   payload: { boost_electricity: 0.75 },   label: '🔋 Скачок напряжения: -25% электро' },
-    ] as const;
+    // lucky_miner: ровно раз в сутки в случайное время (Redis-флаг lucky_gen:{date})
+    // heat_wave / power_surge: ~раз в 2 дня (1/576 за эпоху)
     try {
-      for (const ev of RANDOM_EVENTS) {
+      // lucky_miner — раз в сутки, окно сбора 4 часа
+      const today = new Date().toISOString().slice(0, 10);
+      const luckyGenKey = `lucky_gen:${today}`;
+      const luckyAlreadyGen = await redis.exists(luckyGenKey).catch(() => 1);
+      if (!luckyAlreadyGen && Math.random() < 1 / 288) {
+        const { rows: existing } = await pool.query(
+          `SELECT 1 FROM system_events WHERE type = 'lucky_miner' AND active_until > NOW() LIMIT 1`,
+        );
+        if (existing.length === 0) {
+          await pool.query(
+            `INSERT INTO system_events (type, payload, active_until) VALUES ('lucky_miner', '{}', NOW() + INTERVAL '4 hours')`,
+          );
+          await redis.set(luckyGenKey, '1', 'EX', 86400);
+          console.log(`[Epoch] ⚡ lucky_miner: событие создано, окно 4 часа`);
+        }
+      }
+
+      // heat_wave и power_surge — автоматические глобальные события
+      const AUTO_EVENTS = [
+        { type: 'heat_wave',   intervalSec: 6 * 3600, payload: { boost_electricity: 1.3  }, label: '🌡️ Волна жары' },
+        { type: 'power_surge', intervalSec: 2 * 3600, payload: { boost_electricity: 0.75 }, label: '🔋 Скачок напряжения' },
+      ] as const;
+      for (const ev of AUTO_EVENTS) {
         if (Math.random() < 1 / 576) {
           const { rows: existing } = await pool.query(
             `SELECT 1 FROM system_events WHERE type = $1 AND active_until > NOW() LIMIT 1`,
@@ -192,19 +209,15 @@ export async function runEpoch(): Promise<EpochResult | null> {
               `INSERT INTO system_events (type, payload, active_until) VALUES ($1, $2, NOW() + INTERVAL '${ev.intervalSec} seconds')`,
               [ev.type, JSON.stringify(ev.payload)],
             );
-            console.log(`[Epoch] 🎲 Случайное событие: ${ev.label}`);
+            console.log(`[Epoch] 🎲 ${ev.label} активна`);
           }
         }
       }
     } catch { /* Не критично */ }
 
     // ── 3б. Читаем активные системные события ───────────
-    // emergency_burn: boost_electricity × N (поднимает спрос IGC при профиците)
-    // electricity_discount: multiplier (снижает стоимость при дефиците IGC)
-    // heat_wave / power_surge: случайные события (boost_electricity)
+    // lucky_miner теперь клеймится вручную — персональный бонус в Redis lucky_active:{userId}
     const sysEvents = await db.getActiveSystemEvents().catch(() => []);
-
-    let activeIgcMultiplier = 1.0; // для lucky_miner
 
     for (const ev of sysEvents) {
       if ((ev.type === 'emergency_burn' || ev.type === 'heat_wave') && ev.payload?.boost_electricity) {
@@ -215,11 +228,14 @@ export async function runEpoch(): Promise<EpochResult | null> {
         elecMultiplier *= ev.payload.boost_electricity;
         console.log(`[Epoch] 💡 ${ev.type} → elec ×${ev.payload.boost_electricity}`);
       }
-      if (ev.type === 'lucky_miner' && ev.payload?.igc_multiplier) {
-        activeIgcMultiplier = ev.payload.igc_multiplier as number;
-        console.log(`[Epoch] 🍀 lucky_miner → IGC ×${activeIgcMultiplier}`);
-      }
     }
+
+    // Персональные lucky_miner бонусы — батч-проверка через Redis KEYS
+    const luckyUserIds = new Set<string>();
+    try {
+      const luckyKeys = await redis.keys('lucky_active:*');
+      for (const k of luckyKeys) luckyUserIds.add(k.replace('lucky_active:', ''));
+    } catch { /* Redis недоступен — без бонуса */ }
 
     // Награда за эту эпоху (с сезонной поправкой)
     const dailyReward  = poolStats.reservePoolTon * seasonRate;
@@ -434,7 +450,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       // igc_boost: +50% IGC для участников синдиката с активным бустом
       const userSynBonuses = synData ? activeSynBonuses.get(synData.syndicateId) : null;
-      const igcMult    = (userSynBonuses?.has('igc_boost') ? 2.0 : 1.0) * activeIgcMultiplier;
+      const igcMult    = (userSynBonuses?.has('igc_boost') ? 2.0 : 1.0) * (luckyUserIds.has(user.id) ? 1.5 : 1.0);
       const igcEarned  = calculateIgcEarned(totalUserH) * igcMult;
       igcPerEpoch.set(user.id, igcEarned);
       totalIgcProduced += igcEarned;

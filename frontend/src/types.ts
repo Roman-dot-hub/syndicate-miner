@@ -150,6 +150,13 @@ export interface SyncData {
   staking?:   StakingData;
   txLog?:     TxLogEntry[];
   events:     Record<string, unknown>;
+  luckyBonus?: {
+    eventActive:      boolean;  // есть ли активное событие (окно сбора открыто)
+    claimed:          boolean;  // игрок уже забрал бонус
+    bonusSecondsLeft: number;   // сколько секунд осталось персонального бонуса
+    canExtend:        boolean;  // можно ли продлить (ещё не использовано)
+    eventEndsIn:      number;   // через сколько секунд закрывается окно сбора
+  };
   syndicate?: SyndicateData | null;
   referrals?: ReferralEntry[];
 }

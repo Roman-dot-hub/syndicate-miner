@@ -256,8 +256,28 @@ export async function syncRoutes(app: FastifyInstance) {
 
     // ── Активные системные события ────────────
     const { rows: events } = await pool.query(
-      `SELECT type, payload FROM system_events WHERE active_until > NOW()`,
+      `SELECT type, payload, active_until FROM system_events WHERE active_until > NOW()`,
     );
+
+    // ── Персональный бонус Удача майнера ─────
+    let luckyBonus: { eventActive: boolean; claimed: boolean; bonusSecondsLeft: number; canExtend: boolean; eventEndsIn: number } = {
+      eventActive: false, claimed: false, bonusSecondsLeft: 0, canExtend: false, eventEndsIn: 0,
+    };
+    try {
+      const luckyEvent = events.find((e: any) => e.type === 'lucky_miner');
+      if (luckyEvent) {
+        luckyBonus.eventActive = true;
+        luckyBonus.eventEndsIn = Math.max(0, Math.round((new Date(luckyEvent.active_until).getTime() - Date.now()) / 1000));
+        const bonusTtl = await redis.ttl(`lucky_active:${user.id}`);
+        luckyBonus.claimed = bonusTtl > 0;
+        luckyBonus.bonusSecondsLeft = bonusTtl > 0 ? bonusTtl : 0;
+        if (luckyBonus.claimed) {
+          const today = new Date().toISOString().slice(0, 10);
+          const alreadyExtended = await redis.exists(`lucky_extended:${user.id}:${today}`);
+          luckyBonus.canExtend = !alreadyExtended;
+        }
+      }
+    } catch { /* Redis недоступен */ }
 
     // ── Данные синдиката игрока ───────────────
     let syndicateData: any = null;
@@ -412,9 +432,10 @@ export async function syncRoutes(app: FastifyInstance) {
           globalHashrate,
         },
         events: events.reduce((acc: Record<string, any>, e: any) => {
-          acc[e.type] = e.payload;
+          if (e.type !== 'lucky_miner') acc[e.type] = e.payload; // lucky_miner управляется отдельно
           return acc;
         }, {}),
+        luckyBonus,
         syndicate: syndicateData,
         referrals: referrals.map((r: any) => ({
           level:      parseInt(r.level),
