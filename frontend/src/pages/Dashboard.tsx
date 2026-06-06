@@ -68,7 +68,7 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
     miningMode: (raw.miningMode ?? raw.mining_mode ?? 'pool') as 'pool' | 'solo',
   };
   const { season, igc } = data;
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const { action }      = useAction();
   const { connected, connect } = useTonConnect();
   const [busy, setBusy] = useState(false);
@@ -512,6 +512,45 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
                 </div>
               </div>
             ))}
+          </div>
+        );
+      })()}
+
+      {/* ── АКТИВНЫЕ СОБЫТИЯ ФЕРМЫ ───────────────────────── */}
+      {data.events && Object.keys(data.events).length > 0 && (() => {
+        const EVENT_META: Record<string, { icon: string; labelRu: string; labelEn: string; color: string }> = {
+          lucky_miner:         { icon: '⚡', labelRu: 'Удача майнера — +50% IGC!',           labelEn: 'Lucky Miner — +50% IGC!',         color: '#FFD700' },
+          heat_wave:           { icon: '🌡️', labelRu: 'Волна жары — +30% к электро',         labelEn: 'Heat Wave — +30% electricity',     color: '#FF6B35' },
+          power_surge:         { icon: '🔋', labelRu: 'Скачок напряжения — −25% электро!',   labelEn: 'Power Surge — −25% electricity!',  color: '#00FF88' },
+          emergency_burn:      { icon: '🔥', labelRu: 'Кризис IGC — повышенный расход',      labelEn: 'IGC Crisis — high electricity',    color: '#FF3355' },
+          electricity_discount:{ icon: '💡', labelRu: 'Скидка на электричество!',            labelEn: 'Electricity discount!',            color: '#00D4FF' },
+        };
+        const ru = lang === 'ru';
+        return (
+          <div style={{ marginBottom: 8 }}>
+            {Object.keys(data.events).map(type => {
+              const meta = EVENT_META[type];
+              if (!meta) return null;
+              return (
+                <div key={type} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 14px', borderRadius: 12, marginBottom: 6,
+                  background: `${meta.color}18`,
+                  border: `1px solid ${meta.color}44`,
+                  boxShadow: `0 0 12px ${meta.color}22`,
+                }}>
+                  <span style={{ fontSize: 20 }}>{meta.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: meta.color }}>
+                      {ru ? 'АКТИВНОЕ СОБЫТИЕ' : 'ACTIVE EVENT'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 1 }}>
+                      {ru ? meta.labelRu : meta.labelEn}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         );
       })()}

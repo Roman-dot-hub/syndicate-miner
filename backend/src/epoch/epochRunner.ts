@@ -172,19 +172,52 @@ export async function runEpoch(): Promise<EpochResult | null> {
     elecMultiplier    *= ratioMult;
     console.log(`[Epoch] ⚡ elecMult: сезон=${(2.2 - seasonMod).toFixed(3)} ratio=${igcRatio.toFixed(3)} ratioMult=${ratioMult.toFixed(3)} → итого=${elecMultiplier.toFixed(3)}`);
 
-    // ── 3а. Читаем активные системные события ───────────
+    // ── 3а. Случайные события фермы (генератор) ─────────
+    // Каждый тип: ~1 раз в 2 дня (вероятность 1/576 за эпоху)
+    // Не создаём если уже активно событие того же типа
+    const RANDOM_EVENTS = [
+      { type: 'lucky_miner', intervalSec: 30 * 60,    payload: { igc_multiplier: 1.5 },       label: '⚡ Удача майнера: +50% IGC' },
+      { type: 'heat_wave',   intervalSec: 6 * 3600,   payload: { boost_electricity: 1.3 },    label: '🌡️ Волна жары: +30% к электро' },
+      { type: 'power_surge', intervalSec: 2 * 3600,   payload: { boost_electricity: 0.75 },   label: '🔋 Скачок напряжения: -25% электро' },
+    ] as const;
+    try {
+      for (const ev of RANDOM_EVENTS) {
+        if (Math.random() < 1 / 576) {
+          const { rows: existing } = await pool.query(
+            `SELECT 1 FROM system_events WHERE type = $1 AND active_until > NOW() LIMIT 1`,
+            [ev.type],
+          );
+          if (existing.length === 0) {
+            await pool.query(
+              `INSERT INTO system_events (type, payload, active_until) VALUES ($1, $2, NOW() + INTERVAL '${ev.intervalSec} seconds')`,
+              [ev.type, JSON.stringify(ev.payload)],
+            );
+            console.log(`[Epoch] 🎲 Случайное событие: ${ev.label}`);
+          }
+        }
+      }
+    } catch { /* Не критично */ }
+
+    // ── 3б. Читаем активные системные события ───────────
     // emergency_burn: boost_electricity × N (поднимает спрос IGC при профиците)
     // electricity_discount: multiplier (снижает стоимость при дефиците IGC)
+    // heat_wave / power_surge: случайные события (boost_electricity)
     const sysEvents = await db.getActiveSystemEvents().catch(() => []);
 
+    let activeIgcMultiplier = 1.0; // для lucky_miner
+
     for (const ev of sysEvents) {
-      if (ev.type === 'emergency_burn' && ev.payload?.boost_electricity) {
+      if ((ev.type === 'emergency_burn' || ev.type === 'heat_wave') && ev.payload?.boost_electricity) {
         elecMultiplier *= ev.payload.boost_electricity;
-        console.log(`[Epoch] ⚡ emergency_burn активен → elec ×${ev.payload.boost_electricity}`);
+        console.log(`[Epoch] ⚡ ${ev.type} → elec ×${ev.payload.boost_electricity}`);
       }
-      if (ev.type === 'electricity_discount' && ev.payload?.multiplier) {
-        elecMultiplier *= ev.payload.multiplier;
-        console.log(`[Epoch] 💡 electricity_discount активен → elec ×${ev.payload.multiplier}`);
+      if ((ev.type === 'electricity_discount' || ev.type === 'power_surge') && ev.payload?.boost_electricity) {
+        elecMultiplier *= ev.payload.boost_electricity;
+        console.log(`[Epoch] 💡 ${ev.type} → elec ×${ev.payload.boost_electricity}`);
+      }
+      if (ev.type === 'lucky_miner' && ev.payload?.igc_multiplier) {
+        activeIgcMultiplier = ev.payload.igc_multiplier as number;
+        console.log(`[Epoch] 🍀 lucky_miner → IGC ×${activeIgcMultiplier}`);
       }
     }
 
@@ -298,7 +331,46 @@ export async function runEpoch(): Promise<EpochResult | null> {
         if (finalBroken) {
           console.log(`[Epoch] 💥 GPU ${gpu.id} (tier ${gpu.modelTier}) СЛОМАЛАСЬ! Health → 0.`);
           errors.push(`GPU ${gpu.id} сломана`);
+          // Уведомление игроку о поломке
+          const brokenUser = usersMap.get(farm.userId);
+          if (brokenUser?.tgUserId) {
+            const GPU_NAMES: Record<number, string> = {
+              0:'USB Nano', 1:'RX 580', 2:'GTX 1660S', 3:'RTX 3070',
+              4:'RTX 4090', 5:'ASIC S19', 6:'Quantum X1',
+            };
+            const gpuName = GPU_NAMES[gpu.modelTier] ?? 'GPU';
+            sendTgMessage(
+              brokenUser.tgUserId,
+              `💥 <b>${gpuName} сломалась!</b>\n\n` +
+              `Карта вышла из строя и прекратила майнинг.\n` +
+              `Зайди и почини в Верстаке 👇`,
+            ).catch(() => {});
+          }
           continue;
+        }
+
+        // Уведомление при первом пересечении порога 30% здоровья
+        if (finalHealth < 30 && gpu.health >= 30) {
+          const warnUser = usersMap.get(farm.userId);
+          if (warnUser?.tgUserId) {
+            const warnKey = `health_warn:${gpu.id}`;
+            try {
+              const alreadyWarned = await redis.exists(warnKey);
+              if (!alreadyWarned) {
+                await redis.set(warnKey, '1', 'EX', 86_400); // раз в 24ч
+                const GPU_NAMES: Record<number, string> = {
+                  0:'USB Nano', 1:'RX 580', 2:'GTX 1660S', 3:'RTX 3070',
+                  4:'RTX 4090', 5:'ASIC S19', 6:'Quantum X1',
+                };
+                sendTgMessage(
+                  warnUser.tgUserId,
+                  `⚠️ <b>Критический износ!</b>\n\n` +
+                  `${GPU_NAMES[gpu.modelTier] ?? 'GPU'} — <b>${Math.round(finalHealth)}% здоровья</b>.\n` +
+                  `Высокий риск поломки сегодня. Срочно почини! 👇`,
+                ).catch(() => {});
+              }
+            } catch { /* Redis недоступен — пропускаем */ }
+          }
         }
 
         // Эффективный хешрейт с учётом износа и uptime
@@ -362,7 +434,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
       // igc_boost: +50% IGC для участников синдиката с активным бустом
       const userSynBonuses = synData ? activeSynBonuses.get(synData.syndicateId) : null;
-      const igcMult    = userSynBonuses?.has('igc_boost') ? 2.0 : 1.0;
+      const igcMult    = (userSynBonuses?.has('igc_boost') ? 2.0 : 1.0) * activeIgcMultiplier;
       const igcEarned  = calculateIgcEarned(totalUserH) * igcMult;
       igcPerEpoch.set(user.id, igcEarned);
       totalIgcProduced += igcEarned;

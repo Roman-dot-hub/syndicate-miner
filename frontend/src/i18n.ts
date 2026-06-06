@@ -86,6 +86,8 @@ const ru = {
   gpu_broken_label: '⚠️ ТРЕБУЕТ РЕМОНТА',
   gpu_offline:      'ОФЛАЙН',
   boost_active:     '⚡ BOOST ACTIVE · {sec}s',
+  health_critical:  'СЛОМАЕТСЯ СКОРО',
+  health_warning:   'НУЖЕН РЕМОНТ',
 
   // ── GpuDetailModal ────────────────────────────────────────
   status_active:   'ACTIVE',
@@ -504,6 +506,8 @@ const en: typeof ru = {
   gpu_stored:       '📦 IN STORAGE',
   gpu_broken_label: '⚠️ NEEDS REPAIR',
   gpu_offline:      'OFFLINE',
+  health_critical:  'BREAKING SOON',
+  health_warning:   'NEEDS REPAIR',
   boost_active:     '⚡ BOOST ACTIVE · {sec}s',
 
   status_active:   'ACTIVE',

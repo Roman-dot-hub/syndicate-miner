@@ -34,20 +34,29 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
                     : health > 30 ? 'rgba(255,107,53,0.4)'
                     : 'rgba(255,51,85,0.4)';
 
+  // ── Уровни тревоги по здоровью ──
+  const isCritical = isActive && health > 0 && health < 30;
+  const isWarning  = isActive && health >= 30 && health < 50;
+
   // ── Стили по статусу ──
-  const border = isBroken  ? '1px solid rgba(255,51,85,0.5)'
-               : isStored  ? '1px solid rgba(255,107,53,0.3)'
-               : isOffline ? '1px solid rgba(255,255,255,0.06)'
-                           : '1px solid rgba(0,212,255,0.25)';
+  const border = isBroken   ? '1px solid rgba(255,51,85,0.5)'
+               : isCritical ? '1px solid rgba(255,51,85,0.4)'
+               : isWarning  ? '1px solid rgba(255,107,53,0.35)'
+               : isStored   ? '1px solid rgba(255,107,53,0.3)'
+               : isOffline  ? '1px solid rgba(255,255,255,0.06)'
+                            : '1px solid rgba(0,212,255,0.25)';
 
-  const bg     = isBroken  ? 'rgba(255,51,85,0.07)'
-               : isStored  ? 'rgba(255,107,53,0.06)'
-               : isOffline ? 'rgba(255,255,255,0.02)'
-                           : 'rgba(0,212,255,0.05)';
+  const bg     = isBroken   ? 'rgba(255,51,85,0.07)'
+               : isCritical ? 'rgba(255,51,85,0.05)'
+               : isWarning  ? 'rgba(255,107,53,0.04)'
+               : isStored   ? 'rgba(255,107,53,0.06)'
+               : isOffline  ? 'rgba(255,255,255,0.02)'
+                            : 'rgba(0,212,255,0.05)';
 
-  const glowAnim = isBroken  ? 'gpu-broken 1.4s ease-in-out infinite'
-                 : isActive  ? 'gpu-active 2.5s ease-in-out infinite'
-                             : 'none';
+  const glowAnim = isBroken   ? 'gpu-broken 1.4s ease-in-out infinite'
+                 : isCritical ? 'gpu-broken 1.0s ease-in-out infinite'
+                 : isActive   ? 'gpu-active 2.5s ease-in-out infinite'
+                              : 'none';
 
   const boostActive = isActive && tapBoost?.active;
 
@@ -169,6 +178,19 @@ export function GpuCard({ gpu, onClick, tapBoost }: Props) {
             animation: 'oc-pulse 1s ease-in-out infinite',
           }}>
             {fmt(t.boost_active, { sec: tapBoost!.secondsLeft })}
+          </div>
+        )}
+        {isCritical && !boostActive && (
+          <div style={{
+            fontSize: 9, letterSpacing: 0.5, marginTop: 4, fontWeight: 700,
+            color: '#FF3355', animation: 'oc-pulse 1s ease-in-out infinite',
+          }}>
+            ⚠️ {t.health_critical ?? 'СЛОМАЕТСЯ СКОРО'}
+          </div>
+        )}
+        {isWarning && !boostActive && !isCritical && (
+          <div style={{ fontSize: 9, letterSpacing: 0.5, marginTop: 4, fontWeight: 600, color: '#FF6B35' }}>
+            ⚠️ {t.health_warning ?? 'НУЖЕН РЕМОНТ'}
           </div>
         )}
       </div>

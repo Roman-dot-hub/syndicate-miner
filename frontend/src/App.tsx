@@ -204,41 +204,63 @@ export default function App() {
           paddingBottom: 'env(safe-area-inset-bottom)',
           backdropFilter: 'blur(12px)',
         }}>
-          {TABS.map(tb => {
-            const active = tab === tb.id;
-            return (
-              <button
-                key={tb.id}
-                onClick={() => switchTab(tb.id)}
-                style={{
-                  flex: 1, padding: '8px 0 6px', border: 'none',
-                  background: 'transparent', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                  color: active ? '#00D4FF' : 'rgba(140,210,255,0.35)',
-                  transition: 'color 0.15s',
-                  position: 'relative',
-                }}
-              >
-                {active && (
-                  <div style={{
-                    position: 'absolute', top: 0, left: '20%', right: '20%', height: 2,
-                    background: '#00D4FF',
-                    boxShadow: '0 0 8px #00D4FF, 0 0 16px rgba(0,212,255,0.5)',
-                    borderRadius: '0 0 2px 2px',
-                  }} />
-                )}
-                <span style={{ fontSize: 20 }}>{tb.emoji}</span>
-                <span style={{
-                  fontSize: 10,
-                  fontWeight: active ? 700 : 400,
-                  letterSpacing: active ? 0.5 : 0,
-                  animation: active ? 'tab-glow 2.5s ease-in-out infinite' : 'none',
-                }}>
-                  {tb.label}
-                </span>
-              </button>
-            );
-          })}
+          {(() => {
+            // Бейдж Фермы: кол-во сломанных + критических (< 30%) карт
+            const alertCount = data?.gpus
+              ? data.gpus.filter(g => g.status === 'broken' || (g.status === 'active' && g.health < 30)).length
+              : 0;
+            return TABS.map(tb => {
+              const active = tab === tb.id;
+              const showBadge = tb.id === 'farm' && alertCount > 0 && !active;
+              return (
+                <button
+                  key={tb.id}
+                  onClick={() => switchTab(tb.id)}
+                  style={{
+                    flex: 1, padding: '8px 0 6px', border: 'none',
+                    background: 'transparent', cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    color: active ? '#00D4FF' : 'rgba(140,210,255,0.35)',
+                    transition: 'color 0.15s',
+                    position: 'relative',
+                  }}
+                >
+                  {active && (
+                    <div style={{
+                      position: 'absolute', top: 0, left: '20%', right: '20%', height: 2,
+                      background: '#00D4FF',
+                      boxShadow: '0 0 8px #00D4FF, 0 0 16px rgba(0,212,255,0.5)',
+                      borderRadius: '0 0 2px 2px',
+                    }} />
+                  )}
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <span style={{ fontSize: 20 }}>{tb.emoji}</span>
+                    {showBadge && (
+                      <span style={{
+                        position: 'absolute', top: -4, right: -8,
+                        background: '#FF3355', color: '#fff',
+                        fontSize: 9, fontWeight: 800, lineHeight: 1,
+                        padding: '2px 4px', borderRadius: 6,
+                        boxShadow: '0 0 6px rgba(255,51,85,0.7)',
+                        animation: 'gpu-broken 1.4s ease-in-out infinite',
+                        minWidth: 14, textAlign: 'center',
+                      }}>
+                        {alertCount}
+                      </span>
+                    )}
+                  </div>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: active ? 700 : 400,
+                    letterSpacing: active ? 0.5 : 0,
+                    animation: active ? 'tab-glow 2.5s ease-in-out infinite' : 'none',
+                  }}>
+                    {tb.label}
+                  </span>
+                </button>
+              );
+            });
+          })()}
         </nav>
       </div>
     </>

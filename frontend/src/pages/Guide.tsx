@@ -1075,6 +1075,62 @@ export function Guide() {
       <WithdrawSection ru={ru} />
       <ExtrasSection ru={ru} />
 
+      {/* ── УВЕДОМЛЕНИЯ И СОБЫТИЯ ────────────────────────── */}
+      <SectionLabel text={ru ? 'УВЕДОМЛЕНИЯ И СОБЫТИЯ' : 'ALERTS & EVENTS'} color={RE} />
+
+      {/* Предупреждения о здоровье */}
+      <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: '14px', border: `1px solid ${RE}33` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 22 }}>⚠️</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: RE }}>{ru ? 'Здоровье GPU и поломки' : 'GPU Health & Breakdowns'}</div>
+            <div style={{ fontSize: 10, color: DIM, marginTop: 1 }}>{ru ? 'Следи за состоянием карт — иначе потеряешь майнинг' : 'Monitor card health — or lose mining time'}</div>
+          </div>
+        </div>
+        {[
+          { emoji: '🟢', text: ru ? '60–100% — норма. Карта майнит стабильно.' : '60–100% — normal. Card mines stably.' },
+          { emoji: '🟠', text: ru ? '30–60% — нужен ремонт. Карточка на Ферме подсвечена оранжевым. Зайди и почини.' : '30–60% — repair needed. Card highlighted orange in Farm. Go repair it.' },
+          { emoji: '🔴', text: ru ? '< 30% — критический износ. Мигает красным, риск поломки сегодня ~31-89%. Бот пришлёт предупреждение.' : '< 30% — critical wear. Red pulse, break risk today 31-89%. Bot sends a warning.' },
+          { emoji: '💥', text: ru ? '0% — карта сломана и остановила майнинг. Бот немедленно уведомит. Нужен Верстак для ремонта.' : '0% — card broke and stopped mining. Bot notifies immediately. Workbench required for repair.' },
+        ].map((item, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+            <span style={{ fontSize: 14 }}>{item.emoji}</span>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>{item.text}</div>
+          </div>
+        ))}
+        <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,51,85,0.08)', border: '1px solid rgba(255,51,85,0.2)' }}>
+          <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
+            {ru
+              ? '🔔 Вкладка "Ферма" показывает красный бейдж с количеством сломанных и критических карт — даже если ты в другом разделе.'
+              : '🔔 The "Farm" tab shows a red badge with the count of broken and critical cards — even when you\'re in another section.'}
+          </div>
+        </div>
+      </div>
+
+      {/* Случайные события */}
+      <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: '14px', border: `1px solid ${YL}33` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 22 }}>🎲</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: YL }}>{ru ? 'Случайные события фермы' : 'Random Farm Events'}</div>
+            <div style={{ fontSize: 10, color: DIM, marginTop: 1 }}>{ru ? 'Случаются примерно раз в 2 дня, виден баннер на Дашборде' : 'Happen ~once every 2 days, visible as a banner in Dashboard'}</div>
+          </div>
+        </div>
+        {[
+          { icon: '⚡', name: ru ? 'Удача майнера' : 'Lucky Miner',     color: YL,      desc: ru ? '+50% IGC на 30 минут для всех игроков. Самое прибыльное событие — заходи и майни!' : '+50% IGC for 30 minutes for all players. Best event — log in and mine!' },
+          { icon: '🌡️', name: ru ? 'Волна жары' : 'Heat Wave',          color: OR,      desc: ru ? '+30% к стоимости электричества на 6 часов. Season Shield синдиката защищает от этого.' : '+30% to electricity cost for 6 hours. Syndicate Season Shield protects from this.' },
+          { icon: '🔋', name: ru ? 'Скачок напряжения' : 'Power Surge',  color: GR,      desc: ru ? '−25% к электричеству на 2 часа. Выгодно — включай разгон если есть!' : '−25% electricity for 2 hours. Profitable — enable OC if you have it!' },
+        ].map((ev, i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, padding: '8px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 18 }}>{ev.icon}</span>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: ev.color, marginBottom: 2 }}>{ev.name}</div>
+              <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>{ev.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }
