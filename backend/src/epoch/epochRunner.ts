@@ -766,6 +766,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
       updatedStats.adminEarnedTon,
     ).catch(err => {
       // Мониторинг не должен ронять эпоху
+      console.warn('[Epoch] monitorIgcBalance failed:', (err as Error)?.message ?? err);
       errors.push(`igc_monitor_error: ${err}`);
       return null;
     });

@@ -198,10 +198,19 @@ async function handleSurplus(
   adminTon: number,
 ): Promise<{ description: string; tonSpent: number }> {
 
-  // Уже активна мера — не дублируем
-  const alertActive = await redis.get(R_ALERT);
-  if (alertActive === 'surplus') {
-    return { description: 'surplus_already_active', tonSpent: 0 };
+  // Дедупликация через БД (Redis ненадёжен) — не дублируем активную меру
+  // Mild surplus: buyback-ордер за последние 6 часов
+  // Critical surplus: активный system_events 'emergency_burn'
+  if (ratio < IGC_HEALTH.CRITICAL_MAX) {
+    const { rows: [recent] } = await pool.query(
+      `SELECT 1 FROM igc_buyback_orders WHERE created_at > NOW() - INTERVAL '6 hours' LIMIT 1`,
+    );
+    if (recent) return { description: 'surplus_already_active', tonSpent: 0 };
+  } else {
+    const { rows: [active] } = await pool.query(
+      `SELECT 1 FROM system_events WHERE type = 'emergency_burn' AND active_until > NOW() LIMIT 1`,
+    );
+    if (active) return { description: 'surplus_already_active', tonSpent: 0 };
   }
 
   // Mild surplus (1.2–2.0): buyback IGC за 15% от admin_earned_ton
@@ -215,14 +224,12 @@ async function handleSurplus(
       WHERE id = 1
     `, [tonForBuyback]);
 
-    // Создаём системный ордер на покупку IGC по floor-цене
     await pool.query(`
       INSERT INTO igc_buyback_orders (ton_allocated, igc_target, price_per_igc, status)
       VALUES ($1, $2, $3, 'open')
     `, [tonForBuyback, igcToBuy, IGC_HEALTH.IGC_FLOOR_TON]);
 
-    await redis.set(R_ALERT, 'surplus', 'EX', 3600 * 6);
-
+    try { await redis.set(R_ALERT, 'surplus', 'EX', 3600 * 6); } catch { /* Redis недоступен */ }
     return {
       description: `buyback_${igcToBuy}_igc_for_${tonForBuyback.toFixed(4)}_ton`,
       tonSpent:     tonForBuyback,
@@ -238,8 +245,7 @@ async function handleSurplus(
     SET active_until = NOW() + INTERVAL '48 hours'
   `);
 
-  await redis.set(R_ALERT, 'surplus', 'EX', 3600 * 48);
-
+  try { await redis.set(R_ALERT, 'surplus', 'EX', 3600 * 48); } catch { /* Redis недоступен */ }
   return {
     description: 'emergency_burn_event_48h',
     tonSpent:     0,
@@ -254,10 +260,13 @@ async function handleDeficit(
   ratio: number,
 ): Promise<{ description: string }> {
 
-  const alertActive = await redis.get(R_ALERT);
-  if (alertActive === 'deficit') {
-    return { description: 'deficit_already_active' };
-  }
+  // Дедупликация через БД (Redis ненадёжен) — проверяем активные system_events
+  const eventType = ratio > IGC_HEALTH.CRITICAL_MIN ? 'refurbish_discount' : 'electricity_discount';
+  const { rows: [active] } = await pool.query(
+    `SELECT 1 FROM system_events WHERE type = $1 AND active_until > NOW() LIMIT 1`,
+    [eventType],
+  );
+  if (active) return { description: 'deficit_already_active' };
 
   // Mild deficit: снижаем стоимость Refurbish на 20%
   if (ratio > IGC_HEALTH.CRITICAL_MIN) {
@@ -269,8 +278,7 @@ async function handleDeficit(
       SET payload = '{"multiplier": 0.8}',
           active_until = NOW() + INTERVAL '24 hours'
     `);
-
-    await redis.set(R_ALERT, 'deficit', 'EX', 3600 * 24);
+    try { await redis.set(R_ALERT, 'deficit', 'EX', 3600 * 24); } catch { /* Redis недоступен */ }
     return { description: 'refurbish_discount_20pct_24h' };
   }
 
@@ -283,8 +291,7 @@ async function handleDeficit(
     SET payload = '{"multiplier": 0.7}',
         active_until = NOW() + INTERVAL '24 hours'
   `);
-
-  await redis.set(R_ALERT, 'deficit', 'EX', 3600 * 24);
+  try { await redis.set(R_ALERT, 'deficit', 'EX', 3600 * 24); } catch { /* Redis недоступен */ }
   return { description: 'electricity_discount_30pct_24h' };
 }
 
