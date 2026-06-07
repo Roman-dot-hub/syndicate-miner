@@ -129,8 +129,15 @@ export async function syncRoutes(app: FastifyInstance) {
     }
     if (!globalHashrate) {
       try {
+        // Берём MAX за последние 10 минут, а не LIMIT 1.
+        // Причина: из-за double-epoch bug два инстанса пишут разные global_hashrate
+        // в одном 5-минутном слоте (~831 и ~994 GH/s). LIMIT 1 случайно хватает
+        // то один, то другой → отображаемый доход скачет даже когда ферма не менялась.
+        // MAX стабильно возвращает полное (верхнее) значение.
         const { rows: [lastEpoch] } = await pool.query(
-          `SELECT global_hashrate FROM epoch_log ORDER BY epoch_at DESC LIMIT 1`,
+          `SELECT MAX(global_hashrate) AS global_hashrate
+           FROM epoch_log
+           WHERE epoch_at > NOW() - INTERVAL '10 minutes'`,
         );
         globalHashrate = parseFloat(lastEpoch?.global_hashrate ?? '0');
       } catch { /* нет данных эпохи */ }
