@@ -51,13 +51,26 @@ export const redis = new Redis(REDIS_URL, {
 
 redis.on('connect',     () => console.log('[Redis] ✓ Подключено'));
 redis.on('ready',       () => console.log('[Redis] ✓ Готов к работе'));
-redis.on('error',       (err) => {
-  // Логируем только уникальные сообщения, не спамим
-  if (!err.message?.includes('ECONNREFUSED') && !err.message?.includes('Connection is closed')) {
-    console.error('[Redis] Ошибка:', err.message);
-  }
+// Дедупликация ошибок — один и тот же тип не спамит логи
+let _lastErrMsg = '';
+let _lastErrTs  = 0;
+redis.on('error', (err) => {
+  const msg = err.message ?? String(err);
+  const now = Date.now();
+  // Пропускаем типичные шумы: connection closed, ECONNREFUSED, Protocol error (Railway proxy)
+  const isNoise = msg.includes('ECONNREFUSED')
+    || msg.includes('Connection is closed')
+    || msg.includes('Stream isn\'t writeable')
+    || msg.includes('Protocol error')          // Railway TCP proxy возвращает HTTP
+    || msg.includes('wrong version number');    // Railway с TLS mismatch
+  if (isNoise) return;
+  // Дедуп: не повторять одно и то же сообщение чаще раза в 30 секунд
+  if (msg === _lastErrMsg && now - _lastErrTs < 30_000) return;
+  _lastErrMsg = msg;
+  _lastErrTs  = now;
+  console.error('[Redis] Ошибка:', msg);
 });
-redis.on('reconnecting', (ms: number) => console.warn(`[Redis] Переподключение через ${ms}ms...`));
-redis.on('close',        () => console.warn('[Redis] Соединение закрыто, ждём переподключения...'));
+redis.on('reconnecting', () => { /* тихо переподключаемся */ });
+redis.on('close',        () => { /* тихо */ });
 
 export default redis;

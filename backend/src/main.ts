@@ -42,10 +42,15 @@ app.get('/health', async () => {
   try {
     await redis.ping();
     redisOk = true;
-  } catch (e) {
-    console.error('[Health] Redis ping failed:', (e as Error)?.message);
-  }
-  return { ok: true, ts: Date.now(), redis: redisOk };
+  } catch { /* Redis degraded — игра работает без него */ }
+  return {
+    ok:    true,
+    ts:    Date.now(),
+    redis: redisOk,
+    // redis=false означает деградацию (Railway TCP proxy misconfigured),
+    // но НЕ влияет на core механику: mining, repairs, trading.
+    // Tap/Ad boost state не сохраняется между рестартами.
+  };
 });
 
 // ── API routes ────────────────────────────────
