@@ -219,20 +219,12 @@ export function Farm({ data, onUpdate }: Props) {
         </div>
       )}
 
-      {/* Ферма & Верстак */}
-      <FarmUpgradesSection
+      {/* Апгрейды — плитки с вкладками */}
+      <UpgradesPanel
         farm={farm}
         userTon={data.user.tonBalance}
         userIgc={farm.igcBalance}
         igcRatio={igcRatio}
-        onUpdate={onUpdate}
-      />
-
-      {/* Server Room */}
-      <ServerRoom
-        farm={farm}
-        userTon={data.user.tonBalance}
-        userIgc={farm.igcBalance}
         onUpdate={onUpdate}
       />
 
