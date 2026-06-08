@@ -434,7 +434,10 @@ export async function syncRoutes(app: FastifyInstance) {
           globalHashrate,
         },
         events: events.reduce((acc: Record<string, any>, e: any) => {
-          if (e.type !== 'lucky_miner') acc[e.type] = e.payload; // lucky_miner управляется отдельно
+          // lucky_miner — управляется отдельно через luckyBonus
+          // seasonal_cycle — внутреннее служебное событие, не показываем игроку
+          const HIDDEN = ['lucky_miner', 'seasonal_cycle'];
+          if (!HIDDEN.includes(e.type)) acc[e.type] = e.payload;
           return acc;
         }, {}),
         luckyBonus,
