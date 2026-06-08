@@ -116,9 +116,15 @@ const TIER_MULTIPLIER: Record<number, number> = {
   6: 50.0, // X1 — очень дорого
 };
 
-export function refurbishCost(gpu: GPU): number {
-  if (gpu.modelTier === 0) return 0;
-  const missing     = 100 - gpu.health;
-  const multiplier  = TIER_MULTIPLIER[gpu.modelTier] ?? 1;
+export function refurbishCost(gpu: GPU | Record<string, any>): number {
+  // Принимает как camelCase (epochRunner), так и snake_case (action.ts из БД напрямую)
+  const tier    = (gpu as any).modelTier ?? (gpu as any).model_tier ?? 0;
+  const health  = typeof (gpu as any).health === 'string'
+    ? parseFloat((gpu as any).health)
+    : ((gpu as any).health ?? 100);
+  if (tier === 0) return 0;
+  const missing = Math.max(0, 100 - health);
+  if (missing === 0) return 0; // GPU уже в полном здоровье — ремонт не нужен
+  const multiplier = TIER_MULTIPLIER[tier] ?? 1;
   return Math.ceil(missing * BASE_REFURBISH_COST * multiplier);
 }

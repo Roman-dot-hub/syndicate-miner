@@ -283,22 +283,38 @@ export async function actionRoutes(app: FastifyInstance) {
         );
         if (!gpu) return reply.code(404).send({ error: 'GPU не найдена' });
 
-        const cost = refurbishCost(gpu);
+        // GPU уже в полном здоровье — ремонт не нужен (иначе cost=0 и IGC не спишется)
+        const gpuHealth = parseFloat(gpu.health ?? '100');
+        if (gpuHealth >= 100) {
+          return reply.code(400).send({ error: 'GPU уже в полном здоровье — ремонт не нужен' });
+        }
+
         if (!refurbish.canRefurbish(gpu.workbench_level, gpu.model_tier)) {
           return reply.code(400).send({
             error: `Требуется верстак уровня ${gpu.model_tier <= 2 ? 1 : gpu.model_tier <= 4 ? 2 : 3}`,
           });
         }
 
+        // refurbishCost поддерживает snake_case из БД (model_tier вместо modelTier)
+        const cost = refurbishCost(gpu);
+
         // Динамическая цена: ratio × baseCost × системная скидка
-        const [igcRatioRefurbish, { rows: [discountEvent] }] = await Promise.all([
+        // Проверяем refurbish_discount (дефицит IGC) И emergency_burn (профицит IGC, поле discount_refurbish)
+        const [igcRatioRefurbish, { rows: [discountEvent] }, { rows: [burnEvent] }] = await Promise.all([
           getIgcRatio(),
           pool.query(
             `SELECT payload FROM system_events
-             WHERE type = 'refurbish_discount' AND active_until > NOW()`,
+             WHERE type = 'refurbish_discount' AND active_until > NOW() LIMIT 1`,
+          ),
+          pool.query(
+            `SELECT payload FROM system_events
+             WHERE type = 'emergency_burn' AND active_until > NOW() LIMIT 1`,
           ),
         ]);
-        const discountMult = discountEvent?.payload?.multiplier ?? 1.0;
+        // Приоритет: refurbish_discount (80%) > emergency_burn (50%) > 1.0
+        const discountMult = discountEvent?.payload?.multiplier
+          ?? burnEvent?.payload?.discount_refurbish
+          ?? 1.0;
         const finalCost    = Math.ceil(cost * igcRatioRefurbish * discountMult);
 
         if (parseFloat(user.igc_balance) < finalCost) {
