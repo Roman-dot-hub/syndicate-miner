@@ -962,6 +962,11 @@ export async function actionRoutes(app: FastifyInstance) {
             );
           }
 
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, $2, $3, $4)`,
+            [user.id, `upgrade_infra:${upgradeType}`, cost.ton, finalIgcInfra],
+          );
           await pool.query(`COMMIT`);
         } catch (e) {
           await pool.query(`ROLLBACK`);
@@ -1136,6 +1141,11 @@ export async function actionRoutes(app: FastifyInstance) {
               [costTon * 0.9, costTon * 0.1],
             );
           }
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, $2, $3, 0)`,
+            [user.id, type, costTon],
+          );
           await pool.query('COMMIT');
         } catch (e) { await pool.query('ROLLBACK'); throw e; }
 
@@ -1196,6 +1206,13 @@ export async function actionRoutes(app: FastifyInstance) {
                 igc_daily_date   = CURRENT_DATE
               WHERE id = 1`,
               [finalIgcUpgrade],
+            );
+          }
+          if (finalIgcUpgrade > 0) {
+            await pool.query(
+              `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+               VALUES ($1, $2, 0, $3)`,
+              [user.id, type, finalIgcUpgrade],
             );
           }
           await pool.query('COMMIT');
@@ -1375,6 +1392,11 @@ export async function actionRoutes(app: FastifyInstance) {
                 [lvl, user.id],
               );
             }
+            await pool.query(
+              `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+               VALUES ($1, $2, $3, $4)`,
+              [user.id, `upgrade_infra:${upgradeType}`, cost.ton, finalIgcDefault],
+            );
             await pool.query(`COMMIT`);
           } catch (e) {
             await pool.query(`ROLLBACK`);
