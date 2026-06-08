@@ -135,6 +135,27 @@ export async function monitorIgcBalance(
   let   actionTaken: string | null = null;
   let   adminBuyback = 0;
 
+  // ── Отмена событий, переставших соответствовать текущему состоянию ───────
+  // Выполняется ДО создания новых мер, чтобы не было конфликтов.
+  // emergency_burn — только при critical_surplus (>2.0): убираем при любом другом статусе
+  if (status !== 'critical_surplus') {
+    await pool.query(
+      `DELETE FROM system_events WHERE type = 'emergency_burn' AND active_until > NOW()`,
+    ).catch(() => {}); // не должно ронять эпоху
+  }
+  // refurbish_discount — только при mild_deficit (0.5–0.8)
+  if (status !== 'mild_deficit') {
+    await pool.query(
+      `DELETE FROM system_events WHERE type = 'refurbish_discount' AND active_until > NOW()`,
+    ).catch(() => {});
+  }
+  // electricity_discount — только при critical_deficit (<0.5)
+  if (status !== 'critical_deficit') {
+    await pool.query(
+      `DELETE FROM system_events WHERE type = 'electricity_discount' AND active_until > NOW()`,
+    ).catch(() => {});
+  }
+
   // ── Аварийные меры ────────────────────────
   if (status === 'critical_surplus' || status === 'mild_surplus') {
     const action = await handleSurplus(ratio, adminTon);
