@@ -203,9 +203,10 @@ export const SERVER_ROOM_LEVELS = [
 ] as const;
 
 export const UPS_LEVELS = [
-  { level: 1, uptimeBonus: 5,  costTon: 0.4 },
-  { level: 2, uptimeBonus: 12, costTon: 1.0 },
-  { level: 3, uptimeBonus: 20, costTon: 3.0 },
+  { level: 1, slots: 2,  uptimeBonus: 5,  costTon: 0.4  }, // Mini UPS  600 VA
+  { level: 2, slots: 5,  uptimeBonus: 12, costTon: 1.5  }, // Home UPS  1500 VA
+  { level: 3, slots: 10, uptimeBonus: 20, costTon: 10.0 }, // Pro UPS   3000 VA
+  { level: 4, slots: 20, uptimeBonus: 25, costTon: 28.0 }, // Rack UPS  6000 VA
 ] as const;
 
 export const PROVIDER_LEVELS = [

@@ -80,11 +80,14 @@ function useCards(): UpgradeCard[] {
     {
       emoji: '🔋', color: GR, scope: 'farm',
       title:    ru ? 'ИБП (источник бесперебойного питания)' : 'UPS (Uninterruptible Power Supply)',
-      subtitle: ru ? 'Повышает uptime GPU. Защищает от просадки напряжения, перенапряжения и перебоев' : 'Boosts GPU uptime. Protects from voltage dips, overvoltage and power outages',
+      subtitle: ru
+        ? 'Защищает N слотов (лучшие GPU первыми). Uptime бонус — только для покрытых карт'
+        : 'Protects N slots (best GPUs first). Uptime bonus only for covered cards',
       levels: [
-        { label: 'Lv 1', effect: '+5% uptime',  cost: '0.4 TON' },
-        { label: 'Lv 2', effect: '+12% uptime', cost: '1 TON'   },
-        { label: 'Lv 3', effect: '+20% uptime', cost: '3 TON'   },
+        { label: ru ? 'Mini (600 VA)'  : 'Mini (600 VA)',  effect: ru ? '2 слота · +5% uptime'   : '2 slots · +5% uptime',  cost: '0.4 TON'  },
+        { label: ru ? 'Home (1500 VA)' : 'Home (1500 VA)', effect: ru ? '5 слотов · +12% uptime' : '5 slots · +12% uptime', cost: '1.5 TON'  },
+        { label: ru ? 'Pro (3000 VA)'  : 'Pro (3000 VA)',  effect: ru ? '10 слотов · +20% uptime': '10 slots · +20% uptime',cost: '10 TON'   },
+        { label: ru ? 'Rack (6000 VA)' : 'Rack (6000 VA)', effect: ru ? '20 слотов · +25% uptime': '20 slots · +25% uptime',cost: '28 TON'   },
       ],
     },
     {
@@ -460,8 +463,8 @@ function FarmPrioritySection({ ru }: { ru: boolean }) {
       desc: 'Lv1 всего 0.2 TON, но даёт −15% к IGC-расходу и +2% uptime. На 5 картах это 30+ IGC в день — окупается за несколько дней.' },
     { n: 4, emoji: '❄️', title: 'Серверная — бонус хешрейта фермы', color: CY,
       desc: 'Lv1 (+3%) стоит 0.5 TON. Lv3 (+12%) увеличивает доход всех карт фермы. Хорошо сочетается с разгоном — больше хешрейта без покупки новых GPU.' },
-    { n: 5, emoji: '🔋', title: 'ИБП когда ферма растёт', color: GR,
-      desc: 'Каждый +1% uptime увеличивает доход. При 10+ картах ИБП Lv2 (+12%) ощутимо влияет на итоговый TON/день.' },
+    { n: 5, emoji: '🔋', title: 'ИБП под размер фермы', color: GR,
+      desc: 'ИБП защищает N лучших GPU (по тиру). Uptime бонус — только для покрытых карт. Mini (2 сл.) = защита 2 дорогих GPU. Home (5 сл.) = полное покрытие Балкона и Кладовки. Pro (10 сл.) — для Гаража.' },
     { n: 6, emoji: '🏠', title: 'Расширение помещения по необходимости', color: CY,
       desc: 'Кладовку (300 IGC) бери когда займёшь 4–5 слотов. Гараж и Ангар — только в Фазе 2, когда реально нужно больше 10 слотов.' },
   ] : [
@@ -473,8 +476,8 @@ function FarmPrioritySection({ ru }: { ru: boolean }) {
       desc: 'Just 0.2 TON for Lv1, but gives −15% IGC cost and +2% uptime. With 5 GPUs that\'s 30+ IGC saved per day — pays off within days.' },
     { n: 4, emoji: '❄️', title: 'Server Room — farm hashrate bonus', color: CY,
       desc: 'Lv1 (+3%) costs only 0.5 TON. Lv3 (+12%) boosts all GPUs\' income without buying new cards. Great combo with overclocking.' },
-    { n: 5, emoji: '🔋', title: 'UPS as the farm grows', color: GR,
-      desc: 'Each +1% uptime increases income. With 10+ GPUs, UPS Lv2 (+12%) has a noticeable impact on daily TON earnings.' },
+    { n: 5, emoji: '🔋', title: 'UPS sized to your farm', color: GR,
+      desc: 'UPS protects the top N GPUs (by tier). Uptime bonus applies only to covered cards. Mini (2 slots) = top 2 GPUs protected. Home (5 slots) = full Balcony/Storage coverage. Pro (10 slots) for Garage.' },
     { n: 6, emoji: '🏠', title: 'Expand room as needed', color: CY,
       desc: 'Get Storage (300 IGC) when you fill 4–5 slots. Garage and Hangar only in Phase 2, when you actually need more than 10 slots.' },
   ];
@@ -1150,15 +1153,16 @@ export function Guide() {
               </div>
               <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
                 {ru
-                  ? 'При нестабильном напряжении блок питания потребляет больше тока. Без ИБП — +10% к расходу электричества на 2 часа. ИБП стабилизирует питание — защищённая ферма не чувствует просадки.'
-                  : 'Unstable voltage causes PSUs to draw more current. Without UPS — +10% electricity cost for 2 hours. UPS stabilises power — protected farms are unaffected.'}
+                  ? 'Нестабильное напряжение увеличивает потребление тока. Некрытые GPU платят +10% к электро на 2 часа. Штраф пропорционален доле некрытых GPU: при 50% покрытии — +5%, при полном — 0%.'
+                  : 'Unstable voltage increases power draw. Uncovered GPUs pay +10% electricity for 2 hours. Penalty scales with uncovered fraction: 50% coverage → +5%, full coverage → 0%.'}
               </div>
             </div>
           </div>
           <div style={{ background: 'rgba(255,107,53,0.06)', borderRadius: 8, padding: '8px 10px' }}>
             {[
-              { label: ru ? 'Нет ИБП' : 'No UPS', val: ru ? '+10% электро, 2ч' : '+10% electricity, 2h', color: OR },
-              { label: ru ? 'ИБП Lv1+' : 'UPS Lv1+', val: ru ? '0% — ИБП защищает' : '0% — UPS protects', color: GR },
+              { label: ru ? 'Нет ИБП (0 слотов)'     : 'No UPS (0 slots)',      val: ru ? '+10% электро, 2 ч' : '+10% electricity, 2 h', color: OR },
+              { label: ru ? 'Частичное покрытие'       : 'Partial coverage',      val: ru ? '+(10 × некрытых%) электро' : '+(10 × uncovered%) elec', color: YL },
+              { label: ru ? 'Полное покрытие (≥ N GPU)': 'Full coverage (≥ N GPU)', val: ru ? '0% — нет штрафа' : '0% — no penalty', color: GR },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '3px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                 <span style={{ color: DIM }}>{row.label}</span>

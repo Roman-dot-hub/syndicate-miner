@@ -239,6 +239,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
       if (negFired.length === 0) {
 
         // overvoltage: мгновенный урон здоровью GPU (~раз в 3 дня)
+        // Lv4 = полная защита (как Lv3, но теперь явно указано)
         if (Math.random() < 1 / 864) {
           const upd = await pool.query(`
             UPDATE gpus g
@@ -246,7 +247,7 @@ export async function runEpoch(): Promise<EpochResult | null> {
               g.health - CASE f.ups_level
                 WHEN 0 THEN 15
                 WHEN 1 THEN 10
-                WHEN 2 THEN 5
+                WHEN 2 THEN  5
                 ELSE 0
               END,
               30
@@ -262,11 +263,11 @@ export async function runEpoch(): Promise<EpochResult | null> {
             ON CONFLICT (type) DO UPDATE
               SET payload = '{}', active_until = NOW() + INTERVAL '1 hour', created_at = NOW()
           `);
-          console.log(`[Epoch] ⚡ overvoltage: Перенапряжение! ${upd.rowCount ?? 0} GPU получили урон. ИБП Lv3 защищён.`);
+          console.log(`[Epoch] ⚡ overvoltage: Перенапряжение! ${upd.rowCount ?? 0} GPU получили урон. ИБП Lv3+ защищён.`);
         }
 
         // power_outage: GPUs уходят в offline до ручного перезапуска (~раз в 4 дня)
-        // Срабатывает только если overvoltage НЕ сработал (else if)
+        // Lv4 = полная защита (ничего не уходит в offline)
         else if (Math.random() < 1 / 1152) {
           const upd = await pool.query(`
             UPDATE gpus g
@@ -359,11 +360,22 @@ export async function runEpoch(): Promise<EpochResult | null> {
         ? 1.0
         : elecMultiplier;
 
-      // power_dip: просадка напряжения → +10% расхода если нет ИБП (ИБП стабилизирует)
-      const hasPowerDip  = sysEvents.some(e => e.type === 'power_dip');
-      const powerDipMult = (hasPowerDip && farm.upsLevel === 0) ? 1.1 : 1.0;
-      if (hasPowerDip && farm.upsLevel === 0) {
-        console.log(`[Epoch] 💡 power_dip: ферма ${farm.id} без ИБП → elec ×1.1`);
+      // power_dip: просадка напряжения → некрытые GPU платят +10% электро
+      // Покрытие = min(ups_slots, active_gpus) / active_gpus
+      // Итоговый множитель = 1 + 0.1 × (1 - covered_fraction)
+      const hasPowerDip = sysEvents.some(e => e.type === 'power_dip');
+      const upsDef4Elec = farm.upsLevel > 0
+        ? (UPS_LEVELS.find(l => l.level === farm.upsLevel) ?? null) : null;
+      let powerDipMult = 1.0;
+      if (hasPowerDip) {
+        const upsSlots4Elec    = upsDef4Elec?.slots ?? 0;
+        const activeCount4Elec = farmGpus.filter(g => !offlineGpuSets.has(g.id)).length;
+        const coveredFrac      = activeCount4Elec > 0
+          ? Math.min(1, upsSlots4Elec / activeCount4Elec) : 1;
+        powerDipMult = 1.0 + 0.1 * (1 - coveredFrac);
+        if (powerDipMult > 1.001) {
+          console.log(`[Epoch] 💡 power_dip: ферма ${farm.id} покрыто ${Math.round(coveredFrac * 100)}% → elec ×${powerDipMult.toFixed(3)}`);
+        }
       }
 
       const elec = processElectricityBill(farm, farmGpus, effectiveElecMult * providerDiscount * powerDipMult);
@@ -382,6 +394,20 @@ export async function runEpoch(): Promise<EpochResult | null> {
           }
         }
       }
+
+      // ── ИБП: какие GPU покрыты (топ-N по тиру, N = ups_slots) ──────────
+      // Вычисляем один раз на ферму — используется в uptime и power_dip
+      const upsDef4Uptime = farm.upsLevel > 0
+        ? (UPS_LEVELS.find(l => l.level === farm.upsLevel) ?? null) : null;
+      const upsSlots4Uptime = upsDef4Uptime?.slots ?? 0;
+      // Сортируем активные GPU по тиру убыв. — подключаем самые дорогие
+      const coveredGpuIds: Set<string> = new Set(
+        farmGpus
+          .filter(g => !offlineGpuSets.has(g.id))
+          .sort((a, b) => b.modelTier - a.modelTier)
+          .slice(0, upsSlots4Uptime)
+          .map(g => g.id),
+      );
 
       if (elec.farmShutdown || elec.offlineGpuIds.length > 0) {
         const farmUser = usersMap.get(farm.userId);
@@ -480,13 +506,17 @@ export async function runEpoch(): Promise<EpochResult | null> {
 
         // Эффективный хешрейт с учётом износа и uptime
         const gpuH = effectiveHashrate({ ...gpu, health: finalHealth });
+        // Uptime бонус ИБП — только для покрытых GPU (топ-N по тиру)
+        // coveredGpuIds вычислены выше перед циклом по GPU
         const upsDef = farm.upsLevel > 0
           ? (UPS_LEVELS.find(l => l.level === farm.upsLevel) ?? null) : null;
+        const upsUptimeBonus = (upsDef && coveredGpuIds.has(gpu.id))
+          ? upsDef.uptimeBonus : 0;
         const fanDef = gpu.fanLevel > 0
           ? (FAN_LEVELS.find(l => l.level === gpu.fanLevel) ?? null)  : null;
         const effectiveUptimePct = Math.min(99,
           (GPU_BASE_UPTIME[gpu.modelTier] ?? 85)
-          + (upsDef?.uptimeBonus ?? 0)
+          + upsUptimeBonus
           + providerUptime
           + (fanDef?.uptimeBonus ?? 0),
         );
