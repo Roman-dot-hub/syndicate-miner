@@ -68,7 +68,7 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
     miningMode: (raw.miningMode ?? raw.mining_mode ?? 'pool') as 'pool' | 'solo',
   };
   const { season, igc } = data;
-  const { t, lang } = useLang();
+  const { t } = useLang();
   const { action }      = useAction();
   const { connected, connect } = useTonConnect();
   const [busy, setBusy] = useState(false);
@@ -512,128 +512,6 @@ export function Dashboard({ data, onUpdate, optimisticMode, setOptimisticMode }:
                 </div>
               </div>
             ))}
-          </div>
-        );
-      })()}
-
-      {/* ── УДАЧА МАЙНЕРА ────────────────────────────────── */}
-      {data.luckyBonus?.eventActive && (() => {
-        const lb = data.luckyBonus!;
-        const ru = lang === 'ru';
-        const fmtTime = (sec: number) => {
-          const m = Math.floor(sec / 60), s = sec % 60;
-          return `${m}:${String(s).padStart(2, '0')}`;
-        };
-
-        // Бонус уже активирован — показываем таймер
-        if (lb.claimed) {
-          return (
-            <div style={{
-              borderRadius: 14, padding: '12px 14px', marginBottom: 8,
-              background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.35)',
-              boxShadow: '0 0 16px rgba(255,215,0,0.15)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 24 }}>⚡</span>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#FFD700' }}>
-                    {ru ? 'Удача майнера активна!' : 'Lucky Miner active!'}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>
-                    +50% IGC · {ru ? 'осталось' : 'left'} {fmtTime(lb.bonusSecondsLeft)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
-        // Событие активно, но ещё не забрано — кнопка ЗАБРАТЬ
-        return (
-          <div style={{
-            borderRadius: 14, padding: '12px 14px', marginBottom: 8,
-            background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.45)',
-            boxShadow: '0 0 20px rgba(255,215,0,0.12)',
-            animation: 'gpu-active 2.5s ease-in-out infinite',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 24 }}>⚡</span>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#FFD700' }}>
-                    {ru ? 'Удача майнера!' : 'Lucky Miner!'}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', marginTop: 1 }}>
-                    {ru
-                      ? `+50% IGC на 1 час · закроется через ${fmtTime(lb.eventEndsIn)}`
-                      : `+50% IGC for 1 hour · closes in ${fmtTime(lb.eventEndsIn)}`}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={async () => {
-                  try {
-                    const r = await fetch('/api/action', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'x-init-data': (window as any).Telegram?.WebApp?.initData ?? '' },
-                      body: JSON.stringify({ type: 'claim_lucky_miner' }),
-                    });
-                    if (r.ok) onUpdate();
-                  } catch {}
-                }}
-                style={{
-                  padding: '8px 18px', borderRadius: 10,
-                  background: 'linear-gradient(135deg, #FFD700, #FFA500)',
-                  border: 'none', color: '#000', fontSize: 11, fontWeight: 800,
-                  cursor: 'pointer', flexShrink: 0,
-                  boxShadow: '0 0 14px rgba(255,215,0,0.6)',
-                }}
-              >
-                {ru ? 'ЗАБРАТЬ' : 'CLAIM'}
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── АКТИВНЫЕ СОБЫТИЯ ФЕРМЫ ───────────────────────── */}
-      {data.events && Object.keys(data.events).length > 0 && (() => {
-        const EVENT_META: Record<string, { icon: string; labelRu: string; labelEn: string; color: string }> = {
-          lucky_miner:         { icon: '⚡', labelRu: 'Удача майнера — +50% IGC!',             labelEn: 'Lucky Miner — +50% IGC!',            color: '#FFD700' },
-          heat_wave:           { icon: '🌡️', labelRu: 'Волна жары — +30% к электро',           labelEn: 'Heat Wave — +30% electricity',        color: '#FF6B35' },
-          power_dip:           { icon: '💡', labelRu: 'Просадка напряжения — −25% электро!',   labelEn: 'Voltage Dip — −25% electricity!',     color: '#00FF88' },
-          power_surge:         { icon: '💡', labelRu: 'Просадка напряжения — −25% электро!',   labelEn: 'Voltage Dip — −25% electricity!',     color: '#00FF88' }, // legacy alias
-          overvoltage:         { icon: '⚡', labelRu: 'Перенапряжение — урон здоровью GPU!',   labelEn: 'Overvoltage — GPU health damage!',    color: '#FF3355' },
-          power_outage:        { icon: '🔌', labelRu: 'Перебои в сети — GPU отключены!',       labelEn: 'Power Outage — GPUs went offline!',   color: '#FF6B00' },
-          emergency_burn:      { icon: '🔥', labelRu: 'Кризис IGC — повышенный расход',        labelEn: 'IGC Crisis — high electricity',       color: '#FF3355' },
-          electricity_discount:{ icon: '💡', labelRu: 'Скидка на электричество!',              labelEn: 'Electricity discount!',               color: '#00D4FF' },
-        };
-        const ru = lang === 'ru';
-        return (
-          <div style={{ marginBottom: 8 }}>
-            {Object.keys(data.events).map(type => {
-              const meta = EVENT_META[type];
-              if (!meta) return null;
-              return (
-                <div key={type} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 14px', borderRadius: 12, marginBottom: 6,
-                  background: `${meta.color}18`,
-                  border: `1px solid ${meta.color}44`,
-                  boxShadow: `0 0 12px ${meta.color}22`,
-                }}>
-                  <span style={{ fontSize: 20 }}>{meta.icon}</span>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: meta.color }}>
-                      {ru ? 'АКТИВНОЕ СОБЫТИЕ' : 'ACTIVE EVENT'}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 1 }}>
-                      {ru ? meta.labelRu : meta.labelEn}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         );
       })()}

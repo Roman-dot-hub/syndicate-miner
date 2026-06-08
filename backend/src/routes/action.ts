@@ -63,8 +63,8 @@ async function getIgcRatio(): Promise<number> {
 
 // ── Трекинг потоков IGC для рыночного индекса ────────────
 // Все IGC-операции вне epochRunner обновляют дневные счётчики атомарно.
-// supply: IGC, входящий в обращение (buy_igc)
-// demand: IGC, уходящий из обращения (ремонт, апгрейды, синдикаты, sell_igc)
+// supply: IGC, входящий в обращение (майнинг, sell_igc — игрок продаёт IGC)
+// demand: IGC, уходящий из обращения (ремонт, апгрейды, синдикаты, buy_igc — игрок покупает IGC)
 // Вызывается best-effort (ошибка не ломает игровую транзакцию).
 async function trackIgcMarket(supply: number, demand: number): Promise<void> {
   if (supply <= 0 && demand <= 0) return;
@@ -1019,7 +1019,7 @@ export async function actionRoutes(app: FastifyInstance) {
               reserve_pool_ton = reserve_pool_ton - $1,
               admin_earned_ton = admin_earned_ton + $2,
               total_igc_minted = total_igc_minted - $3,
-              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $3 ELSE $3 END,
+              igc_daily_supply = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $3 ELSE $3 END,
               igc_daily_date   = CURRENT_DATE
             WHERE id = 1`,
             [grossPayout, commission, amountIgc],
@@ -1081,7 +1081,7 @@ export async function actionRoutes(app: FastifyInstance) {
               reserve_pool_ton = reserve_pool_ton + $1,
               admin_earned_ton = admin_earned_ton + $2,
               total_igc_minted = total_igc_minted + $3,
-              igc_daily_supply = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_supply + $3 ELSE $3 END,
+              igc_daily_demand = CASE WHEN igc_daily_date = CURRENT_DATE THEN igc_daily_demand + $3 ELSE $3 END,
               igc_daily_date   = CURRENT_DATE
             WHERE id = 1`,
             [buyToPool, buyCommission, igcAmount],

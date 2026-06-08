@@ -12,6 +12,11 @@ import { AdBoost }       from '../components/AdBoost';
 import { useLang } from '../LangContext';
 import { fmt } from '../i18n';
 
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function fmtH(h: number): string {
   if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
   if (h >= 1)    return `${h.toFixed(2)} GH/s`;
@@ -70,7 +75,7 @@ interface Props {
 }
 
 export function Farm({ data, onUpdate }: Props) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const { action } = useAction();
   const [boostEndTime, setBoostEndTime] = useState(() => {
     const stored = localStorage.getItem('adBoost_endTime');
@@ -141,8 +146,183 @@ export function Farm({ data, onUpdate }: Props) {
 
   const igcRatio = data.igcSupply?.ratio ?? (data.igc as any)?.ratio ?? 1;
 
+  const ru = lang === 'ru';
+
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* ── АКТИВНЫЕ СОБЫТИЯ ФЕРМЫ ─────────────────────────── */}
+      {(() => {
+        const lb            = data.luckyBonus;
+        const hasLucky      = lb?.eventActive ?? false;
+        const otherEvents   = data.events ? Object.keys(data.events) : [];
+        const totalCount    = (hasLucky ? 1 : 0) + otherEvents.length;
+        if (totalCount === 0) return null;
+
+        const upsLevel = farm.upsLevel ?? 0;
+
+        type EventMeta = { icon: string; nameRu: string; nameEn: string; descRu: string; descEn: string; color: string };
+        const EVENT_META: Record<string, EventMeta> = {
+          heat_wave:            { icon: '🌡️', color: '#FF6B35',
+            nameRu: 'Волна жары',            nameEn: 'Heat Wave',
+            descRu: '+30% к электро · 6 ч',  descEn: '+30% electricity · 6 h' },
+          power_dip:            { icon: '💡', color: upsLevel > 0 ? '#00FF88' : '#FF6B35',
+            nameRu: 'Просадка напряжения',   nameEn: 'Voltage Dip',
+            descRu: upsLevel > 0 ? 'ИБП защищает — эффект нейтрализован' : '+10% к электро · 2 ч · нет ИБП',
+            descEn: upsLevel > 0 ? 'UPS active — effect neutralised'     : '+10% electricity · 2 h · no UPS' },
+          power_surge:          { icon: '💡', color: '#FF6B35',
+            nameRu: 'Просадка напряжения',   nameEn: 'Voltage Dip',
+            descRu: '+10% к электро · 2 ч',  descEn: '+10% electricity · 2 h' },
+          overvoltage:          { icon: '⚡', color: '#FF3355',
+            nameRu: 'Перенапряжение',        nameEn: 'Overvoltage',
+            descRu: 'Урон здоровью GPU уже нанесён',  descEn: 'GPU health damage already applied' },
+          power_outage:         { icon: '🔌', color: '#FF6B00',
+            nameRu: 'Перебои в сети',        nameEn: 'Power Outage',
+            descRu: 'GPU отключены — перезапусти вручную',  descEn: 'GPUs offline — restart manually' },
+          emergency_burn:       { icon: '🔥', color: '#FF3355',
+            nameRu: 'Кризис IGC',            nameEn: 'IGC Crisis',
+            descRu: '+30% к электро · ремонт −50% · 48 ч', descEn: '+30% electricity · repair −50% · 48 h' },
+          refurbish_discount:   { icon: '🔧', color: '#00D4FF',
+            nameRu: 'Скидка на ремонт',      nameEn: 'Repair Discount',
+            descRu: 'Ремонт GPU −20% · 24 ч',             descEn: 'GPU repair −20% · 24 h' },
+          electricity_discount: { icon: '💡', color: '#00D4FF',
+            nameRu: 'Скидка на электро',     nameEn: 'Electricity Discount',
+            descRu: 'Электричество −30% · 24 ч',          descEn: 'Electricity −30% · 24 h' },
+        };
+
+        // Определяем акцентный цвет карточки: приоритет у самого критичного события
+        const PRIORITY = ['overvoltage','power_outage','emergency_burn','heat_wave','power_dip','power_surge','lucky_miner','electricity_discount','refurbish_discount'];
+        const allKeys   = [...(hasLucky ? ['lucky_miner'] : []), ...otherEvents];
+        const topKey    = PRIORITY.find(k => allKeys.includes(k)) ?? allKeys[0];
+        const topColor  = topKey === 'lucky_miner' ? '#FFD700' : (EVENT_META[topKey]?.color ?? '#00D4FF');
+
+        return (
+          <div style={{
+            background: 'rgba(255,255,255,0.04)',
+            border: `1px solid ${topColor}33`,
+            borderRadius: 16,
+            overflow: 'hidden',
+          }}>
+            {/* Заголовок */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: `${topColor}0D`,
+              borderBottom: `1px solid ${topColor}22`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>🎲</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: topColor, letterSpacing: 0.3 }}>
+                  {ru ? 'АКТИВНЫЕ СОБЫТИЯ' : 'ACTIVE EVENTS'}
+                </span>
+              </div>
+              <div style={{
+                fontSize: 10, fontWeight: 800, color: topColor,
+                background: `${topColor}22`, border: `1px solid ${topColor}44`,
+                borderRadius: 6, padding: '2px 7px',
+              }}>
+                {totalCount}
+              </div>
+            </div>
+
+            {/* Удача майнера */}
+            {hasLucky && (() => {
+              const claimed = lb!.claimed;
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  borderBottom: otherEvents.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                  background: claimed ? 'rgba(255,215,0,0.04)' : 'rgba(255,215,0,0.06)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                      fontSize: 20, width: 32, height: 32, borderRadius: 8,
+                      background: 'rgba(255,215,0,0.12)', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>⚡</span>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#FFD700' }}>
+                        {ru ? 'Удача майнера' : 'Lucky Miner'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
+                        {claimed
+                          ? `+50% IGC · ${ru ? 'осталось' : 'left'} ${fmtTime(lb!.bonusSecondsLeft)}`
+                          : (ru
+                              ? `+50% IGC на 1 час · закроется через ${fmtTime(lb!.eventEndsIn)}`
+                              : `+50% IGC for 1 hour · closes in ${fmtTime(lb!.eventEndsIn)}`)}
+                      </div>
+                    </div>
+                  </div>
+                  {!claimed && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const r = await fetch('/api/action', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'x-init-data': (window as any).Telegram?.WebApp?.initData ?? '' },
+                            body: JSON.stringify({ type: 'claim_lucky_miner' }),
+                          });
+                          if (r.ok) onUpdate();
+                        } catch { /* ignore */ }
+                      }}
+                      style={{
+                        padding: '7px 14px', borderRadius: 9, flexShrink: 0,
+                        background: 'linear-gradient(135deg, #FFD700, #FFA500)',
+                        border: 'none', color: '#000', fontSize: 11, fontWeight: 800,
+                        cursor: 'pointer', boxShadow: '0 0 10px rgba(255,215,0,0.5)',
+                      }}
+                    >
+                      {ru ? 'ЗАБРАТЬ' : 'CLAIM'}
+                    </button>
+                  )}
+                  {claimed && (
+                    <div style={{
+                      fontSize: 10, fontWeight: 700, color: '#FFD700',
+                      background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.3)',
+                      borderRadius: 7, padding: '4px 9px', flexShrink: 0,
+                    }}>
+                      ✓ {ru ? 'АКТИВЕН' : 'ACTIVE'}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Остальные события */}
+            {otherEvents.map((type, i) => {
+              const meta = EVENT_META[type];
+              if (!meta) return null;
+              const isLast = i === otherEvents.length - 1;
+              return (
+                <div key={type} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 14px',
+                  borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                }}>
+                  <span style={{
+                    fontSize: 18, width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                    background: `${meta.color}14`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>{meta.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: meta.color }}>
+                      {ru ? meta.nameRu : meta.nameEn}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
+                      {ru ? meta.descRu : meta.descEn}
+                    </div>
+                  </div>
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: meta.color, boxShadow: `0 0 6px ${meta.color}`,
+                  }} />
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ── Дерево локаций ── */}
       <LocationTree

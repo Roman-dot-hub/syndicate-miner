@@ -80,7 +80,7 @@ function useCards(): UpgradeCard[] {
     {
       emoji: '🔋', color: GR, scope: 'farm',
       title:    ru ? 'ИБП (источник бесперебойного питания)' : 'UPS (Uninterruptible Power Supply)',
-      subtitle: ru ? 'Повышает uptime GPU → больше часов в работе → больше TON' : 'Boosts GPU uptime → more hours mining → more TON',
+      subtitle: ru ? 'Повышает uptime GPU. Защищает от просадки напряжения, перенапряжения и перебоев' : 'Boosts GPU uptime. Protects from voltage dips, overvoltage and power outages',
       levels: [
         { label: 'Lv 1', effect: '+5% uptime',  cost: '0.4 TON' },
         { label: 'Lv 2', effect: '+12% uptime', cost: '1 TON'   },
@@ -1113,7 +1113,7 @@ export function Guide() {
           <span style={{ fontSize: 22 }}>🎲</span>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: YL }}>{ru ? 'Случайные события фермы' : 'Random Farm Events'}</div>
-            <div style={{ fontSize: 10, color: DIM, marginTop: 1 }}>{ru ? 'Видны в баннере на Дашборде. Не более одного негативного в сутки.' : 'Shown as banner on Dashboard. Max one negative event per day.'}</div>
+            <div style={{ fontSize: 10, color: DIM, marginTop: 1 }}>{ru ? 'Видны в баннере на вкладке Ферма (вверху). Не более одного негативного в сутки.' : 'Shown as banner on Farm tab (top). Max one negative event per day.'}</div>
           </div>
         </div>
 
@@ -1121,32 +1121,68 @@ export function Guide() {
         <div style={{ fontSize: 10, fontWeight: 700, color: GR, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
           {ru ? '✅ Позитивные' : '✅ Positive'}
         </div>
-        {[
-          { icon: '⚡', name: ru ? 'Удача майнера' : 'Lucky Miner', color: YL,
-            desc: ru
-              ? 'Раз в сутки в случайное время появляется на 1 час. Нажми ЗАБРАТЬ на Дашборде — получишь +50% IGC на 1 час лично. Кто не зашёл — упустил.'
-              : 'Appears once a day at a random time for 1 hour. Hit CLAIM on Dashboard — +50% IGC for 1 hour personally. Miss it and it\'s gone.' },
-          { icon: '💡', name: ru ? 'Просадка напряжения' : 'Voltage Dip', color: GR,
-            desc: ru
-              ? '−25% к стоимости электричества на 2 часа. Выгодный момент — включай разгон!'
-              : '−25% electricity cost for 2 hours. Great time to enable OC!' },
-          { icon: '🌡️', name: ru ? 'Волна жары' : 'Heat Wave', color: OR,
-            desc: ru
-              ? '+30% к стоимости электричества на 6 часов. Season Shield синдиката отменяет этот штраф.'
-              : '+30% to electricity cost for 6 hours. Syndicate Season Shield cancels this penalty.' },
-        ].map((ev, i) => (
-          <div key={i} style={{ display: 'flex', gap: 10, padding: '8px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 18 }}>{ev.icon}</span>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: ev.color, marginBottom: 2 }}>{ev.name}</div>
-              <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>{ev.desc}</div>
+        <div style={{ display: 'flex', gap: 10, padding: '8px 0', alignItems: 'flex-start' }}>
+          <span style={{ fontSize: 18 }}>⚡</span>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: YL, marginBottom: 2 }}>
+              {ru ? 'Удача майнера' : 'Lucky Miner'}
+            </div>
+            <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
+              {ru
+                ? 'Раз в сутки в случайное время появляется на 1 час. Нажми ЗАБРАТЬ на вкладке Ферма — получишь +50% IGC на 1 час лично. Кто не зашёл — упустил.'
+                : 'Appears once a day at a random time for 1 hour. Hit CLAIM on the Farm tab — +50% IGC for 1 hour personally. Miss it and it\'s gone.'}
             </div>
           </div>
-        ))}
+        </div>
 
         {/* Негативные события */}
         <div style={{ fontSize: 10, fontWeight: 700, color: RE, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 6px' }}>
           {ru ? '⚠️ Негативные — ИБП защищает' : '⚠️ Negative — UPS protects you'}
+        </div>
+
+        {/* Просадка напряжения */}
+        <div style={{ padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>💡</span>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: OR, marginBottom: 2 }}>
+                {ru ? 'Просадка напряжения' : 'Voltage Dip'}
+              </div>
+              <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
+                {ru
+                  ? 'При нестабильном напряжении блок питания потребляет больше тока. Без ИБП — +10% к расходу электричества на 2 часа. ИБП стабилизирует питание — защищённая ферма не чувствует просадки.'
+                  : 'Unstable voltage causes PSUs to draw more current. Without UPS — +10% electricity cost for 2 hours. UPS stabilises power — protected farms are unaffected.'}
+              </div>
+            </div>
+          </div>
+          <div style={{ background: 'rgba(255,107,53,0.06)', borderRadius: 8, padding: '8px 10px' }}>
+            {[
+              { label: ru ? 'Нет ИБП' : 'No UPS', val: ru ? '+10% электро, 2ч' : '+10% electricity, 2h', color: OR },
+              { label: ru ? 'ИБП Lv1+' : 'UPS Lv1+', val: ru ? '0% — ИБП защищает' : '0% — UPS protects', color: GR },
+            ].map((row, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '3px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                <span style={{ color: DIM }}>{row.label}</span>
+                <span style={{ fontWeight: 700, color: row.color }}>{row.val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Волна жары */}
+        <div style={{ padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 18 }}>🌡️</span>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: OR, marginBottom: 2 }}>
+                {ru ? 'Волна жары' : 'Heat Wave'}
+              </div>
+              <div style={{ fontSize: 10, color: DIM, lineHeight: 1.6 }}>
+                {ru
+                  ? '+30% к стоимости электричества на 6 часов. Синдикатный бонус Season Shield отменяет этот штраф для всей фермы.'
+                  : '+30% to electricity cost for 6 hours. Syndicate Season Shield bonus cancels this penalty for the whole farm.'}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Перенапряжение */}
@@ -1166,10 +1202,10 @@ export function Guide() {
           </div>
           <div style={{ background: 'rgba(255,51,85,0.06)', borderRadius: 8, padding: '8px 10px' }}>
             {[
-              { label: ru ? 'Нет ИБП' : 'No UPS',  val: '−15%', color: RE },
-              { label: 'ИБП Lv1',                   val: '−10%', color: OR },
-              { label: 'ИБП Lv2',                   val: '−5%',  color: YL },
-              { label: 'ИБП Lv3',                   val: ru ? '0% — защита' : '0% — protected', color: GR },
+              { label: ru ? 'Нет ИБП' : 'No UPS', val: '−15%', color: RE },
+              { label: 'ИБП Lv1',                  val: '−10%', color: OR },
+              { label: 'ИБП Lv2',                  val: '−5%',  color: YL },
+              { label: 'ИБП Lv3',                  val: ru ? '0% — защита' : '0% — protected', color: GR },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '3px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                 <span style={{ color: DIM }}>{row.label}</span>
@@ -1196,10 +1232,10 @@ export function Guide() {
           </div>
           <div style={{ background: 'rgba(255,107,0,0.06)', borderRadius: 8, padding: '8px 10px' }}>
             {[
-              { label: ru ? 'Нет ИБП' : 'No UPS',  val: ru ? 'Вся ферма offline'      : 'Full farm offline',    color: RE },
-              { label: 'ИБП Lv1',                   val: ru ? 'T1-T2 остаются'         : 'T1-T2 stay online',   color: OR },
-              { label: 'ИБП Lv2',                   val: ru ? '+T3 остаётся'            : '+T3 stays online',    color: YL },
-              { label: 'ИБП Lv3',                   val: ru ? '+T4 остаётся'            : '+T4 stays online',    color: GR },
+              { label: ru ? 'Нет ИБП' : 'No UPS', val: ru ? 'Вся ферма offline'  : 'Full farm offline',  color: RE },
+              { label: 'ИБП Lv1',                  val: ru ? 'T1-T2 остаются'    : 'T1-T2 stay online',  color: OR },
+              { label: 'ИБП Lv2',                  val: ru ? '+T3 остаётся'      : '+T3 stays online',   color: YL },
+              { label: 'ИБП Lv3',                  val: ru ? '+T4 остаётся'      : '+T4 stays online',   color: GR },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '3px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                 <span style={{ color: DIM }}>{row.label}</span>

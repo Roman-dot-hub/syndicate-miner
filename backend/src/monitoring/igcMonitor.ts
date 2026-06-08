@@ -104,8 +104,8 @@ export async function monitorIgcBalance(
   const prevSmoothed = parseFloat(ps.igc_ratio_smoothed ?? '1');
 
   // ── Raw ratio из дневных накопителей ─────────────────────
-  // Включает: майнинг + рефералы + buy_igc (supply)
-  //           электричество + ремонт + апгрейды + синдикаты + sell_igc (demand)
+  // Включает: майнинг + рефералы + sell_igc (supply — игрок выставляет IGC на продажу)
+  //           электричество + ремонт + апгрейды + синдикаты + buy_igc (demand — игрок покупает IGC)
   // Защита от раннего утра: если накоплено < 1 IGC — слишком мало данных,
   // не меняем ratio (rawRatio = prevSmoothed → EMA не двигается).
   // Clamp [0.3, 4.0] до EMA — отсекает выбросы из одиночных крупных транзакций.

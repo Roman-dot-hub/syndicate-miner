@@ -204,9 +204,9 @@ export async function runEpoch(): Promise<EpochResult | null> {
       if (Math.random() < 1 / 576) {
         const result = await pool.query(`
           INSERT INTO system_events (type, payload, active_until)
-          VALUES ('power_dip', '{"boost_electricity":0.75}', NOW() + INTERVAL '2 hours')
+          VALUES ('power_dip', '{"ups_penalty":1.1}', NOW() + INTERVAL '2 hours')
           ON CONFLICT (type) DO UPDATE
-            SET payload = '{"boost_electricity":0.75}', active_until = NOW() + INTERVAL '2 hours', created_at = NOW()
+            SET payload = '{"ups_penalty":1.1}', active_until = NOW() + INTERVAL '2 hours', created_at = NOW()
           WHERE system_events.active_until <= NOW()
         `);
         if ((result.rowCount ?? 0) > 0) {
@@ -304,7 +304,8 @@ export async function runEpoch(): Promise<EpochResult | null> {
         elecMultiplier *= ev.payload.boost_electricity;
         console.log(`[Epoch] ⚡ ${ev.type} → elec ×${ev.payload.boost_electricity}`);
       }
-      if ((ev.type === 'electricity_discount' || ev.type === 'power_surge' || ev.type === 'power_dip') && ev.payload?.boost_electricity) {
+      // power_dip применяется per-farm в зависимости от уровня ИБП (не глобально)
+      if ((ev.type === 'electricity_discount' || ev.type === 'power_surge') && ev.payload?.boost_electricity) {
         elecMultiplier *= ev.payload.boost_electricity;
         console.log(`[Epoch] 💡 ${ev.type} → elec ×${ev.payload.boost_electricity}`);
       }
@@ -357,7 +358,15 @@ export async function runEpoch(): Promise<EpochResult | null> {
       const effectiveElecMult = (farmSynBonuses?.has('season_shield') && elecMultiplier > 1)
         ? 1.0
         : elecMultiplier;
-      const elec = processElectricityBill(farm, farmGpus, effectiveElecMult * providerDiscount);
+
+      // power_dip: просадка напряжения → +10% расхода если нет ИБП (ИБП стабилизирует)
+      const hasPowerDip  = sysEvents.some(e => e.type === 'power_dip');
+      const powerDipMult = (hasPowerDip && farm.upsLevel === 0) ? 1.1 : 1.0;
+      if (hasPowerDip && farm.upsLevel === 0) {
+        console.log(`[Epoch] 💡 power_dip: ферма ${farm.id} без ИБП → elec ×1.1`);
+      }
+
+      const elec = processElectricityBill(farm, farmGpus, effectiveElecMult * providerDiscount * powerDipMult);
       totalIgcConsumed += elec.igcCharged;
       farmIgcUpdates.push({ farmId: farm.id, igcBalance: elec.igcCharged });
       elec.offlineGpuIds.forEach(id => offlineGpuSets.add(id));
