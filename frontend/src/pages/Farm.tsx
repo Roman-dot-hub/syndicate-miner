@@ -145,7 +145,11 @@ export function Farm({ data, onUpdate }: Props) {
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ── Дерево локаций ── */}
-      <LocationTree level={farm.level} slots={activeGpus.length} maxSlots={farm.maxSlots} igcBalance={farm.igcBalance} />
+      <LocationTree
+        level={farm.level} slots={activeGpus.length} maxSlots={farm.maxSlots}
+        igcBalance={farm.igcBalance} userTon={data.user.tonBalance}
+        userIgc={farm.igcBalance} igcRatio={igcRatio} onUpdate={onUpdate}
+      />
 
       {/* Farm stats summary */}
       {activeGpus.length > 0 && (
@@ -393,12 +397,68 @@ const LOCATION_NODES = [
   { level: 4, icon: '🏭', nameRu: 'Ангар',     nameEn: 'Hangar',  slots: 50, costTon: 50  },
 ] as const;
 
-function LocationTree({ level, slots, maxSlots, igcBalance }: {
+const LOCATION_INFO: Record<number, { ru: string; en: string }> = {
+  1: { ru: '5 слотов. Стартовая площадка. GPU до T1 (RX 580).', en: '5 slots. Starting location. GPUs up to T1 (RX 580).' },
+  2: { ru: '10 слотов. Кладовка дома. GPU до T2 (GTX 1660S). Стоимость: 300 IGC.', en: '10 slots. Home storage. GPUs up to T2. Cost: 300 IGC.' },
+  3: { ru: '20 слотов. Гараж. Все GPU доступны. Стоимость: 12 TON.', en: '20 slots. Garage. All GPUs available. Cost: 12 TON.' },
+  4: { ru: '50 слотов. Ангар. Доступен с Фазы 2. Стоимость: 50 TON.', en: '50 slots. Hangar. Available from Phase 2. Cost: 50 TON.' },
+};
+
+function InfoCircle({ text }: { text: string }) {
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); WebApp.showAlert(text); }}
+      style={{
+        width: 18, height: 18, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
+        background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.45)',
+        fontSize: 10, fontWeight: 700, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0, lineHeight: 1,
+      }}
+    >i</button>
+  );
+}
+
+function LocationTree({ level, slots, maxSlots, igcBalance, userTon, userIgc, igcRatio, onUpdate }: {
   level: number; slots: number; maxSlots: number; igcBalance: number;
+  userTon: number; userIgc: number; igcRatio: number; onUpdate: () => void;
 }) {
-  const { lang } = useLang();
+  const { lang, t } = useLang();
+  const { action }  = useAction();
+  const [busy, setBusy] = useState<number | null>(null);
   const ru = lang === 'ru';
   const cur = LOCATION_NODES.find(n => n.level === level) ?? LOCATION_NODES[0];
+  const nextNode = LOCATION_NODES.find(n => n.level > level);
+
+  const buyLocation = async (node: typeof LOCATION_NODES[number]) => {
+    if (busy) return;
+    const costIgc = (node as any).costIgc ?? 0;
+    const costTon = (node as any).costTon ?? 0;
+    const adjIgc  = costIgc > 0 ? Math.ceil(costIgc * igcRatio) : 0;
+    const costStr = costTon > 0 ? `${costTon} TON` : `${adjIgc} IGC`;
+    const balStr  = costTon > 0 ? `${userTon.toFixed(3)} TON` : `${Math.floor(userIgc)} IGC`;
+    const name    = ru ? node.nameRu : node.nameEn;
+    const ok = await new Promise<boolean>(res =>
+      WebApp.showConfirm(
+        `${node.icon} ${name}\n\n${fmt(t.confirm_cost, { cost: costStr })}\n${fmt(t.confirm_balance, { bal: balStr })}\n\n${t.confirm_q}`,
+        res,
+      ),
+    );
+    if (!ok) return;
+    setBusy(node.level);
+    try {
+      const upgradeType = node.level === 2 ? 'farm_level_2'
+        : node.level === 3 ? 'farm_level_3'
+        : 'farm_level_4';
+      await action(upgradeType, {});
+      WebApp.HapticFeedback.notificationOccurred('success');
+      onUpdate();
+    } catch (e) {
+      WebApp.showAlert(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <div style={{
@@ -406,7 +466,7 @@ function LocationTree({ level, slots, maxSlots, igcBalance }: {
       border: '1px solid rgba(255,255,255,0.07)', padding: '12px 14px',
     }}>
       {/* Заголовок */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
           {ru ? 'ДЕРЕВО ЛОКАЦИЙ' : 'LOCATION TREE'}
         </div>
@@ -415,79 +475,94 @@ function LocationTree({ level, slots, maxSlots, igcBalance }: {
         </div>
       </div>
 
-      {/* Узлы */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-        {LOCATION_NODES.map((node, i) => {
-          const done    = node.level < level;
-          const current = node.level === level;
-          const locked  = node.level > level;
-          const isLast  = i === LOCATION_NODES.length - 1;
-
-          const nodeColor = current ? '#F39C12'
-            : done ? '#2ECC71'
-            : 'rgba(255,255,255,0.2)';
-          const bgColor = current ? 'rgba(243,156,18,0.12)'
-            : done ? 'rgba(46,204,113,0.10)'
-            : 'rgba(255,255,255,0.04)';
-          const borderColor = current ? 'rgba(243,156,18,0.5)'
-            : done ? 'rgba(46,204,113,0.35)'
-            : 'rgba(255,255,255,0.1)';
-
-          const costLabel = (node as any).costIgc
-            ? `${(node as any).costIgc} IGC`
-            : (node as any).costTon
-              ? `${(node as any).costTon} TON`
+      {/* Горизонтально прокручиваемые узлы */}
+      <div style={{ overflowX: 'auto', marginLeft: -14, marginRight: -14, paddingLeft: 14, paddingRight: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', width: 'max-content', gap: 0, paddingBottom: 4 }}>
+          {LOCATION_NODES.map((node, i) => {
+            const owned   = node.level <= level;    // куплена (включая текущую) → зелёная
+            const isNext  = node.level === nextNode?.level; // следующая для покупки → оранжевая
+            const isLast  = i === LOCATION_NODES.length - 1;
+            const costIgc = (node as any).costIgc ?? 0;
+            const costTon = (node as any).costTon ?? 0;
+            const adjIgc  = costIgc > 0 ? Math.ceil(costIgc * igcRatio) : 0;
+            const canAfford = costTon > 0 ? userTon >= costTon : userIgc >= adjIgc;
+            const costLabel = isNext
+              ? (costTon > 0 ? `${costTon} TON` : `${adjIgc} IGC`)
               : null;
+            const isBusy = busy === node.level;
 
-          return (
-            <div key={node.level} style={{ display: 'flex', alignItems: 'center', flex: isLast ? 0 : 1, minWidth: 0 }}>
-              {/* Узел */}
-              <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                flexShrink: 0,
-              }}>
-                <div style={{
-                  width: 48, height: 48, borderRadius: 12,
-                  background: bgColor,
-                  border: `2px solid ${borderColor}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 20, position: 'relative',
-                }}>
-                  {node.icon}
-                  {done && (
-                    <div style={{
-                      position: 'absolute', top: -6, right: -6,
-                      width: 16, height: 16, borderRadius: '50%',
-                      background: '#2ECC71', border: '1.5px solid #17212b',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 9, fontWeight: 900, color: '#fff',
-                    }}>✓</div>
-                  )}
+            const bgColor     = owned ? 'rgba(46,204,113,0.12)' : isNext ? 'rgba(243,156,18,0.08)' : 'rgba(255,255,255,0.03)';
+            const borderColor = owned ? 'rgba(46,204,113,0.5)'  : isNext ? 'rgba(243,156,18,0.5)'  : 'rgba(255,255,255,0.1)';
+            const labelColor  = owned ? '#2ECC71' : isNext ? '#F39C12' : 'rgba(255,255,255,0.3)';
+
+            return (
+              <div key={node.level} style={{ display: 'flex', alignItems: 'center' }}>
+                {/* Узел */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, width: 62 }}>
+                  {/* Иконка-кнопка */}
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      onClick={() => isNext && canAfford && !isBusy && buyLocation(node)}
+                      style={{
+                        width: 42, height: 42, borderRadius: 11,
+                        background: bgColor, border: `2px solid ${borderColor}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 18, cursor: isNext && canAfford ? 'pointer' : 'default',
+                        opacity: isBusy ? 0.5 : 1,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {isBusy ? '…' : node.icon}
+                    </button>
+                    {/* Галочка для купленных */}
+                    {owned && (
+                      <div style={{
+                        position: 'absolute', top: -5, right: -5,
+                        width: 15, height: 15, borderRadius: '50%',
+                        background: '#2ECC71', border: '1.5px solid #17212b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 8, fontWeight: 900, color: '#fff',
+                      }}>✓</div>
+                    )}
+                    {/* Info кнопка */}
+                    <div style={{ position: 'absolute', bottom: -5, right: -5 }}>
+                      <InfoCircle text={LOCATION_INFO[node.level]?.[ru ? 'ru' : 'en'] ?? ''} />
+                    </div>
+                  </div>
+
+                  {/* Название */}
+                  <div style={{ fontSize: 9, fontWeight: 700, color: labelColor, textAlign: 'center', lineHeight: 1.2 }}>
+                    {ru ? node.nameRu : node.nameEn}
+                  </div>
+
+                  {/* Статус / цена */}
+                  <div style={{ fontSize: 8, textAlign: 'center', lineHeight: 1.2,
+                    color: owned ? '#2ECC71' : isNext ? (canAfford ? '#F39C12' : 'rgba(255,100,100,0.7)') : 'rgba(255,255,255,0.2)',
+                  }}>
+                    {owned
+                      ? (node.level === level ? (ru ? 'здесь' : 'here') : '✓')
+                      : isNext ? (isBusy ? '...' : costLabel)
+                      : costLabel ?? '🔒'}
+                  </div>
                 </div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: nodeColor, textAlign: 'center', lineHeight: 1.2 }}>
-                  {ru ? node.nameRu : node.nameEn}
-                </div>
-                <div style={{ fontSize: 8, color: current ? '#F39C12' : locked ? 'rgba(255,255,255,0.25)' : '#2ECC71', textAlign: 'center' }}>
-                  {current ? (ru ? 'здесь' : 'here') : done ? '✓' : costLabel ?? ''}
-                </div>
+
+                {/* Линия-коннектор */}
+                {!isLast && (
+                  <div style={{
+                    width: 20, height: 2, flexShrink: 0, marginBottom: 18,
+                    background: node.level < level
+                      ? 'rgba(46,204,113,0.5)'
+                      : 'rgba(255,255,255,0.1)',
+                  }} />
+                )}
               </div>
-
-              {/* Линия */}
-              {!isLast && (
-                <div style={{
-                  flex: 1, height: 2, margin: '0 4px', marginBottom: 20,
-                  background: node.level < level
-                    ? 'rgba(46,204,113,0.4)'
-                    : 'rgba(255,255,255,0.08)',
-                }} />
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {/* Подпись текущего уровня */}
-      <div style={{ marginTop: 10, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
+      {/* Подпись */}
+      <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
         {cur.icon} {ru ? cur.nameRu : cur.nameEn} · {slots}/{maxSlots} {ru ? 'слотов' : 'slots'}
       </div>
     </div>
@@ -524,9 +599,9 @@ const UPG_WORKBENCH = [
 ];
 
 function UpgCard({
-  icon, name, desc, curLevel, maxLevel, costTon, costIgc, canAfford, busy, onPress, ratioSuffix,
+  icon, name, desc, infoText, curLevel, maxLevel, costTon, costIgc, canAfford, busy, onPress, ratioSuffix,
 }: {
-  icon: string; name: string; desc: string; curLevel: number; maxLevel: number;
+  icon: string; name: string; desc: string; infoText: string; curLevel: number; maxLevel: number;
   costTon: number; costIgc: number; canAfford: boolean; busy: boolean;
   ratioSuffix: string; onPress: () => void;
 }) {
@@ -534,7 +609,6 @@ function UpgCard({
   const isMax = curLevel >= maxLevel;
   const priceLabel = isMax ? null : costTon > 0 ? `${costTon} TON` : `${costIgc} IGC${ratioSuffix}`;
 
-  // Точки уровней
   const dots = Array.from({ length: maxLevel }, (_, i) => (
     <div key={i} style={{
       width: 5, height: 5, borderRadius: '50%',
@@ -550,12 +624,15 @@ function UpgCard({
       display: 'flex', flexDirection: 'column', gap: 6,
     }}>
       {/* Заголовок */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 18 }}>{icon}</span>
           <div style={{ fontSize: 12, fontWeight: 700, color: isMax ? '#2ECC71' : '#fff' }}>{name}</div>
         </div>
-        {isMax && <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700 }}>{t.btn_max}</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {isMax && <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700 }}>{t.btn_max}</span>}
+          <InfoCircle text={infoText} />
+        </div>
       </div>
 
       {/* Описание */}
@@ -680,6 +757,7 @@ function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesP
           <UpgCard
             icon="🌡️" name={ru ? 'Охлаждение' : 'Cooling'}
             desc={coolNext ? (ru ? coolNext.descRu : coolNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            infoText={ru ? 'Снижает нагрев фермы. Lv0=×1.8 износ (перегрев!), Lv1=×1.3, Lv2=×1.0 (норма), Lv3=×0.85 (бонус). Влияет на все GPU.' : 'Reduces farm heat. Lv0=×1.8 wear (overheat!), Lv1=×1.3, Lv2=×1.0, Lv3=×0.85 bonus. Affects all GPUs.'}
             curLevel={coolCur} maxLevel={FARM_COOL_LEVELS.length}
             costTon={coolNext?.costTon ?? 0} costIgc={adjIgc(coolNext?.costIgc ?? 0)}
             canAfford={coolNext ? (coolNext.costTon > 0 ? userTon >= coolNext.costTon : userIgc >= adjIgc(coolNext.costIgc)) : false}
@@ -689,6 +767,7 @@ function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesP
           <UpgCard
             icon="🏢" name={ru ? 'Серверная' : 'Server Room'}
             desc={srNext ? (ru ? srNext.descRu : srNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            infoText={ru ? 'Профессиональные серверные стойки. Увеличивает хешрейт ВСЕХ GPU фермы. Lv1=+3%, Lv2=+7%, Lv3=+12%.' : 'Professional server racks. Boosts hashrate of ALL farm GPUs. Lv1=+3%, Lv2=+7%, Lv3=+12%.'}
             curLevel={srCur} maxLevel={UPG_SERVER_ROOM.length}
             costTon={srNext?.costTon ?? 0} costIgc={0}
             canAfford={srNext ? userTon >= srNext.costTon : false}
@@ -701,6 +780,7 @@ function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesP
           <UpgCard
             icon="🔋" name={ru ? 'ИБП' : 'UPS'}
             desc={upsNext ? (ru ? upsNext.descRu : upsNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            infoText={ru ? 'Источник бесперебойного питания. Защищает GPU при событии «Перебои в электросети». Lv1=T1-T2 выживают, Lv2=+T3, Lv3=+T4. Бонус к uptime.' : 'UPS protects GPUs during Power Outage events. Lv1=T1-T2 survive, Lv2=+T3, Lv3=+T4. Uptime bonus.'}
             curLevel={upsCur} maxLevel={UPG_UPS.length}
             costTon={upsNext?.costTon ?? 0} costIgc={0}
             canAfford={upsNext ? userTon >= upsNext.costTon : false}
@@ -710,6 +790,7 @@ function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesP
           <UpgCard
             icon="📋" name={ru ? 'Провайдер' : 'Provider'}
             desc={provNext ? (ru ? provNext.descRu : provNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            infoText={ru ? 'Выделенный канал интернет-провайдера. Снижает расход IGC на электричество и повышает uptime всех GPU. Lv1=−15% электро, Lv2=−30%, Lv3=−45%, Lv4=−60%.' : 'Dedicated ISP channel. Reduces electricity IGC cost and boosts uptime. Lv1=−15% elec, Lv2=−30%, Lv3=−45%, Lv4=−60%.'}
             curLevel={provCur} maxLevel={UPG_PROVIDER.length}
             costTon={provNext?.costTon ?? 0} costIgc={0}
             canAfford={provNext ? userTon >= provNext.costTon : false}
@@ -722,6 +803,7 @@ function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesP
           <UpgCard
             icon={lvNext?.emoji ?? '🏠'} name={ru ? 'Площадка' : 'Location'}
             desc={lvNext ? `${ru ? lvNext.name : lvNext.name} · +${lvNext.slots - (FARM_SLOT_LABELS[lvCur] ?? 5)} ${ru ? 'слотов' : 'slots'}` : (ru ? 'Максимальный уровень' : 'Max level')}
+            infoText={ru ? 'Расширение игровой площадки — открывает новые слоты для GPU. Текущие места: Стол(5) → Кладовка(10) → Гараж(20) → Ангар(50).' : 'Expand your mining location to unlock more GPU slots. Desk(5) → Storage(10) → Garage(20) → Hangar(50).'}
             curLevel={lvCur - 1} maxLevel={FARM_UPGRADE_DATA.length}
             costTon={lvNext?.costTon ?? 0} costIgc={adjIgc(lvNext?.costIgc ?? 0)}
             canAfford={lvNext ? (lvNext.costTon > 0 ? userTon >= lvNext.costTon : userIgc >= adjIgc(lvNext.costIgc)) : false}
@@ -740,6 +822,7 @@ function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesP
               <UpgCard
                 icon={wbIcon} name={ru ? 'Верстак' : 'Workbench'}
                 desc={wbDesc}
+                infoText={ru ? 'Снижает стоимость ремонта (Refurbish) GPU. Lv1=−20%, Lv2=−40%, Lv3=−60%. Применяется автоматически при каждом ремонте.' : 'Reduces GPU repair (Refurbish) cost. Lv1=−20%, Lv2=−40%, Lv3=−60%. Applied automatically on every repair.'}
                 curLevel={wbCur} maxLevel={UPG_WORKBENCH.length}
                 costTon={wbNext?.costTon ?? 0} costIgc={adjIgc(wbNext?.costIgc ?? 0)}
                 canAfford={wbNext ? (wbNext.costTon > 0 ? userTon >= wbNext.costTon : userIgc >= adjIgc(wbNext.costIgc)) : false}
