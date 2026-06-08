@@ -219,12 +219,20 @@ export function Farm({ data, onUpdate }: Props) {
         </div>
       )}
 
-      {/* ── Карточки апгрейдов ── */}
-      <UpgradesPanel
+      {/* Ферма & Верстак */}
+      <FarmUpgradesSection
         farm={farm}
         userTon={data.user.tonBalance}
         userIgc={farm.igcBalance}
         igcRatio={igcRatio}
+        onUpdate={onUpdate}
+      />
+
+      {/* Server Room */}
+      <ServerRoom
+        farm={farm}
+        userTon={data.user.tonBalance}
+        userIgc={farm.igcBalance}
         onUpdate={onUpdate}
       />
 
@@ -427,7 +435,6 @@ function LocationTree({ level, slots, maxSlots, igcBalance, userTon, userIgc, ig
   const { action }  = useAction();
   const [busy, setBusy] = useState<number | null>(null);
   const ru = lang === 'ru';
-  const cur = LOCATION_NODES.find(n => n.level === level) ?? LOCATION_NODES[0];
   const nextNode = LOCATION_NODES.find(n => n.level > level);
 
   const buyLocation = async (node: typeof LOCATION_NODES[number]) => {
@@ -466,104 +473,113 @@ function LocationTree({ level, slots, maxSlots, igcBalance, userTon, userIgc, ig
       border: '1px solid rgba(255,255,255,0.07)', padding: '12px 14px',
     }}>
       {/* Заголовок */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
           {ru ? 'ДЕРЕВО ЛОКАЦИЙ' : 'LOCATION TREE'}
         </div>
         <div style={{ fontSize: 11, color: '#9B59B6', fontWeight: 600 }}>
-          {Math.floor(igcBalance)} IGC
+          {Math.floor(igcBalance)} IGC · {slots}/{maxSlots} {ru ? 'сл.' : 'sl.'}
         </div>
       </div>
 
-      {/* Горизонтально прокручиваемые узлы */}
-      <div style={{ overflowX: 'auto', marginLeft: -14, marginRight: -14, paddingLeft: 14, paddingRight: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', width: 'max-content', gap: 0, paddingBottom: 4 }}>
-          {LOCATION_NODES.map((node, i) => {
-            const owned   = node.level <= level;    // куплена (включая текущую) → зелёная
-            const isNext  = node.level === nextNode?.level; // следующая для покупки → оранжевая
-            const isLast  = i === LOCATION_NODES.length - 1;
-            const costIgc = (node as any).costIgc ?? 0;
-            const costTon = (node as any).costTon ?? 0;
-            const adjIgc  = costIgc > 0 ? Math.ceil(costIgc * igcRatio) : 0;
-            const canAfford = costTon > 0 ? userTon >= costTon : userIgc >= adjIgc;
-            const costLabel = isNext
-              ? (costTon > 0 ? `${costTon} TON` : `${adjIgc} IGC`)
-              : null;
-            const isBusy = busy === node.level;
+      {/* Вертикальный таймлайн */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {LOCATION_NODES.map((node, i) => {
+          const owned    = node.level <= level;
+          const isCur    = node.level === level;
+          const isNext   = node.level === nextNode?.level;
+          const isLocked = node.level > level && !isNext;
+          const isLast   = i === LOCATION_NODES.length - 1;
+          const costIgc  = (node as any).costIgc ?? 0;
+          const costTon  = (node as any).costTon ?? 0;
+          const adjIgc   = costIgc > 0 ? Math.ceil(costIgc * igcRatio) : 0;
+          const canAfford = costTon > 0 ? userTon >= costTon : userIgc >= adjIgc;
+          const isBusy   = busy === node.level;
+          const costLabel = costTon > 0 ? `${costTon} TON` : costIgc > 0 ? `${adjIgc} IGC` : null;
 
-            const bgColor     = owned ? 'rgba(46,204,113,0.12)' : isNext ? 'rgba(243,156,18,0.08)' : 'rgba(255,255,255,0.03)';
-            const borderColor = owned ? 'rgba(46,204,113,0.5)'  : isNext ? 'rgba(243,156,18,0.5)'  : 'rgba(255,255,255,0.1)';
-            const labelColor  = owned ? '#2ECC71' : isNext ? '#F39C12' : 'rgba(255,255,255,0.3)';
+          const dotColor    = owned ? '#2ECC71' : isNext ? '#F39C12' : 'rgba(255,255,255,0.15)';
+          const lineColor   = owned && !isCur ? 'rgba(46,204,113,0.5)' : 'rgba(255,255,255,0.08)';
+          const nameColor   = owned ? '#fff' : isNext ? '#F39C12' : 'rgba(255,255,255,0.3)';
 
-            return (
-              <div key={node.level} style={{ display: 'flex', alignItems: 'center' }}>
-                {/* Узел */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, width: 62 }}>
-                  {/* Иконка-кнопка */}
-                  <div style={{ position: 'relative' }}>
-                    <button
-                      onClick={() => isNext && canAfford && !isBusy && buyLocation(node)}
-                      style={{
-                        width: 42, height: 42, borderRadius: 11,
-                        background: bgColor, border: `2px solid ${borderColor}`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 18, cursor: isNext && canAfford ? 'pointer' : 'default',
-                        opacity: isBusy ? 0.5 : 1,
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {isBusy ? '…' : node.icon}
-                    </button>
-                    {/* Галочка для купленных */}
-                    {owned && (
-                      <div style={{
-                        position: 'absolute', top: -5, right: -5,
-                        width: 15, height: 15, borderRadius: '50%',
-                        background: '#2ECC71', border: '1.5px solid #17212b',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 8, fontWeight: 900, color: '#fff',
-                      }}>✓</div>
-                    )}
-                    {/* Info кнопка */}
-                    <div style={{ position: 'absolute', bottom: -5, right: -5 }}>
-                      <InfoCircle text={LOCATION_INFO[node.level]?.[ru ? 'ru' : 'en'] ?? ''} />
-                    </div>
-                  </div>
-
-                  {/* Название */}
-                  <div style={{ fontSize: 9, fontWeight: 700, color: labelColor, textAlign: 'center', lineHeight: 1.2 }}>
-                    {ru ? node.nameRu : node.nameEn}
-                  </div>
-
-                  {/* Статус / цена */}
-                  <div style={{ fontSize: 8, textAlign: 'center', lineHeight: 1.2,
-                    color: owned ? '#2ECC71' : isNext ? (canAfford ? '#F39C12' : 'rgba(255,100,100,0.7)') : 'rgba(255,255,255,0.2)',
-                  }}>
-                    {owned
-                      ? (node.level === level ? (ru ? 'здесь' : 'here') : '✓')
-                      : isNext ? (isBusy ? '...' : costLabel)
-                      : costLabel ?? '🔒'}
-                  </div>
+          return (
+            <div key={node.level} style={{ display: 'flex', gap: 12, alignItems: 'stretch' }}>
+              {/* Левая колонка: точка + линия */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 28, flexShrink: 0 }}>
+                {/* Точка / иконка */}
+                <div style={{
+                  width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                  background: owned ? 'rgba(46,204,113,0.15)' : isNext ? 'rgba(243,156,18,0.1)' : 'rgba(255,255,255,0.04)',
+                  border: `2px solid ${dotColor}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 14,
+                }}>
+                  {owned ? '✓' : node.icon}
                 </div>
-
-                {/* Линия-коннектор */}
+                {/* Вертикальная линия */}
                 {!isLast && (
                   <div style={{
-                    width: 20, height: 2, flexShrink: 0, marginBottom: 18,
-                    background: node.level < level
-                      ? 'rgba(46,204,113,0.5)'
-                      : 'rgba(255,255,255,0.1)',
+                    width: 2, flex: 1, minHeight: 8, margin: '3px 0',
+                    background: lineColor,
                   }} />
                 )}
               </div>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* Подпись */}
-      <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
-        {cur.icon} {ru ? cur.nameRu : cur.nameEn} · {slots}/{maxSlots} {ru ? 'слотов' : 'slots'}
+              {/* Правая колонка: контент */}
+              <div style={{
+                flex: 1, paddingBottom: isLast ? 0 : 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {owned && <span style={{ fontSize: 14 }}>{node.icon}</span>}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: nameColor }}>
+                        {ru ? node.nameRu : node.nameEn}
+                      </span>
+                      {isCur && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, color: '#2ECC71',
+                          background: 'rgba(46,204,113,0.15)', borderRadius: 4, padding: '1px 5px',
+                        }}>{ru ? 'здесь' : 'here'}</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>
+                      {node.slots} {ru ? 'слотов' : 'slots'}
+                      {isLocked && costLabel && ` · ${costLabel}`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Правая сторона: кнопка купить / инфо */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <InfoCircle text={LOCATION_INFO[node.level]?.[ru ? 'ru' : 'en'] ?? ''} />
+                  {isNext && (
+                    <button
+                      onClick={() => !isBusy && canAfford && buyLocation(node)}
+                      disabled={isBusy || !canAfford}
+                      style={{
+                        padding: '5px 10px', borderRadius: 8, border: 'none',
+                        cursor: canAfford && !isBusy ? 'pointer' : 'not-allowed',
+                        background: canAfford
+                          ? costTon > 0
+                            ? 'linear-gradient(135deg,#0098EA,#005FA3)'
+                            : 'linear-gradient(135deg,#9B59B6,#6C3483)'
+                          : 'rgba(255,255,255,0.07)',
+                        color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
+                        fontSize: 10, fontWeight: 700,
+                        boxShadow: canAfford ? '0 2px 6px rgba(0,0,0,0.3)' : 'none',
+                        whiteSpace: 'nowrap', opacity: isBusy ? 0.5 : 1,
+                      }}
+                    >
+                      {isBusy ? '...' : costLabel ?? '—'}
+                    </button>
+                  )}
+                  {isLocked && <span style={{ fontSize: 16 }}>🔒</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -672,7 +688,7 @@ interface UpgradesPanelProps {
   userTon: number; userIgc: number; igcRatio: number; onUpdate: () => void;
 }
 
-function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesPanelProps) {
+export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesPanelProps) {
   const { t, lang } = useLang();
   const { action }  = useAction();
   const [busy, setBusy] = useState<string | null>(null);
