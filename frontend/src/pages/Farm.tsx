@@ -409,11 +409,14 @@ function InfoCircle({ text }: { text: string }) {
     <button
       onClick={e => { e.stopPropagation(); WebApp.showAlert(text); }}
       style={{
-        width: 18, height: 18, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
-        background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.45)',
-        fontSize: 10, fontWeight: 700, cursor: 'pointer',
+        width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+        border: '1px solid rgba(0,212,255,0.3)',
+        background: 'rgba(0,212,255,0.08)',
+        color: 'rgba(0,212,255,0.7)',
+        fontSize: 10, fontWeight: 900, fontStyle: 'italic',
+        cursor: 'pointer', lineHeight: 1,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        flexShrink: 0, lineHeight: 1,
+        fontFamily: 'Georgia, serif',
       }}
     >i</button>
   );
@@ -607,15 +610,25 @@ const UPG_WORKBENCH = [
 ];
 
 function UpgCard({
-  icon, name, desc, infoText, curLevel, maxLevel, costTon, costIgc, canAfford, busy, onPress, ratioSuffix,
+  upgradeInfo, curLevel, maxLevel, costTon, costIgc, canAfford, busy, onPress, ratioSuffix,
 }: {
-  icon: string; name: string; desc: string; infoText: string; curLevel: number; maxLevel: number;
+  upgradeInfo: UpgradeInfo; curLevel: number; maxLevel: number;
   costTon: number; costIgc: number; canAfford: boolean; busy: boolean;
   ratioSuffix: string; onPress: () => void;
 }) {
   const { t } = useLang();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const isMax = curLevel >= maxLevel;
   const priceLabel = isMax ? null : costTon > 0 ? `${costTon} TON` : `${costIgc} IGC${ratioSuffix}`;
+
+  // Описание текущего эффекта из структурированных уровней
+  const curLevelData  = upgradeInfo.levels[curLevel];
+  const nextLevelData = upgradeInfo.levels[curLevel + 1];
+  const desc = curLevelData
+    ? nextLevelData
+      ? nextLevelData.effect       // показываем что даст СЛЕДУЮЩИЙ уровень
+      : curLevelData.effect        // уже максимум
+    : upgradeInfo.levels[0]?.effect ?? '';
 
   const dots = Array.from({ length: maxLevel }, (_, i) => (
     <div key={i} style={{
@@ -625,55 +638,123 @@ function UpgCard({
   ));
 
   return (
-    <div style={{
-      background: isMax ? 'rgba(46,204,113,0.06)' : 'rgba(255,255,255,0.04)',
-      border: `1px solid ${isMax ? 'rgba(46,204,113,0.2)' : 'rgba(255,255,255,0.08)'}`,
-      borderRadius: 12, padding: '11px 12px',
-      display: 'flex', flexDirection: 'column', gap: 6,
-    }}>
-      {/* Заголовок */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 18 }}>{icon}</span>
-          <div style={{ fontSize: 12, fontWeight: 700, color: isMax ? '#2ECC71' : '#fff' }}>{name}</div>
+    <>
+      <div style={{
+        background: isMax ? 'rgba(46,204,113,0.06)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${isMax ? 'rgba(46,204,113,0.2)' : 'rgba(255,255,255,0.08)'}`,
+        borderRadius: 12, padding: '11px 12px',
+        display: 'flex', flexDirection: 'column', gap: 6,
+      }}>
+        {/* Заголовок */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 18 }}>{upgradeInfo.emoji}</span>
+            <div style={{ fontSize: 12, fontWeight: 700, color: isMax ? '#2ECC71' : '#fff' }}>{upgradeInfo.title}</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {isMax && <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700 }}>{t.btn_max}</span>}
+            <InfoBtn onClick={() => setSheetOpen(true)} />
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {isMax && <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700 }}>{t.btn_max}</span>}
-          <InfoCircle text={infoText} />
+
+        {/* Описание следующего уровня */}
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>
+          {isMax ? (t.btn_max ?? 'Максимум') : desc}
+        </div>
+
+        {/* Нижняя строка: точки + кнопка */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>{dots}</div>
+          {!isMax && (
+            <button
+              onClick={onPress}
+              disabled={busy || !canAfford}
+              style={{
+                padding: '4px 10px', borderRadius: 8, border: 'none',
+                cursor: canAfford && !busy ? 'pointer' : 'not-allowed',
+                background: canAfford
+                  ? costTon > 0
+                    ? 'linear-gradient(135deg,#0098EA,#005FA3)'
+                    : 'linear-gradient(135deg,#9B59B6,#6C3483)'
+                  : 'rgba(255,255,255,0.07)',
+                color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
+                fontSize: 10, fontWeight: 700, opacity: busy ? 0.5 : 1,
+                boxShadow: canAfford ? '0 2px 6px rgba(0,0,0,0.3)' : 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {busy ? '...' : priceLabel}
+            </button>
+          )}
         </div>
       </div>
-
-      {/* Описание */}
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>{desc}</div>
-
-      {/* Нижняя строка: точки + кнопка */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>{dots}</div>
-        {!isMax && (
-          <button
-            onClick={onPress}
-            disabled={busy || !canAfford}
-            style={{
-              padding: '4px 10px', borderRadius: 8, border: 'none',
-              cursor: canAfford && !busy ? 'pointer' : 'not-allowed',
-              background: canAfford
-                ? costTon > 0
-                  ? 'linear-gradient(135deg,#0098EA,#005FA3)'
-                  : 'linear-gradient(135deg,#9B59B6,#6C3483)'
-                : 'rgba(255,255,255,0.07)',
-              color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
-              fontSize: 10, fontWeight: 700, opacity: busy ? 0.5 : 1,
-              boxShadow: canAfford ? '0 2px 6px rgba(0,0,0,0.3)' : 'none',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {busy ? '...' : priceLabel}
-          </button>
-        )}
-      </div>
-    </div>
+      {sheetOpen && <InfoSheet info={upgradeInfo} onClose={() => setSheetOpen(false)} />}
+    </>
   );
 }
+
+// ── UpgradeInfo объекты для InfoSheet ────────────────────────────────────────
+const INFO_COOLING: UpgradeInfo = {
+  emoji: '🌡️', title: 'Охлаждение фермы', costUnit: 'TON',
+  description: 'Снижает температурный коэффициент (kTemp) — множитель износа всех GPU фермы.',
+  levels: [
+    { label: 'Нет',  effect: '×1.8 износ — перегрев!' },
+    { label: 'Lv 1', effect: '×1.3 износ',              cost: '100 IGC', },
+    { label: 'Lv 2', effect: '×1.0 износ (норма)',      cost: '3 TON',   },
+    { label: 'Lv 3', effect: '×0.85 износ (бонус)',     cost: '15 TON',  },
+  ],
+};
+const INFO_SERVER_ROOM: UpgradeInfo = {
+  emoji: '🏢', title: 'Серверная комната', costUnit: 'TON',
+  description: 'Профессиональные стойки и кабель-менеджмент. Увеличивает хешрейт ВСЕХ GPU фермы.',
+  levels: [
+    { label: 'Нет',  effect: '+0% хешрейт'           },
+    { label: 'Lv 1', effect: '+3% хешрейт',  cost: '0.5 TON' },
+    { label: 'Lv 2', effect: '+7% хешрейт',  cost: '1.5 TON' },
+    { label: 'Lv 3', effect: '+12% хешрейт', cost: '4.0 TON' },
+  ],
+};
+const INFO_UPS: UpgradeInfo = {
+  emoji: '🔋', title: 'ИБП', costUnit: 'TON',
+  description: 'Защищает GPU при событии «Перебои в электросети». Повышает uptime.',
+  levels: [
+    { label: 'Нет',  effect: 'Вся ферма уходит в offline'    },
+    { label: 'Lv 1', effect: '+5% uptime · T1–T2 выживают',  cost: '0.4 TON' },
+    { label: 'Lv 2', effect: '+12% uptime · +T3 выживает',   cost: '1.0 TON' },
+    { label: 'Lv 3', effect: '+20% uptime · +T4 выживает',   cost: '3.0 TON' },
+  ],
+};
+const INFO_PROVIDER: UpgradeInfo = {
+  emoji: '📋', title: 'Провайдер', costUnit: 'TON',
+  description: 'Выделенный ISP-канал. Снижает расход IGC на электричество и повышает uptime.',
+  levels: [
+    { label: 'Нет',  effect: 'Базовый тариф'                 },
+    { label: 'Lv 1', effect: '+2% uptime · −15% электро',  cost: '0.2 TON' },
+    { label: 'Lv 2', effect: '+4% uptime · −30% электро',  cost: '0.6 TON' },
+    { label: 'Lv 3', effect: '+6% uptime · −45% электро',  cost: '1.5 TON' },
+    { label: 'Lv 4', effect: '+8% uptime · −60% электро',  cost: '4.0 TON' },
+  ],
+};
+const INFO_FARM_LEVEL: UpgradeInfo = {
+  emoji: '🏠', title: 'Площадка', costUnit: 'IGC',
+  description: 'Расширение игровой локации — открывает дополнительные слоты для GPU.',
+  levels: [
+    { label: 'Стол',     effect: '5 слотов'  },
+    { label: 'Кладовка', effect: '10 слотов', cost: '300 IGC' },
+    { label: 'Гараж',    effect: '20 слотов', cost: '12 TON'  },
+    { label: 'Ангар',    effect: '50 слотов', cost: '50 TON'  },
+  ],
+};
+const INFO_WORKBENCH: UpgradeInfo = {
+  emoji: '🔧', title: 'Верстак', costUnit: 'IGC',
+  description: 'Снижает стоимость ремонта (Refurbish) GPU. Применяется автоматически.',
+  levels: [
+    { label: 'Нет',  effect: 'Базовая цена ремонта'       },
+    { label: 'Lv 1', effect: '−20% стоимость ремонта', cost: '500 IGC' },
+    { label: 'Lv 2', effect: '−40% стоимость ремонта', cost: '5 TON'   },
+    { label: 'Lv 3', effect: '−60% стоимость ремонта', cost: '25 TON'  },
+  ],
+};
 
 interface UpgradesPanelProps {
   farm: { level: number; workbenchLevel: number; coolingLevel: number; serverRoomLevel: number; upsLevel: number; providerLevel: number };
@@ -763,9 +844,7 @@ export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: Up
 
         {tab === 'cool' && (<>
           <UpgCard
-            icon="🌡️" name={ru ? 'Охлаждение' : 'Cooling'}
-            desc={coolNext ? (ru ? coolNext.descRu : coolNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
-            infoText={ru ? 'Снижает нагрев фермы. Lv0=×1.8 износ (перегрев!), Lv1=×1.3, Lv2=×1.0 (норма), Lv3=×0.85 (бонус). Влияет на все GPU.' : 'Reduces farm heat. Lv0=×1.8 wear (overheat!), Lv1=×1.3, Lv2=×1.0, Lv3=×0.85 bonus. Affects all GPUs.'}
+            upgradeInfo={{ ...INFO_COOLING, levels: INFO_COOLING.levels.map((l,i) => ({ ...l, current: i === coolCur })) }}
             curLevel={coolCur} maxLevel={FARM_COOL_LEVELS.length}
             costTon={coolNext?.costTon ?? 0} costIgc={adjIgc(coolNext?.costIgc ?? 0)}
             canAfford={coolNext ? (coolNext.costTon > 0 ? userTon >= coolNext.costTon : userIgc >= adjIgc(coolNext.costIgc)) : false}
@@ -773,9 +852,7 @@ export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: Up
             onPress={() => coolNext && do_(`cooling_${coolNext.level}`, coolNext.costTon, coolNext.costIgc, ru ? '🌡️ Охлаждение фермы' : '🌡️ Farm Cooling')}
           />
           <UpgCard
-            icon="🏢" name={ru ? 'Серверная' : 'Server Room'}
-            desc={srNext ? (ru ? srNext.descRu : srNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
-            infoText={ru ? 'Профессиональные серверные стойки. Увеличивает хешрейт ВСЕХ GPU фермы. Lv1=+3%, Lv2=+7%, Lv3=+12%.' : 'Professional server racks. Boosts hashrate of ALL farm GPUs. Lv1=+3%, Lv2=+7%, Lv3=+12%.'}
+            upgradeInfo={{ ...INFO_SERVER_ROOM, levels: INFO_SERVER_ROOM.levels.map((l,i) => ({ ...l, current: i === srCur })) }}
             curLevel={srCur} maxLevel={UPG_SERVER_ROOM.length}
             costTon={srNext?.costTon ?? 0} costIgc={0}
             canAfford={srNext ? userTon >= srNext.costTon : false}
@@ -786,9 +863,7 @@ export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: Up
 
         {tab === 'elec' && (<>
           <UpgCard
-            icon="🔋" name={ru ? 'ИБП' : 'UPS'}
-            desc={upsNext ? (ru ? upsNext.descRu : upsNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
-            infoText={ru ? 'Источник бесперебойного питания. Защищает GPU при событии «Перебои в электросети». Lv1=T1-T2 выживают, Lv2=+T3, Lv3=+T4. Бонус к uptime.' : 'UPS protects GPUs during Power Outage events. Lv1=T1-T2 survive, Lv2=+T3, Lv3=+T4. Uptime bonus.'}
+            upgradeInfo={{ ...INFO_UPS, levels: INFO_UPS.levels.map((l,i) => ({ ...l, current: i === upsCur })) }}
             curLevel={upsCur} maxLevel={UPG_UPS.length}
             costTon={upsNext?.costTon ?? 0} costIgc={0}
             canAfford={upsNext ? userTon >= upsNext.costTon : false}
@@ -796,9 +871,7 @@ export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: Up
             onPress={() => upsNext && do_('upgrade_ups', upsNext.costTon, 0, ru ? '🔋 ИБП' : '🔋 UPS')}
           />
           <UpgCard
-            icon="📋" name={ru ? 'Провайдер' : 'Provider'}
-            desc={provNext ? (ru ? provNext.descRu : provNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
-            infoText={ru ? 'Выделенный канал интернет-провайдера. Снижает расход IGC на электричество и повышает uptime всех GPU. Lv1=−15% электро, Lv2=−30%, Lv3=−45%, Lv4=−60%.' : 'Dedicated ISP channel. Reduces electricity IGC cost and boosts uptime. Lv1=−15% elec, Lv2=−30%, Lv3=−45%, Lv4=−60%.'}
+            upgradeInfo={{ ...INFO_PROVIDER, levels: INFO_PROVIDER.levels.map((l,i) => ({ ...l, current: i === provCur })) }}
             curLevel={provCur} maxLevel={UPG_PROVIDER.length}
             costTon={provNext?.costTon ?? 0} costIgc={0}
             canAfford={provNext ? userTon >= provNext.costTon : false}
@@ -809,9 +882,7 @@ export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: Up
 
         {tab === 'bench' && (<>
           <UpgCard
-            icon={lvNext?.emoji ?? '🏠'} name={ru ? 'Площадка' : 'Location'}
-            desc={lvNext ? `${ru ? lvNext.name : lvNext.name} · +${lvNext.slots - (FARM_SLOT_LABELS[lvCur] ?? 5)} ${ru ? 'слотов' : 'slots'}` : (ru ? 'Максимальный уровень' : 'Max level')}
-            infoText={ru ? 'Расширение игровой площадки — открывает новые слоты для GPU. Текущие места: Стол(5) → Кладовка(10) → Гараж(20) → Ангар(50).' : 'Expand your mining location to unlock more GPU slots. Desk(5) → Storage(10) → Garage(20) → Hangar(50).'}
+            upgradeInfo={{ ...INFO_FARM_LEVEL, levels: INFO_FARM_LEVEL.levels.map((l,i) => ({ ...l, current: i === lvCur - 1 })) }}
             curLevel={lvCur - 1} maxLevel={FARM_UPGRADE_DATA.length}
             costTon={lvNext?.costTon ?? 0} costIgc={adjIgc(lvNext?.costIgc ?? 0)}
             canAfford={lvNext ? (lvNext.costTon > 0 ? userTon >= lvNext.costTon : userIgc >= adjIgc(lvNext.costIgc)) : false}
@@ -819,23 +890,15 @@ export function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: Up
             onPress={() => lvNext && do_(lvNext.type, lvNext.costTon, lvNext.costIgc, `${lvNext.emoji} ${lvNext.name}`)}
           />
           {(() => {
-            const WB_ICONS = ['🔧','⚙️','🏗️'];
-            const wbIcon = WB_ICONS[wbCur] ?? '🔧';
             const wbType = wbNext ? `workbench_${wbNext.level}` : '';
-            const wbDiscs = [20, 40, 60];
-            const wbDesc = wbNext
-              ? (ru ? `−${wbDiscs[wbNext.level - 1] ?? 60}% стоимость ремонта` : `−${wbDiscs[wbNext.level - 1] ?? 60}% repair cost`)
-              : (ru ? 'Максимальный уровень' : 'Max level');
             return (
               <UpgCard
-                icon={wbIcon} name={ru ? 'Верстак' : 'Workbench'}
-                desc={wbDesc}
-                infoText={ru ? 'Снижает стоимость ремонта (Refurbish) GPU. Lv1=−20%, Lv2=−40%, Lv3=−60%. Применяется автоматически при каждом ремонте.' : 'Reduces GPU repair (Refurbish) cost. Lv1=−20%, Lv2=−40%, Lv3=−60%. Applied automatically on every repair.'}
+                upgradeInfo={{ ...INFO_WORKBENCH, levels: INFO_WORKBENCH.levels.map((l,i) => ({ ...l, current: i === wbCur })) }}
                 curLevel={wbCur} maxLevel={UPG_WORKBENCH.length}
                 costTon={wbNext?.costTon ?? 0} costIgc={adjIgc(wbNext?.costIgc ?? 0)}
                 canAfford={wbNext ? (wbNext.costTon > 0 ? userTon >= wbNext.costTon : userIgc >= adjIgc(wbNext.costIgc)) : false}
                 busy={busy === wbType} ratioSuffix={wbNext?.costIgc ? ratioSuffix : ''}
-                onPress={() => wbNext && do_(wbType, wbNext.costTon, wbNext.costIgc, `${wbIcon} ${ru ? 'Верстак' : 'Workbench'} Lv${wbNext.level}`)}
+                onPress={() => wbNext && do_(wbType, wbNext.costTon, wbNext.costIgc, `🔧 ${ru ? 'Верстак' : 'Workbench'} Lv${wbNext.level}`)}
               />
             );
           })()}
