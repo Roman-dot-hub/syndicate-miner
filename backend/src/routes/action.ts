@@ -306,6 +306,14 @@ export async function actionRoutes(app: FastifyInstance) {
         }
 
         await refurbish.restoreGpu(user.id, gpuId, finalCost);
+        // Запись в историю транзакций
+        if (finalCost > 0) {
+          await pool.query(
+            `INSERT INTO transactions (user_id, type, amount_ton, amount_igc)
+             VALUES ($1, 'repair_gpu', 0, $2)`,
+            [user.id, finalCost],
+          );
+        }
         // Трекинг рыночного индекса: ремонт = demand (IGC сожжён)
         trackIgcMarket(0, finalCost).catch(() => {});
         return reply.send({ ok: true, igcSpent: finalCost, igcRatio: igcRatioRefurbish });
