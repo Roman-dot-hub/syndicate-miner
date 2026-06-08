@@ -139,31 +139,13 @@ export function Farm({ data, onUpdate }: Props) {
     ? ([...activeGpus, ...storedGpus].find(g => g.id === selectedGpu.id) ?? null)
     : null;
 
+  const igcRatio = data.igcSupply?.ratio ?? (data.igc as any)?.ratio ?? 1;
+
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Farm header */}
-      <div style={{
-        background: 'rgba(255,255,255,0.05)', borderRadius: 14,
-        padding: '12px 16px',
-        border: '1px solid rgba(255,255,255,0.08)',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
-            🏭 {farmLvName(farm.level, t)}
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-            {fmt(t.farm_slots, { active: activeGpus.length, max: farm.maxSlots })}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 12, color: '#9B59B6', fontWeight: 600 }}>
-            {Math.floor(farm.igcBalance)} IGC
-          </div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{t.farm_electricity}</div>
-        </div>
-      </div>
+      {/* ── Дерево локаций ── */}
+      <LocationTree level={farm.level} slots={activeGpus.length} maxSlots={farm.maxSlots} igcBalance={farm.igcBalance} />
 
       {/* Farm stats summary */}
       {activeGpus.length > 0 && (
@@ -233,20 +215,12 @@ export function Farm({ data, onUpdate }: Props) {
         </div>
       )}
 
-      {/* Ферма & Верстак */}
-      <FarmUpgradesSection
+      {/* ── Карточки апгрейдов ── */}
+      <UpgradesPanel
         farm={farm}
         userTon={data.user.tonBalance}
         userIgc={farm.igcBalance}
-        igcRatio={data.igcSupply?.ratio ?? data.igc?.ratio ?? 1}
-        onUpdate={onUpdate}
-      />
-
-      {/* Server Room */}
-      <ServerRoom
-        farm={farm}
-        userTon={data.user.tonBalance}
-        userIgc={farm.igcBalance}
+        igcRatio={igcRatio}
         onUpdate={onUpdate}
       />
 
@@ -410,6 +384,376 @@ export function Farm({ data, onUpdate }: Props) {
   );
 }
 
+// ── Дерево локаций ────────────────────────────────────────────────────────────
+
+const LOCATION_NODES = [
+  { level: 1, icon: '🖥️', nameRu: 'Стол',     nameEn: 'Desk',    slots: 5  },
+  { level: 2, icon: '📦', nameRu: 'Кладовка',  nameEn: 'Storage', slots: 10, costIgc: 300 },
+  { level: 3, icon: '🚗', nameRu: 'Гараж',     nameEn: 'Garage',  slots: 20, costTon: 12  },
+  { level: 4, icon: '🏭', nameRu: 'Ангар',     nameEn: 'Hangar',  slots: 50, costTon: 50  },
+] as const;
+
+function LocationTree({ level, slots, maxSlots, igcBalance }: {
+  level: number; slots: number; maxSlots: number; igcBalance: number;
+}) {
+  const { lang } = useLang();
+  const ru = lang === 'ru';
+  const cur = LOCATION_NODES.find(n => n.level === level) ?? LOCATION_NODES[0];
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)', borderRadius: 14,
+      border: '1px solid rgba(255,255,255,0.07)', padding: '12px 14px',
+    }}>
+      {/* Заголовок */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+          {ru ? 'ДЕРЕВО ЛОКАЦИЙ' : 'LOCATION TREE'}
+        </div>
+        <div style={{ fontSize: 11, color: '#9B59B6', fontWeight: 600 }}>
+          {Math.floor(igcBalance)} IGC
+        </div>
+      </div>
+
+      {/* Узлы */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+        {LOCATION_NODES.map((node, i) => {
+          const done    = node.level < level;
+          const current = node.level === level;
+          const locked  = node.level > level;
+          const isLast  = i === LOCATION_NODES.length - 1;
+
+          const nodeColor = current ? '#F39C12'
+            : done ? '#2ECC71'
+            : 'rgba(255,255,255,0.2)';
+          const bgColor = current ? 'rgba(243,156,18,0.12)'
+            : done ? 'rgba(46,204,113,0.10)'
+            : 'rgba(255,255,255,0.04)';
+          const borderColor = current ? 'rgba(243,156,18,0.5)'
+            : done ? 'rgba(46,204,113,0.35)'
+            : 'rgba(255,255,255,0.1)';
+
+          const costLabel = (node as any).costIgc
+            ? `${(node as any).costIgc} IGC`
+            : (node as any).costTon
+              ? `${(node as any).costTon} TON`
+              : null;
+
+          return (
+            <div key={node.level} style={{ display: 'flex', alignItems: 'center', flex: isLast ? 0 : 1, minWidth: 0 }}>
+              {/* Узел */}
+              <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                flexShrink: 0,
+              }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 12,
+                  background: bgColor,
+                  border: `2px solid ${borderColor}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 20, position: 'relative',
+                }}>
+                  {node.icon}
+                  {done && (
+                    <div style={{
+                      position: 'absolute', top: -6, right: -6,
+                      width: 16, height: 16, borderRadius: '50%',
+                      background: '#2ECC71', border: '1.5px solid #17212b',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 9, fontWeight: 900, color: '#fff',
+                    }}>✓</div>
+                  )}
+                </div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: nodeColor, textAlign: 'center', lineHeight: 1.2 }}>
+                  {ru ? node.nameRu : node.nameEn}
+                </div>
+                <div style={{ fontSize: 8, color: current ? '#F39C12' : locked ? 'rgba(255,255,255,0.25)' : '#2ECC71', textAlign: 'center' }}>
+                  {current ? (ru ? 'здесь' : 'here') : done ? '✓' : costLabel ?? ''}
+                </div>
+              </div>
+
+              {/* Линия */}
+              {!isLast && (
+                <div style={{
+                  flex: 1, height: 2, margin: '0 4px', marginBottom: 20,
+                  background: node.level < level
+                    ? 'rgba(46,204,113,0.4)'
+                    : 'rgba(255,255,255,0.08)',
+                }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Подпись текущего уровня */}
+      <div style={{ marginTop: 10, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
+        {cur.icon} {ru ? cur.nameRu : cur.nameEn} · {slots}/{maxSlots} {ru ? 'слотов' : 'slots'}
+      </div>
+    </div>
+  );
+}
+
+// ── Карточки апгрейдов ────────────────────────────────────────────────────────
+
+const FARM_COOL_LEVELS = [
+  { level: 1, costIgc: 100, costTon: 0,  descRu: '−28% износ (нет перегрева)',    descEn: '−28% wear (no overheat)'    },
+  { level: 2, costIgc: 0,   costTon: 3,  descRu: '−23% износ (норма)',            descEn: '−23% wear (normal)'         },
+  { level: 3, costIgc: 0,   costTon: 15, descRu: '−15% износ (хорошее охлажд.)', descEn: '−15% wear (good cooling)'   },
+];
+const UPG_SERVER_ROOM = [
+  { level: 1, costTon: 0.5, descRu: '+3% хешрейт всех GPU',  descEn: '+3% hashrate all GPUs' },
+  { level: 2, costTon: 1.5, descRu: '+7% хешрейт всех GPU',  descEn: '+7% hashrate all GPUs' },
+  { level: 3, costTon: 4.0, descRu: '+12% хешрейт всех GPU', descEn: '+12% hashrate all GPUs'},
+];
+const UPG_UPS = [
+  { level: 1, costTon: 0.4, descRu: '+5% uptime · Защита T1–T2',     descEn: '+5% uptime · T1–T2 safe'     },
+  { level: 2, costTon: 1.0, descRu: '+12% uptime · Защита T1–T3',    descEn: '+12% uptime · T1–T3 safe'    },
+  { level: 3, costTon: 3.0, descRu: '+20% uptime · Защита T1–T4',    descEn: '+20% uptime · T1–T4 safe'    },
+];
+const UPG_PROVIDER = [
+  { level: 1, costTon: 0.2, descRu: '+2% uptime · −15% электро',  descEn: '+2% uptime · −15% electric'  },
+  { level: 2, costTon: 0.6, descRu: '+4% uptime · −30% электро',  descEn: '+4% uptime · −30% electric'  },
+  { level: 3, costTon: 1.5, descRu: '+6% uptime · −45% электро',  descEn: '+6% uptime · −45% electric'  },
+  { level: 4, costTon: 4.0, descRu: '+8% uptime · −60% электро',  descEn: '+8% uptime · −60% electric'  },
+];
+const UPG_WORKBENCH = [
+  { level: 1, costIgc: 500, costTon: 0,  descRu: '−20% стоимость ремонта', descEn: '−20% repair cost' },
+  { level: 2, costIgc: 0,   costTon: 5,  descRu: '−40% стоимость ремонта', descEn: '−40% repair cost' },
+  { level: 3, costIgc: 0,   costTon: 25, descRu: '−60% стоимость ремонта', descEn: '−60% repair cost' },
+];
+
+function UpgCard({
+  icon, name, desc, curLevel, maxLevel, costTon, costIgc, canAfford, busy, onPress, ratioSuffix,
+}: {
+  icon: string; name: string; desc: string; curLevel: number; maxLevel: number;
+  costTon: number; costIgc: number; canAfford: boolean; busy: boolean;
+  ratioSuffix: string; onPress: () => void;
+}) {
+  const { t } = useLang();
+  const isMax = curLevel >= maxLevel;
+  const priceLabel = isMax ? null : costTon > 0 ? `${costTon} TON` : `${costIgc} IGC${ratioSuffix}`;
+
+  // Точки уровней
+  const dots = Array.from({ length: maxLevel }, (_, i) => (
+    <div key={i} style={{
+      width: 5, height: 5, borderRadius: '50%',
+      background: i < curLevel ? '#2ECC71' : 'rgba(255,255,255,0.15)',
+    }} />
+  ));
+
+  return (
+    <div style={{
+      background: isMax ? 'rgba(46,204,113,0.06)' : 'rgba(255,255,255,0.04)',
+      border: `1px solid ${isMax ? 'rgba(46,204,113,0.2)' : 'rgba(255,255,255,0.08)'}`,
+      borderRadius: 12, padding: '11px 12px',
+      display: 'flex', flexDirection: 'column', gap: 6,
+    }}>
+      {/* Заголовок */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 18 }}>{icon}</span>
+          <div style={{ fontSize: 12, fontWeight: 700, color: isMax ? '#2ECC71' : '#fff' }}>{name}</div>
+        </div>
+        {isMax && <span style={{ fontSize: 10, color: '#2ECC71', fontWeight: 700 }}>{t.btn_max}</span>}
+      </div>
+
+      {/* Описание */}
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>{desc}</div>
+
+      {/* Нижняя строка: точки + кнопка */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>{dots}</div>
+        {!isMax && (
+          <button
+            onClick={onPress}
+            disabled={busy || !canAfford}
+            style={{
+              padding: '4px 10px', borderRadius: 8, border: 'none',
+              cursor: canAfford && !busy ? 'pointer' : 'not-allowed',
+              background: canAfford
+                ? costTon > 0
+                  ? 'linear-gradient(135deg,#0098EA,#005FA3)'
+                  : 'linear-gradient(135deg,#9B59B6,#6C3483)'
+                : 'rgba(255,255,255,0.07)',
+              color: canAfford ? '#fff' : 'rgba(255,255,255,0.3)',
+              fontSize: 10, fontWeight: 700, opacity: busy ? 0.5 : 1,
+              boxShadow: canAfford ? '0 2px 6px rgba(0,0,0,0.3)' : 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {busy ? '...' : priceLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface UpgradesPanelProps {
+  farm: { level: number; workbenchLevel: number; coolingLevel: number; serverRoomLevel: number; upsLevel: number; providerLevel: number };
+  userTon: number; userIgc: number; igcRatio: number; onUpdate: () => void;
+}
+
+function UpgradesPanel({ farm, userTon, userIgc, igcRatio, onUpdate }: UpgradesPanelProps) {
+  const { t, lang } = useLang();
+  const { action }  = useAction();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [tab, setTab]   = useState<'cool' | 'elec' | 'bench'>('cool');
+  const ru = lang === 'ru';
+
+  const adjIgc = (base: number) => base > 0 ? Math.ceil(base * igcRatio) : 0;
+  const ratioSuffix = Math.abs(igcRatio - 1) >= 0.02 ? ` ×${igcRatio.toFixed(2)}` : '';
+
+  const do_ = async (type: string, costTon: number, costIgcBase: number, label: string) => {
+    if (busy) return;
+    setBusy(type);
+    const finalIgc = adjIgc(costIgcBase);
+    const costStr  = costTon > 0 ? `${costTon} TON` : `${finalIgc} IGC${ratioSuffix}`;
+    const balStr   = costTon > 0 ? `${userTon.toFixed(3)} TON` : `${Math.floor(userIgc)} IGC`;
+    const ok = await new Promise<boolean>(res =>
+      WebApp.showConfirm(
+        `${label}\n\n${fmt(t.confirm_cost, { cost: costStr })}\n${fmt(t.confirm_balance, { bal: balStr })}\n\n${t.confirm_q}`,
+        res,
+      ),
+    );
+    if (!ok) { setBusy(null); return; }
+    try {
+      await action(type, {});
+      WebApp.HapticFeedback.notificationOccurred('success');
+      onUpdate();
+    } catch (e) {
+      WebApp.showAlert(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const TABS = [
+    { key: 'cool',  labelRu: '🌡️ Охлаждение', labelEn: '🌡️ Cooling'  },
+    { key: 'elec',  labelRu: '⚡ Электрика',  labelEn: '⚡ Electricity' },
+    { key: 'bench', labelRu: '🔧 Верстак',    labelEn: '🔧 Workshop'  },
+  ] as const;
+
+  // Вычисляем следующий уровень для каждого типа апгрейда
+  const coolCur = farm.coolingLevel;
+  const srCur   = farm.serverRoomLevel;
+  const upsCur  = farm.upsLevel;
+  const provCur = farm.providerLevel;
+  const wbCur   = farm.workbenchLevel;
+  const lvCur   = farm.level;
+
+  const coolNext = FARM_COOL_LEVELS.find(l => l.level === coolCur + 1);
+  const srNext   = UPG_SERVER_ROOM.find(l => l.level === srCur + 1);
+  const upsNext  = UPG_UPS.find(l => l.level === upsCur + 1);
+  const provNext = UPG_PROVIDER.find(l => l.level === provCur + 1);
+  const wbNext   = UPG_WORKBENCH.find(l => l.level === wbCur + 1);
+  const lvNext   = FARM_UPGRADE_DATA.find(f => f.level === lvCur + 1);
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+      {/* Вкладки */}
+      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        {TABS.map(tb => (
+          <button
+            key={tb.key}
+            onClick={() => setTab(tb.key as typeof tab)}
+            style={{
+              flex: 1, padding: '9px 4px',
+              background: tab === tb.key ? 'rgba(255,255,255,0.07)' : 'none',
+              border: 'none', cursor: 'pointer',
+              fontSize: 10, fontWeight: 700,
+              color: tab === tb.key ? '#fff' : 'rgba(255,255,255,0.35)',
+              borderBottom: tab === tb.key ? '2px solid #0098EA' : '2px solid transparent',
+              transition: 'all 0.15s',
+            }}
+          >
+            {ru ? tb.labelRu : tb.labelEn}
+          </button>
+        ))}
+      </div>
+
+      {/* Карточки */}
+      <div style={{ padding: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+
+        {tab === 'cool' && (<>
+          <UpgCard
+            icon="🌡️" name={ru ? 'Охлаждение' : 'Cooling'}
+            desc={coolNext ? (ru ? coolNext.descRu : coolNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            curLevel={coolCur} maxLevel={FARM_COOL_LEVELS.length}
+            costTon={coolNext?.costTon ?? 0} costIgc={adjIgc(coolNext?.costIgc ?? 0)}
+            canAfford={coolNext ? (coolNext.costTon > 0 ? userTon >= coolNext.costTon : userIgc >= adjIgc(coolNext.costIgc)) : false}
+            busy={busy === `cooling_${coolCur + 1}`} ratioSuffix={coolNext?.costIgc ? ratioSuffix : ''}
+            onPress={() => coolNext && do_(`cooling_${coolNext.level}`, coolNext.costTon, coolNext.costIgc, ru ? '🌡️ Охлаждение фермы' : '🌡️ Farm Cooling')}
+          />
+          <UpgCard
+            icon="🏢" name={ru ? 'Серверная' : 'Server Room'}
+            desc={srNext ? (ru ? srNext.descRu : srNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            curLevel={srCur} maxLevel={UPG_SERVER_ROOM.length}
+            costTon={srNext?.costTon ?? 0} costIgc={0}
+            canAfford={srNext ? userTon >= srNext.costTon : false}
+            busy={busy === 'upgrade_server_room'} ratioSuffix=""
+            onPress={() => srNext && do_('upgrade_server_room', srNext.costTon, 0, ru ? '🏢 Серверная комната' : '🏢 Server Room')}
+          />
+        </>)}
+
+        {tab === 'elec' && (<>
+          <UpgCard
+            icon="🔋" name={ru ? 'ИБП' : 'UPS'}
+            desc={upsNext ? (ru ? upsNext.descRu : upsNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            curLevel={upsCur} maxLevel={UPG_UPS.length}
+            costTon={upsNext?.costTon ?? 0} costIgc={0}
+            canAfford={upsNext ? userTon >= upsNext.costTon : false}
+            busy={busy === 'upgrade_ups'} ratioSuffix=""
+            onPress={() => upsNext && do_('upgrade_ups', upsNext.costTon, 0, ru ? '🔋 ИБП' : '🔋 UPS')}
+          />
+          <UpgCard
+            icon="📋" name={ru ? 'Провайдер' : 'Provider'}
+            desc={provNext ? (ru ? provNext.descRu : provNext.descEn) : (ru ? 'Максимальный уровень' : 'Max level')}
+            curLevel={provCur} maxLevel={UPG_PROVIDER.length}
+            costTon={provNext?.costTon ?? 0} costIgc={0}
+            canAfford={provNext ? userTon >= provNext.costTon : false}
+            busy={busy === 'upgrade_provider'} ratioSuffix=""
+            onPress={() => provNext && do_('upgrade_provider', provNext.costTon, 0, ru ? '📋 Провайдер' : '📋 Provider')}
+          />
+        </>)}
+
+        {tab === 'bench' && (<>
+          <UpgCard
+            icon={lvNext?.emoji ?? '🏠'} name={ru ? 'Площадка' : 'Location'}
+            desc={lvNext ? `${ru ? lvNext.name : lvNext.name} · +${lvNext.slots - (FARM_SLOT_LABELS[lvCur] ?? 5)} ${ru ? 'слотов' : 'slots'}` : (ru ? 'Максимальный уровень' : 'Max level')}
+            curLevel={lvCur - 1} maxLevel={FARM_UPGRADE_DATA.length}
+            costTon={lvNext?.costTon ?? 0} costIgc={adjIgc(lvNext?.costIgc ?? 0)}
+            canAfford={lvNext ? (lvNext.costTon > 0 ? userTon >= lvNext.costTon : userIgc >= adjIgc(lvNext.costIgc)) : false}
+            busy={busy === lvNext?.type} ratioSuffix={lvNext?.costIgc ? ratioSuffix : ''}
+            onPress={() => lvNext && do_(lvNext.type, lvNext.costTon, lvNext.costIgc, `${lvNext.emoji} ${lvNext.name}`)}
+          />
+          {(() => {
+            const WB_ICONS = ['🔧','⚙️','🏗️'];
+            const wbIcon = WB_ICONS[wbCur] ?? '🔧';
+            const wbType = wbNext ? `workbench_${wbNext.level}` : '';
+            const wbDiscs = [20, 40, 60];
+            const wbDesc = wbNext
+              ? (ru ? `−${wbDiscs[wbNext.level - 1] ?? 60}% стоимость ремонта` : `−${wbDiscs[wbNext.level - 1] ?? 60}% repair cost`)
+              : (ru ? 'Максимальный уровень' : 'Max level');
+            return (
+              <UpgCard
+                icon={wbIcon} name={ru ? 'Верстак' : 'Workbench'}
+                desc={wbDesc}
+                curLevel={wbCur} maxLevel={UPG_WORKBENCH.length}
+                costTon={wbNext?.costTon ?? 0} costIgc={adjIgc(wbNext?.costIgc ?? 0)}
+                canAfford={wbNext ? (wbNext.costTon > 0 ? userTon >= wbNext.costTon : userIgc >= adjIgc(wbNext.costIgc)) : false}
+                busy={busy === wbType} ratioSuffix={wbNext?.costIgc ? ratioSuffix : ''}
+                onPress={() => wbNext && do_(wbType, wbNext.costTon, wbNext.costIgc, `${wbIcon} ${ru ? 'Верстак' : 'Workbench'} Lv${wbNext.level}`)}
+              />
+            );
+          })()}
+        </>)}
+      </div>
+    </div>
+  );
+}
+
 // ── Ферма & Верстак ───────────────────────────────────────────────────────────
 
 const FARM_UPGRADE_DATA = [
@@ -439,7 +783,7 @@ interface FarmUpgradesProps {
   onUpdate: () => void;
 }
 
-function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: FarmUpgradesProps) {
+export function FarmUpgradesSection({ farm, userTon, userIgc, igcRatio, onUpdate }: FarmUpgradesProps) {
   const { t } = useLang();
   const { action }       = useAction();
   const [busy, setBusy]  = useState<string | null>(null);
@@ -608,7 +952,7 @@ interface ServerRoomProps {
   onUpdate: () => void;
 }
 
-function ServerRoom({ farm, userTon, userIgc = 0, onUpdate }: ServerRoomProps) {
+export function ServerRoom({ farm, userTon, userIgc = 0, onUpdate }: ServerRoomProps) {
   const { t, lang }       = useLang();
   const { action }        = useAction();
   const [busy, setBusy]   = useState<string | null>(null);
