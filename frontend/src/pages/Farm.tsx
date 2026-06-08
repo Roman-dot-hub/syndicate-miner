@@ -85,6 +85,8 @@ export function Farm({ data, onUpdate }: Props) {
   const [showStorage,  setShowStorage]  = useState(false);
   const [showGpuShop,  setShowGpuShop]  = useState(false);
   const [restarting,   setRestarting]   = useState(false);
+  const [eventsOpen,   setEventsOpen]   = useState(true);
+  const [eventDetail,  setEventDetail]  = useState<string | null>(null);
 
   const serverBoost = data.tapBoost;
   const mergedBoost: TapBoost = {
@@ -153,174 +155,279 @@ export function Farm({ data, onUpdate }: Props) {
 
       {/* ── АКТИВНЫЕ СОБЫТИЯ ФЕРМЫ ─────────────────────────── */}
       {(() => {
-        const lb            = data.luckyBonus;
-        const hasLucky      = lb?.eventActive ?? false;
-        const otherEvents   = data.events ? Object.keys(data.events) : [];
-        const totalCount    = (hasLucky ? 1 : 0) + otherEvents.length;
+        const lb          = data.luckyBonus;
+        const hasLucky    = lb?.eventActive ?? false;
+        const otherEvents = data.events ? Object.keys(data.events) : [];
+        const totalCount  = (hasLucky ? 1 : 0) + otherEvents.length;
         if (totalCount === 0) return null;
 
         const upsLevel = farm.upsLevel ?? 0;
 
-        type EventMeta = { icon: string; nameRu: string; nameEn: string; descRu: string; descEn: string; color: string };
+        interface EventMeta {
+          icon: string; color: string;
+          nameRu: string; nameEn: string;
+          descRu: string; descEn: string;
+          detailRu: string; detailEn: string;
+        }
+
         const EVENT_META: Record<string, EventMeta> = {
-          heat_wave:            { icon: '🌡️', color: '#FF6B35',
-            nameRu: 'Волна жары',            nameEn: 'Heat Wave',
-            descRu: '+30% к электро · 6 ч',  descEn: '+30% electricity · 6 h' },
-          power_dip:            { icon: '💡', color: upsLevel > 0 ? '#00FF88' : '#FF6B35',
-            nameRu: 'Просадка напряжения',   nameEn: 'Voltage Dip',
-            descRu: upsLevel > 0 ? 'ИБП защищает — эффект нейтрализован' : '+10% к электро · 2 ч · нет ИБП',
-            descEn: upsLevel > 0 ? 'UPS active — effect neutralised'     : '+10% electricity · 2 h · no UPS' },
-          power_surge:          { icon: '💡', color: '#FF6B35',
-            nameRu: 'Просадка напряжения',   nameEn: 'Voltage Dip',
-            descRu: '+10% к электро · 2 ч',  descEn: '+10% electricity · 2 h' },
-          overvoltage:          { icon: '⚡', color: '#FF3355',
-            nameRu: 'Перенапряжение',        nameEn: 'Overvoltage',
-            descRu: 'Урон здоровью GPU уже нанесён',  descEn: 'GPU health damage already applied' },
-          power_outage:         { icon: '🔌', color: '#FF6B00',
-            nameRu: 'Перебои в сети',        nameEn: 'Power Outage',
-            descRu: 'GPU отключены — перезапусти вручную',  descEn: 'GPUs offline — restart manually' },
-          emergency_burn:       { icon: '🔥', color: '#FF3355',
-            nameRu: 'Кризис IGC',            nameEn: 'IGC Crisis',
-            descRu: '+30% к электро · ремонт −50% · 48 ч', descEn: '+30% electricity · repair −50% · 48 h' },
-          refurbish_discount:   { icon: '🔧', color: '#00D4FF',
-            nameRu: 'Скидка на ремонт',      nameEn: 'Repair Discount',
-            descRu: 'Ремонт GPU −20% · 24 ч',             descEn: 'GPU repair −20% · 24 h' },
-          electricity_discount: { icon: '💡', color: '#00D4FF',
-            nameRu: 'Скидка на электро',     nameEn: 'Electricity Discount',
-            descRu: 'Электричество −30% · 24 ч',          descEn: 'Electricity −30% · 24 h' },
+          lucky_miner: {
+            icon: '⚡', color: '#FFD700',
+            nameRu: 'Удача майнера', nameEn: 'Lucky Miner',
+            descRu: '+50% IGC · 1 ч', descEn: '+50% IGC · 1 h',
+            detailRu: 'Раз в сутки система случайно активирует это событие на 1 час. Каждый игрок может нажать ЗАБРАТЬ и получить персональный бонус +50% к добыче IGC на 1 час. Бонус персональный — забрать может каждый игрок независимо.',
+            detailEn: 'Once a day the system randomly activates this event for 1 hour. Each player can tap CLAIM to get a personal +50% IGC mining bonus for 1 hour. The bonus is individual — every player can claim it independently.',
+          },
+          heat_wave: {
+            icon: '🌡️', color: '#FF6B35',
+            nameRu: 'Волна жары', nameEn: 'Heat Wave',
+            descRu: '+30% к электро · 6 ч', descEn: '+30% electricity · 6 h',
+            detailRu: 'Аномальная жара повышает температуру оборудования и заставляет кулеры работать интенсивнее — расход IGC на электричество вырастает на 30% на 6 часов. Синдикатный бонус Season Shield полностью нейтрализует этот штраф.',
+            detailEn: 'Abnormal heat raises equipment temperatures and forces fans to work harder — IGC electricity cost increases by 30% for 6 hours. The syndicate Season Shield bonus fully neutralises this penalty.',
+          },
+          power_dip: {
+            icon: '💡', color: upsLevel > 0 ? '#00FF88' : '#FF6B35',
+            nameRu: 'Просадка напряжения', nameEn: 'Voltage Dip',
+            descRu: upsLevel > 0 ? 'ИБП защищает · нейтрально' : '+10% к электро · 2 ч',
+            descEn: upsLevel > 0 ? 'UPS protecting · neutral'   : '+10% electricity · 2 h',
+            detailRu: upsLevel > 0
+              ? 'Напряжение в сети нестабильно, но твой ИБП стабилизирует питание. Ферма работает в штатном режиме без дополнительных затрат.'
+              : 'Нестабильное напряжение заставляет блоки питания потреблять больше тока — расход IGC на электричество вырастает на 10% на 2 часа. Установи ИБП любого уровня, чтобы быть защищённым от этого события.',
+            detailEn: upsLevel > 0
+              ? 'Grid voltage is unstable but your UPS stabilises the power supply. The farm runs normally with no additional costs.'
+              : 'Unstable voltage makes PSUs draw more current — IGC electricity cost increases by 10% for 2 hours. Install any level UPS to be protected from this event.',
+          },
+          power_surge: {
+            icon: '💡', color: '#FF6B35',
+            nameRu: 'Просадка напряжения', nameEn: 'Voltage Dip',
+            descRu: '+10% к электро · 2 ч', descEn: '+10% electricity · 2 h',
+            detailRu: 'Нестабильное напряжение в сети увеличивает потребление тока. Расход IGC на электричество +10% на 2 часа.',
+            detailEn: 'Unstable grid voltage increases power draw. IGC electricity cost +10% for 2 hours.',
+          },
+          overvoltage: {
+            icon: '⚡', color: '#FF3355',
+            nameRu: 'Перенапряжение', nameEn: 'Overvoltage',
+            descRu: 'Урон GPU уже нанесён', descEn: 'GPU damage already dealt',
+            detailRu: 'Скачок напряжения нанёс мгновенный урон здоровью всех активных GPU. Урон зависит от уровня ИБП: без ИБП −15%, Lv1 −10%, Lv2 −5%, Lv3 — полная защита. Здоровье не падает ниже 30%. Проверь карты и почини при необходимости.',
+            detailEn: 'A voltage spike instantly damaged all active GPU health. Damage depends on UPS level: no UPS −15%, Lv1 −10%, Lv2 −5%, Lv3 — full protection. Health cannot drop below 30%. Check your cards and repair if needed.',
+          },
+          power_outage: {
+            icon: '🔌', color: '#FF6B00',
+            nameRu: 'Перебои в сети', nameEn: 'Power Outage',
+            descRu: 'GPU отключены · перезапусти', descEn: 'GPUs offline · restart',
+            detailRu: 'Перебои в электроснабжении отключили часть GPU. ИБП удерживает карты онлайн: Lv1 защищает T1-T2, Lv2 добавляет T3, Lv3 добавляет T4. Отключённые GPU нужно перезапустить вручную кнопкой ниже.',
+            detailEn: 'Power grid failure took some GPUs offline. UPS keeps cards online: Lv1 protects T1-T2, Lv2 adds T3, Lv3 adds T4. Offline GPUs need to be restarted manually with the button below.',
+          },
+          emergency_burn: {
+            icon: '🔥', color: '#FF3355',
+            nameRu: 'Кризис IGC', nameEn: 'IGC Crisis',
+            descRu: '+30% электро · ремонт −50% · 48 ч', descEn: '+30% electricity · repair −50% · 48 h',
+            detailRu: 'Критический профицит IGC в экономике (ratio > 2.0). Система автоматически активировала меры по сжиганию IGC: электричество дороже на 30%, чтобы ускорить сжигание токена. В качестве компенсации ремонт GPU стоит вдвое дешевле — хорошее время починить все карты.',
+            detailEn: 'Critical IGC surplus in the economy (ratio > 2.0). The system automatically activated burn measures: electricity is 30% more expensive to accelerate token burning. As compensation GPU repair costs half as much — a good time to fix all your cards.',
+          },
+          refurbish_discount: {
+            icon: '🔧', color: '#00D4FF',
+            nameRu: 'Скидка на ремонт', nameEn: 'Repair Discount',
+            descRu: 'Ремонт GPU −20% · 24 ч', descEn: 'GPU repair −20% · 24 h',
+            detailRu: 'Система отреагировала на лёгкий дефицит IGC (ratio 0.5–0.8): скидка 20% на ремонт стимулирует тратить IGC на Верстаке, выравнивая баланс. Используй этот момент — почини изношенные карты по выгодной цене.',
+            detailEn: 'The system responded to mild IGC deficit (ratio 0.5–0.8): a 20% repair discount encourages spending IGC at the Workbench, rebalancing supply. Use this moment — repair worn cards at a discounted price.',
+          },
+          electricity_discount: {
+            icon: '💡', color: '#00D4FF',
+            nameRu: 'Скидка на электро', nameEn: 'Electricity Discount',
+            descRu: 'Электричество −30% · 24 ч', descEn: 'Electricity −30% · 24 h',
+            detailRu: 'Критический дефицит IGC в экономике (ratio < 0.5). Система снижает стоимость электричества на 30% на 24 часа, чтобы IGC оставался у игроков. Выгодный момент включить разгон — потребление растёт, но скидка компенсирует.',
+            detailEn: 'Critical IGC deficit in the economy (ratio < 0.5). The system reduces electricity cost by 30% for 24 hours so IGC stays with players. A good time to enable overclock — consumption rises but the discount compensates.',
+          },
         };
 
-        // Определяем акцентный цвет карточки: приоритет у самого критичного события
         const PRIORITY = ['overvoltage','power_outage','emergency_burn','heat_wave','power_dip','power_surge','lucky_miner','electricity_discount','refurbish_discount'];
-        const allKeys   = [...(hasLucky ? ['lucky_miner'] : []), ...otherEvents];
-        const topKey    = PRIORITY.find(k => allKeys.includes(k)) ?? allKeys[0];
-        const topColor  = topKey === 'lucky_miner' ? '#FFD700' : (EVENT_META[topKey]?.color ?? '#00D4FF');
+        const allKeys  = [...(hasLucky ? ['lucky_miner'] : []), ...otherEvents];
+        const topKey   = PRIORITY.find(k => allKeys.includes(k)) ?? allKeys[0];
+        const topColor = topKey === 'lucky_miner' ? '#FFD700' : (EVENT_META[topKey]?.color ?? '#00D4FF');
+
+        // Порядок строк: сначала критичные по PRIORITY, потом lucky_miner
+        const sortedOther = [...otherEvents].sort((a, b) => {
+          const ai = PRIORITY.indexOf(a); const bi = PRIORITY.indexOf(b);
+          return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        });
 
         return (
-          <div style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: `1px solid ${topColor}33`,
-            borderRadius: 16,
-            overflow: 'hidden',
-          }}>
-            {/* Заголовок */}
+          <>
+            {/* ── Основная карточка ── */}
             <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 14px',
-              background: `${topColor}0D`,
-              borderBottom: `1px solid ${topColor}22`,
+              background: 'rgba(255,255,255,0.04)',
+              border: `1px solid ${topColor}33`,
+              borderRadius: 16, overflow: 'hidden',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 16 }}>🎲</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: topColor, letterSpacing: 0.3 }}>
-                  {ru ? 'АКТИВНЫЕ СОБЫТИЯ' : 'ACTIVE EVENTS'}
-                </span>
-              </div>
-              <div style={{
-                fontSize: 10, fontWeight: 800, color: topColor,
-                background: `${topColor}22`, border: `1px solid ${topColor}44`,
-                borderRadius: 6, padding: '2px 7px',
-              }}>
-                {totalCount}
-              </div>
-            </div>
-
-            {/* Удача майнера */}
-            {hasLucky && (() => {
-              const claimed = lb!.claimed;
-              return (
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 14px',
-                  borderBottom: otherEvents.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                  background: claimed ? 'rgba(255,215,0,0.04)' : 'rgba(255,215,0,0.06)',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{
-                      fontSize: 20, width: 32, height: 32, borderRadius: 8,
-                      background: 'rgba(255,215,0,0.12)', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    }}>⚡</span>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#FFD700' }}>
-                        {ru ? 'Удача майнера' : 'Lucky Miner'}
-                      </div>
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
-                        {claimed
-                          ? `+50% IGC · ${ru ? 'осталось' : 'left'} ${fmtTime(lb!.bonusSecondsLeft)}`
-                          : (ru
-                              ? `+50% IGC на 1 час · закроется через ${fmtTime(lb!.eventEndsIn)}`
-                              : `+50% IGC for 1 hour · closes in ${fmtTime(lb!.eventEndsIn)}`)}
-                      </div>
-                    </div>
-                  </div>
-                  {!claimed && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const r = await fetch('/api/action', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'x-init-data': (window as any).Telegram?.WebApp?.initData ?? '' },
-                            body: JSON.stringify({ type: 'claim_lucky_miner' }),
-                          });
-                          if (r.ok) onUpdate();
-                        } catch { /* ignore */ }
-                      }}
-                      style={{
-                        padding: '7px 14px', borderRadius: 9, flexShrink: 0,
-                        background: 'linear-gradient(135deg, #FFD700, #FFA500)',
-                        border: 'none', color: '#000', fontSize: 11, fontWeight: 800,
-                        cursor: 'pointer', boxShadow: '0 0 10px rgba(255,215,0,0.5)',
-                      }}
-                    >
-                      {ru ? 'ЗАБРАТЬ' : 'CLAIM'}
-                    </button>
-                  )}
-                  {claimed && (
-                    <div style={{
-                      fontSize: 10, fontWeight: 700, color: '#FFD700',
-                      background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.3)',
-                      borderRadius: 7, padding: '4px 9px', flexShrink: 0,
-                    }}>
-                      ✓ {ru ? 'АКТИВЕН' : 'ACTIVE'}
-                    </div>
-                  )}
+              {/* Заголовок — кликабельный для сворачивания */}
+              <button
+                onClick={() => setEventsOpen(o => !o)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center',
+                  justifyContent: 'space-between', padding: '10px 14px',
+                  background: `${topColor}0D`,
+                  borderBottom: eventsOpen ? `1px solid ${topColor}22` : 'none',
+                  border: 'none', cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>🎲</span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: topColor, letterSpacing: 0.3 }}>
+                    {ru ? 'АКТИВНЫЕ СОБЫТИЯ' : 'ACTIVE EVENTS'}
+                  </span>
                 </div>
-              );
-            })()}
-
-            {/* Остальные события */}
-            {otherEvents.map((type, i) => {
-              const meta = EVENT_META[type];
-              if (!meta) return null;
-              const isLast = i === otherEvents.length - 1;
-              return (
-                <div key={type} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 14px',
-                  borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.05)',
-                }}>
-                  <span style={{
-                    fontSize: 18, width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                    background: `${meta.color}14`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>{meta.icon}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: meta.color }}>
-                      {ru ? meta.nameRu : meta.nameEn}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
-                      {ru ? meta.descRu : meta.descEn}
-                    </div>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{
-                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                    background: meta.color, boxShadow: `0 0 6px ${meta.color}`,
-                  }} />
+                    fontSize: 10, fontWeight: 800, color: topColor,
+                    background: `${topColor}22`, border: `1px solid ${topColor}44`,
+                    borderRadius: 6, padding: '2px 7px',
+                  }}>{totalCount}</div>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
+                    {eventsOpen ? '▲' : '▼'}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
+              </button>
+
+              {eventsOpen && (
+                <>
+                  {/* Удача майнера */}
+                  {hasLucky && (() => {
+                    const claimed = lb!.claimed;
+                    const isLast  = sortedOther.length === 0;
+                    return (
+                      <div
+                        onClick={() => setEventDetail(eventDetail === 'lucky_miner' ? null : 'lucky_miner')}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '10px 14px', cursor: 'pointer',
+                          borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                          background: eventDetail === 'lucky_miner' ? 'rgba(255,215,0,0.08)' : claimed ? 'rgba(255,215,0,0.04)' : 'rgba(255,215,0,0.06)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{
+                            fontSize: 20, width: 32, height: 32, borderRadius: 8,
+                            background: 'rgba(255,215,0,0.14)', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                          }}>⚡</span>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#FFD700' }}>
+                              {ru ? 'Удача майнера' : 'Lucky Miner'}
+                            </div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
+                              {claimed
+                                ? `+50% IGC · ${ru ? 'осталось' : 'left'} ${fmtTime(lb!.bonusSecondsLeft)}`
+                                : ru ? `+50% IGC · закроется через ${fmtTime(lb!.eventEndsIn)}` : `+50% IGC · closes in ${fmtTime(lb!.eventEndsIn)}`}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {!claimed && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const r = await fetch('/api/action', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'x-init-data': (window as any).Telegram?.WebApp?.initData ?? '' },
+                                    body: JSON.stringify({ type: 'claim_lucky_miner' }),
+                                  });
+                                  if (r.ok) onUpdate();
+                                } catch { /* ignore */ }
+                              }}
+                              style={{
+                                padding: '6px 12px', borderRadius: 8, flexShrink: 0,
+                                background: 'linear-gradient(135deg, #FFD700, #FFA500)',
+                                border: 'none', color: '#000', fontSize: 10, fontWeight: 800,
+                                cursor: 'pointer', boxShadow: '0 0 8px rgba(255,215,0,0.5)',
+                              }}
+                            >{ru ? 'ЗАБРАТЬ' : 'CLAIM'}</button>
+                          )}
+                          {claimed && (
+                            <div style={{
+                              fontSize: 10, fontWeight: 700, color: '#FFD700',
+                              background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.3)',
+                              borderRadius: 7, padding: '3px 8px', flexShrink: 0,
+                            }}>✓ {ru ? 'АКТИВЕН' : 'ACTIVE'}</div>
+                          )}
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>›</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Остальные события */}
+                  {sortedOther.map((type, i) => {
+                    const meta   = EVENT_META[type];
+                    if (!meta) return null;
+                    const isLast = i === sortedOther.length - 1;
+                    const isOpen = eventDetail === type;
+                    return (
+                      <div key={type}>
+                        <div
+                          onClick={() => setEventDetail(isOpen ? null : type)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '10px 14px', cursor: 'pointer',
+                            borderBottom: (isOpen || !isLast) ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                            background: isOpen ? `${meta.color}0A` : 'transparent',
+                          }}
+                        >
+                          <span style={{
+                            fontSize: 18, width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                            background: `${meta.color}14`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>{meta.icon}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: meta.color }}>
+                              {ru ? meta.nameRu : meta.nameEn}
+                            </div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
+                              {ru ? meta.descRu : meta.descEn}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <div style={{
+                              width: 7, height: 7, borderRadius: '50%',
+                              background: meta.color, boxShadow: `0 0 5px ${meta.color}`,
+                            }} />
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>›</span>
+                          </div>
+                        </div>
+
+                        {/* Раскрывающаяся деталь */}
+                        {isOpen && (
+                          <div style={{
+                            padding: '10px 14px 12px 56px',
+                            borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                            background: `${meta.color}07`,
+                          }}>
+                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7 }}>
+                              {ru ? meta.detailRu : meta.detailEn}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Деталь Lucky Miner — под строкой */}
+                  {eventDetail === 'lucky_miner' && hasLucky && (
+                    <div style={{
+                      padding: '10px 14px 12px 56px',
+                      background: 'rgba(255,215,0,0.06)',
+                      borderTop: '1px solid rgba(255,215,0,0.12)',
+                    }}>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7 }}>
+                        {ru ? EVENT_META.lucky_miner.detailRu : EVENT_META.lucky_miner.detailEn}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
         );
       })()}
 
