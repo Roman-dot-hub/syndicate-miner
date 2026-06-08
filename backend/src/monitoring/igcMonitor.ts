@@ -236,7 +236,13 @@ async function handleSurplus(
     };
   }
 
-  // Critical surplus (> 2.0): активируем экстренный burn-event
+  // Critical surplus (> 2.0): отменяем дефицитные события и активируем burn-event
+  // Если сейчас профицит — дефицитные скидки теряют смысл и вводят в заблуждение
+  await pool.query(`
+    DELETE FROM system_events
+    WHERE type IN ('electricity_discount', 'refurbish_discount') AND active_until > NOW()
+  `);
+
   await pool.query(`
     INSERT INTO system_events (type, payload, active_until)
     VALUES ('emergency_burn', '{"discount_refurbish": 0.5, "boost_electricity": 1.3}',
@@ -268,8 +274,12 @@ async function handleDeficit(
   );
   if (active) return { description: 'deficit_already_active' };
 
-  // Mild deficit: снижаем стоимость Refurbish на 20%
+  // Mild deficit: отменяем профицитные события и снижаем стоимость Refurbish на 20%
   if (ratio > IGC_HEALTH.CRITICAL_MIN) {
+    await pool.query(`
+      DELETE FROM system_events
+      WHERE type = 'emergency_burn' AND active_until > NOW()
+    `);
     await pool.query(`
       INSERT INTO system_events (type, payload, active_until)
       VALUES ('refurbish_discount', '{"multiplier": 0.8}',
@@ -282,7 +292,12 @@ async function handleDeficit(
     return { description: 'refurbish_discount_20pct_24h' };
   }
 
-  // Critical deficit: снижаем стоимость электричества на 30% на 24 часа
+  // Critical deficit: отменяем профицитные И мягкие дефицитные события,
+  // затем снижаем стоимость электричества на 30% на 24 часа
+  await pool.query(`
+    DELETE FROM system_events
+    WHERE type IN ('emergency_burn', 'refurbish_discount') AND active_until > NOW()
+  `);
   await pool.query(`
     INSERT INTO system_events (type, payload, active_until)
     VALUES ('electricity_discount', '{"multiplier": 0.7}',
