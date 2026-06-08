@@ -880,9 +880,10 @@ const UPG_SERVER_ROOM = [
   { level: 3, costTon: 4.0, descRu: '+12% хешрейт всех GPU', descEn: '+12% hashrate all GPUs'},
 ];
 const UPG_UPS = [
-  { level: 1, costTon: 0.4, descRu: '+5% uptime · Защита T1–T2',     descEn: '+5% uptime · T1–T2 safe'     },
-  { level: 2, costTon: 1.0, descRu: '+12% uptime · Защита T1–T3',    descEn: '+12% uptime · T1–T3 safe'    },
-  { level: 3, costTon: 3.0, descRu: '+20% uptime · Защита T1–T4',    descEn: '+20% uptime · T1–T4 safe'    },
+  { level: 1, costTon: 0.4,  descRu: 'Mini · 2 слота · +5% uptime',   descEn: 'Mini · 2 slots · +5% uptime'  },
+  { level: 2, costTon: 1.5,  descRu: 'Home · 5 слотов · +12% uptime', descEn: 'Home · 5 slots · +12% uptime' },
+  { level: 3, costTon: 10.0, descRu: 'Pro · 10 слотов · +20% uptime', descEn: 'Pro · 10 slots · +20% uptime' },
+  { level: 4, costTon: 28.0, descRu: 'Rack · 20 слотов · +25% uptime',descEn: 'Rack · 20 slots · +25% uptime'},
 ];
 const UPG_PROVIDER = [
   { level: 1, costTon: 0.2, descRu: '+2% uptime · −15% электро',  descEn: '+2% uptime · −15% electric'  },
@@ -1003,12 +1004,13 @@ const INFO_SERVER_ROOM: UpgradeInfo = {
 };
 const INFO_UPS: UpgradeInfo = {
   emoji: '🔋', title: 'ИБП', costUnit: 'TON',
-  description: 'Защищает GPU при событии «Перебои в электросети». Повышает uptime.',
+  description: 'Защищает N слотов фермы (самые дорогие GPU первыми). Uptime бонус — только для покрытых карт.',
   levels: [
-    { label: 'Нет',  effect: 'Вся ферма уходит в offline'    },
-    { label: 'Lv 1', effect: '+5% uptime · T1–T2 выживают',  cost: '0.4 TON' },
-    { label: 'Lv 2', effect: '+12% uptime · +T3 выживает',   cost: '1.0 TON' },
-    { label: 'Lv 3', effect: '+20% uptime · +T4 выживает',   cost: '3.0 TON' },
+    { label: 'Нет',          effect: 'Нет защиты · вся ферма offline при перебоях'    },
+    { label: 'Mini (Lv 1)',  effect: '2 слота · +5% uptime · T1–T2 safe',  cost: '0.4 TON'  },
+    { label: 'Home (Lv 2)',  effect: '5 слотов · +12% uptime · T1–T3 safe',cost: '1.5 TON'  },
+    { label: 'Pro (Lv 3)',   effect: '10 слотов · +20% uptime · T1–T4 safe',cost: '10 TON'  },
+    { label: 'Rack (Lv 4)',  effect: '20 слотов · +25% uptime · полная защита',cost: '28 TON'},
   ],
 };
 const INFO_PROVIDER: UpgradeInfo = {
@@ -1543,8 +1545,17 @@ export function ServerRoom({ farm, userTon, userIgc = 0, onUpdate }: ServerRoomP
             onPress={() => do_('upgrade_ups', upsNext!.costTon, fmt(t.infra_ups_confirm, { a: upsLevel, b: upsLevel + 1 }))}
             info={{
               emoji: '🔋', title: t.infra_ups, costUnit: 'TON',
-              description: lang === 'ru' ? 'Повышает uptime всех GPU фермы. Выше uptime = больше часов в работе = больше TON и IGC.' : 'Boosts uptime of all farm GPUs. Higher uptime = more mining hours = more TON and IGC.',
-              levels: UPS_LEVELS.map((lv, i) => ({ label: `Lv ${lv.level}`, effect: `+${lv.uptimeBonus}% uptime`, cost: `${lv.costTon} TON`, current: upsLevel === i + 1 })),
+              description: lang === 'ru'
+                ? 'Защищает N лучших GPU (по тиру). Uptime бонус — только для покрытых карт. Чем больше слотов — тем больше фермы под защитой.'
+                : 'Protects top-N GPUs by tier. Uptime bonus applies only to covered cards. More slots = more of your farm protected.',
+              levels: UPS_LEVELS.map((lv, i) => ({
+                label:   `Lv ${lv.level}`,
+                effect:  lang === 'ru'
+                  ? `${lv.slots} сл. · +${lv.uptimeBonus}% uptime`
+                  : `${lv.slots} slots · +${lv.uptimeBonus}% uptime`,
+                cost:    `${lv.costTon} TON`,
+                current: upsLevel === i + 1,
+              })),
             }}
           />
           <InfraUpgradeRow
