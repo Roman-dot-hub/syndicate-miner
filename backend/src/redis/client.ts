@@ -8,7 +8,25 @@
 
 import Redis from 'ioredis';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+// Railway предоставляет Redis через отдельные переменные REDISHOST/REDISPASSWORD/REDISPORT/REDISUSER.
+// Если REDIS_URL пустой или неполный — собираем URL из этих переменных.
+function buildRedisUrl(): string {
+  const raw = process.env.REDIS_URL ?? '';
+  // Считаем URL валидным если он содержит хост (не просто "redis://")
+  if (raw.length > 10 && raw.includes('@')) return raw;
+
+  const host     = process.env.REDISHOST     ?? 'localhost';
+  const port     = process.env.REDISPORT     ?? '6379';
+  const user     = process.env.REDISUSER     ?? 'default';
+  const password = process.env.REDISPASSWORD ?? '';
+
+  if (password) {
+    return `redis://${user}:${password}@${host}:${port}`;
+  }
+  return `redis://${host}:${port}`;
+}
+
+const REDIS_URL = buildRedisUrl();
 
 // Log masked URL at startup so we can verify which Redis we're connecting to
 const maskedUrl = REDIS_URL.replace(/:([^@]+)@/, ':***@');
