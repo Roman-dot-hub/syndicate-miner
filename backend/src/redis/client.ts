@@ -8,41 +8,52 @@
 
 import Redis from 'ioredis';
 
-// Railway предоставляет Redis через отдельные переменные REDISHOST/REDISPASSWORD/REDISPORT/REDISUSER.
-// Если REDIS_URL пустой или неполный — собираем URL из этих переменных.
-function buildRedisUrl(): string {
+// Разбираем REDIS_URL в отдельные компоненты для явной передачи в ioredis.
+// Railway private network иногда не принимает URL-формат корректно.
+function parseRedisConfig(): { host: string; port: number; password?: string; username?: string } {
   const raw = process.env.REDIS_URL ?? '';
-  // Считаем URL валидным если он содержит хост (не просто "redis://")
-  if (raw.length > 10 && raw.includes('@')) return raw;
 
-  const host     = process.env.REDISHOST     ?? 'localhost';
-  const port     = process.env.REDISPORT     ?? '6379';
-  const user     = process.env.REDISUSER     ?? 'default';
-  const password = process.env.REDISPASSWORD ?? '';
-
-  if (password) {
-    return `redis://${user}:${password}@${host}:${port}`;
+  if (raw.length > 10) {
+    try {
+      const u = new URL(raw.replace(/^redis:\/\//, 'http://').replace(/^rediss:\/\//, 'https://'));
+      return {
+        host:     u.hostname || 'redis.railway.internal',
+        port:     parseInt(u.port || '6379', 10),
+        password: u.password ? decodeURIComponent(u.password) : undefined,
+        username: u.username && u.username !== 'default' ? u.username : undefined,
+      };
+    } catch { /* fallthrough */ }
   }
-  return `redis://${host}:${port}`;
+
+  // Фолбэк на отдельные переменные
+  return {
+    host:     process.env.REDISHOST     ?? 'localhost',
+    port:     parseInt(process.env.REDISPORT ?? '6379', 10),
+    password: process.env.REDISPASSWORD || undefined,
+    username: process.env.REDISUSER && process.env.REDISUSER !== 'default'
+                ? process.env.REDISUSER : undefined,
+  };
 }
 
-const REDIS_URL = buildRedisUrl();
+const rCfg = parseRedisConfig();
+console.log(`[Redis] Connecting to: ${rCfg.host}:${rCfg.port} (pwd: ${rCfg.password ? 'yes' : 'no'})`);
 
-// Log masked URL at startup so we can verify which Redis we're connecting to
-const maskedUrl = REDIS_URL.replace(/:([^@]+)@/, ':***@');
-console.log(`[Redis] Connecting to: ${maskedUrl}`);
-
-export const redis = new Redis(REDIS_URL, {
+export const redis = new Redis({
+  host:     rCfg.host,
+  port:     rCfg.port,
+  password: rCfg.password,
+  username: rCfg.username,
+  family:   4,               // Принудительно IPv4 — Railway private network иногда не даёт IPv6
   // Команды сразу падают если нет соединения — catch в sync/action их ловит
   maxRetriesPerRequest: 0,
-  connectTimeout:       1500,  // 1.5с на установку TCP-соединения
-  commandTimeout:       1500,  // 1.5с на ответ команды (ping, get, set и т.д.)
-  enableOfflineQueue:   false, // НЕ ставить в очередь — сразу reject → catch срабатывает мгновенно
+  connectTimeout:       3000,
+  commandTimeout:       3000,
+  enableOfflineQueue:   false,
   lazyConnect:          false,
+  enableReadyCheck:     false, // не блокировать на READONLY/LOADING
   retryStrategy: (times) => {
-    // Переподключаемся фоново, но не блокируем запросы
-    const delay = Math.min(times * 500, 15_000);
-    if (times % 5 === 0) {
+    const delay = Math.min(times * 1000, 30_000);
+    if (times % 10 === 0) {
       console.warn(`[Redis] Переподключение #${times}, через ${delay}ms`);
     }
     return delay;
