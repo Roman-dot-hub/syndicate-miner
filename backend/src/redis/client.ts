@@ -44,13 +44,13 @@ export const redis = new Redis({
   password: rCfg.password,
   username: rCfg.username,
   family:   4,               // Принудительно IPv4 — Railway private network иногда не даёт IPv6
-  // Команды сразу падают если нет соединения — catch в sync/action их ловит
-  maxRetriesPerRequest: 0,
+  // Разрешаем недолгую очередь во время reconnect (не дольше commandTimeout)
+  maxRetriesPerRequest: null,   // ioredis сам решает сколько ретраев делать
   connectTimeout:       3000,
-  commandTimeout:       3000,
-  enableOfflineQueue:   false,
+  commandTimeout:       2000,   // команда ждёт готовности соединения макс 2с, потом падает
+  enableOfflineQueue:   true,   // ставим в очередь пока reconnect — не отвергаем сразу
   lazyConnect:          false,
-  enableReadyCheck:     false, // не блокировать на READONLY/LOADING
+  enableReadyCheck:     false,
   retryStrategy: (times) => {
     const delay = Math.min(times * 1000, 30_000);
     if (times % 10 === 0) {
